@@ -6,8 +6,8 @@ cd $(dirname $0)
 
 cargo bootimage $RFLAG || exit 1
 
-IMG=target/x86_64-os/debug/bootimage-os.bin
-[[ $1 = release ]] && IMG=target/x86_64-os/release/bootimage-os.bin
+IMG=target/x86_64-os/debug/bootimage-rust_os.bin
+[[ $1 = release ]] && IMG=target/x86_64-os/release/bootimage-rust_os.bin
 
 if [[ $1 = debug ]]
 then

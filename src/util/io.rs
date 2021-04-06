@@ -2,9 +2,12 @@ use core::fmt::{self, Write};
 use volatile::Volatile;
 use lazy_static::lazy_static;
 use spin::Mutex;
+use crate::arch::x64::*;
 
 const VGA_BUF_WIDTH: usize = 80;
 const VGA_BUF_HEIGHT: usize = 25;
+
+const DEBUGCON_PORT: u16 = 0xe9;
 
 lazy_static!
 {
@@ -15,7 +18,10 @@ lazy_static!
 		color: ColorCode::new (Color::Yellow, Color::Black),
 		buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
 	});
+
 }
+pub static E_WRITER: Mutex<PortWriter> = Mutex::new (PortWriter::new (DEBUGCON_PORT));
+
 
 #[repr(transparent)]
 struct Buffer
@@ -190,4 +196,58 @@ macro_rules! println {
 pub fn _print(args: fmt::Arguments)
 {
 	WRITER.lock ().write_fmt (args).unwrap ();
+}
+
+pub struct PortWriter
+{
+	port: u16,
+}
+
+impl PortWriter
+{
+	const fn new (port: u16) -> Self
+	{
+		PortWriter {
+			port
+		}
+	}
+
+	pub fn write_byte (&self, byte: u8)
+	{
+		outb (self.port, byte);
+	}
+
+	pub fn write_string (&self, string: &str)
+	{
+		for b in string.bytes ()
+		{
+			self.write_byte (b);
+		}
+	}
+}
+
+impl Write for PortWriter
+{
+	fn write_str (&mut self, s: &str) -> fmt::Result
+	{
+		self.write_string (s);
+		Ok(())
+	}
+}
+
+#[macro_export]
+macro_rules! eprint {
+	($($arg:tt)*) => ($crate::util::io::_eprint(format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! eprintln {
+	() => ($crate::eprint!("\n"));
+	($($arg:tt)*) => ($crate::eprint!("{}\n", format_args!($($arg)*)));
+}
+
+#[doc(hidden)]
+pub fn _eprint(args: fmt::Arguments)
+{
+	E_WRITER.lock ().write_fmt (args).unwrap ();
 }

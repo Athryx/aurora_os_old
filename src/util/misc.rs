@@ -45,7 +45,7 @@ pub const fn get_bits (n: usize, bits: Range<usize>) -> usize
 	(temp & n).wrapping_shr (l as _)
 }
 
-pub const fn get_bits_raw (n: usize, mut bits: Range<usize>) -> usize
+pub const fn get_bits_raw (n: usize, bits: Range<usize>) -> usize
 {
 	let l = if bits.start > 63 { 63 } else { bits.start };
 	let h = if bits.end > 63 { 63 } else { bits.end };

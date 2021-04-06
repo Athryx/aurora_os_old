@@ -3,6 +3,9 @@
 
 #![feature(asm)]
 
+#![allow(non_upper_case_globals)]
+#![allow(dead_code)]
+
 mod arch;
 mod int;
 mod util;
@@ -11,8 +14,10 @@ mod time;
 
 mod uses;
 mod gdt;
+mod kdata;
 
 use core::panic::PanicInfo;
+use bootloader::bootinfo::BootInfo;
 use arch::x64::*;
 use sched::Regs;
 use int::*;
@@ -22,6 +27,7 @@ use int::idt::Handler;
 fn panic(info: &PanicInfo) -> !
 {
 	println! ("{}", info);
+	eprintln! ("{}", info);
 
 	loop {
 		hlt ();
@@ -67,13 +73,13 @@ fn page_fault (regs: &Regs, code: u64) -> Option<&Regs>
 		}
 	};
 
-
+	// can't indent because it will print tabs
 	panic! (r"page fault accessing virtual address {}
-			page fault during {} {}
-			non present page: {}
-			reserved bit set: {}
-			registers:
-			{:?}",
+page fault during {} {}
+non present page: {}
+reserved bit set: {}
+registers:
+{:?}",
 			get_cr2 (),
 			ring, action,
 			code & idt::PAGE_FAULT_PROTECTION == 0,
@@ -94,12 +100,17 @@ fn init () -> Result<(), util::Err>
 
 	time::pit::init ()?;
 
+	kdata::init ();
+
 	Ok(())
 }
 
 #[no_mangle]
-pub extern "C" fn _start () -> !
+pub extern "C" fn _start (_boot_info: &'static BootInfo) -> !
 {
+	// so you can tell when compiler output stops
+	eprintln! ("=========================== start kernel debug output ===========================");
+
 	init ().expect ("kernel init failed");
 
 	println! ("epoch v0.0.1");

@@ -9,7 +9,7 @@ pub struct Regs
 	pub rdx: usize,
 	pub rbp: usize,
 	pub rsp: usize,
-	pub kernel_rsp: usize,
+	pub call_rsp: usize,
 	pub call_save_rsp: usize,
 	pub rdi: usize,
 	pub rsi: usize,

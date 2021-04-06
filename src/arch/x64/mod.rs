@@ -1,3 +1,5 @@
+use crate::util::misc::*;
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum PrivLevel
@@ -29,6 +31,33 @@ impl PrivLevel
 			Self::Ring0 => 0x10,
 			Self::Ring3 => 0x1b,
 		}
+	}
+}
+
+pub const FSBASE_MSR: u32 = 0xc0000100;
+pub const GSBASE_MSR: u32 = 0xc0000101;
+pub const GSBASEK_MSR: u32 = 0xc0000102;
+
+#[inline]
+pub fn rdmsr (msr: u32) -> u64
+{
+	let low: u32;
+	let high: u32;
+	unsafe
+	{
+		asm! ("rdmsr", in("ecx") msr, out("eax") low, out("edx") high, options(nomem, nostack));
+	}
+	((high as u64) << 32) | low as u64
+}
+
+#[inline]
+pub fn wrmsr (msr: u32, data: u64)
+{
+	let low = get_bits (data as usize, 0..32);
+	let high = get_bits (data as usize, 32..64);
+	unsafe
+	{
+		asm! ("wrmsr", in("ecx") msr, in("eax") low, in("edx") high, options(nomem, nostack));
 	}
 }
 

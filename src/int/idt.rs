@@ -2,6 +2,7 @@ use concat_idents::concat_idents;
 use crate::uses::*;
 use crate::sched::Regs;
 use crate::gdt;
+use crate::kdata;
 
 pub const PICM_OFFSET: u8 = 32;
 pub const PICS_OFFSET: u8 = 40;
@@ -236,12 +237,14 @@ impl Handler
 }
 
 #[no_mangle]
-extern "C" fn rust_int_handler (vec: u8, regs: &Regs, error_code: u64) -> Option<&Regs>
+extern "C" fn rust_int_handler (vec: u8, regs: &mut Regs, error_code: u64) -> Option<&Regs>
 {
 	let vec = vec as usize;
 	if regs.cs & 0b11 != 0
 	{
-		// TODO: set kernel_rsp and kernel_save_rsp
+		let data = kdata::gs_data.lock ();
+		regs.call_rsp = data.call_rsp;
+		regs.call_save_rsp = data.call_save_rsp;
 	}
 
 	let mut out = None;
@@ -264,8 +267,10 @@ extern "C" fn rust_int_handler (vec: u8, regs: &Regs, error_code: u64) -> Option
 
 	if let Some(regs) = out
 	{
-		// TODO: set kdata things
-		gdt::tss.lock ().rsp0 = regs.kernel_rsp as _;
+		gdt::tss.lock ().rsp0 = regs.call_rsp as _;
+		let mut data = kdata::gs_data.lock ();
+		data.call_rsp = regs.call_rsp;
+		data.call_save_rsp = regs.call_save_rsp;
 	}
 	out
 }
