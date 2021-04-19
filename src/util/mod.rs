@@ -2,5 +2,23 @@ pub mod io;
 
 pub mod misc;
 
+mod linked_list;
+pub use linked_list::{LinkedList, ListNode};
+
 mod error;
 pub use error::{Error, Err};
+
+// code from some reddit post
+#[macro_export]
+macro_rules! init_array (
+	($ty:ty, $len:expr, $val:expr) => (
+		{
+			use core::mem::MaybeUninit;
+			let mut array: [MaybeUninit<$ty>; $len] = MaybeUninit::uninit_array ();
+			for a in array.iter_mut() {
+				unsafe { ::core::ptr::write(a.as_mut_ptr (), $val); }
+			}
+			unsafe { core::mem::transmute::<[MaybeUninit<$ty>; $len], [$ty; $len]> (array) }
+		}
+	)
+);
