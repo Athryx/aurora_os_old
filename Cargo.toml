@@ -21,5 +21,8 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 
+[package.metadata.bootloader]
+physical-memory-offset = "0xffffff8000000000"
+
 [package.metadata.cargo-sysroot]
 target = "x86_64-os.json"

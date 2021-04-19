@@ -111,6 +111,8 @@ fn init (boot_info: &'static BootInfo) -> Result<(), util::Err>
 
 	kdata::init ();
 
+	mem::init (boot_info);
+
 	Ok(())
 }
 
@@ -119,7 +121,6 @@ pub extern "C" fn _start (boot_info: &'static BootInfo) -> !
 {
 	// so you can tell when compiler output stops
 	eprintln! ("=========================== start kernel debug output ===========================");
-	eprintln! ("{:x?}", boot_info);
 
 	init (boot_info).expect ("kernel init failed");
 
@@ -141,7 +142,7 @@ fn test ()
 	eprintln! ("=============================== start test output ===============================");
 	let mem = [0; order_size * 512];
 	let addr = mem.as_slice ().as_ptr () as u64;
-	let mut allocator = unsafe { buddy_allocator::BuddyAllocator::new (VirtAddr::new (addr), VirtAddr::new (addr + (order_size as u64) * 512), order_size) };
+	let mut allocator = unsafe { phys_alloc::BuddyAllocator::new (VirtAddr::new (addr), VirtAddr::new (addr + (order_size as u64) * 512), order_size) };
 	eprintln! ("Start addr: {:x}\nEnd eddr: {:x}\nSize: {:x}", addr, addr + (order_size as u64) * 512, order_size);
 	unsafe
 	{

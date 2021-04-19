@@ -1,62 +1,13 @@
 use core::cmp::min;
 use core::marker::PhantomData;
 use crate::uses::*;
+use bootloader::bootinfo::BootInfo;
 
 // unless otherwise stated, all lens in this module are in bytes, not pages
 
-pub mod buddy_allocator;
-pub mod zone_manager;
+pub mod phys_alloc;
 
 pub const PAGE_SIZE: usize = 4096;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Allocation
-{
-	ptr: VirtAddr,
-	len: usize,
-}
-
-impl Allocation
-{
-	// NOTE: panics if addr is not canonical
-	pub fn new (addr: usize, len: usize) -> Self
-	{
-		Allocation {
-			ptr: VirtAddr::new (addr as _),
-			len,
-		}
-	}
-
-	pub fn as_mut_ptr<T> (&mut self) -> *mut T
-	{
-		self.ptr.as_mut_ptr ()
-	}
-
-	pub fn as_ptr<T> (&self) -> *const T
-	{
-		self.ptr.as_ptr ()
-	}
-
-	pub fn as_slice (&self) -> &[u8]
-	{
-		unsafe { core::slice::from_raw_parts (self.as_ptr (), self.len) }
-	}
-
-	pub fn as_mut_slice (&mut self) -> &mut [u8]
-	{
-		unsafe { core::slice::from_raw_parts_mut (self.as_mut_ptr (), self.len) }
-	}
-
-	pub fn as_usize (&self) -> usize
-	{
-		self.ptr.as_u64 () as usize
-	}
-
-	pub fn len (&self) -> usize
-	{
-		self.len
-	}
-}
 
 #[repr(u64)]
 #[derive(Debug, Clone, Copy)]
@@ -311,5 +262,13 @@ impl Iterator for VirtRangeIter<'_>
 		self.start += size;
 		let size = PageSize::from_u64 (size as _);
 		Some(VirtFrame::new (self.start, size))
+	}
+}
+
+pub fn init (boot_info: &'static BootInfo)
+{
+	unsafe
+	{
+		phys_alloc::zm.init (boot_info);
 	}
 }
