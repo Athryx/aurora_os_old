@@ -5,9 +5,12 @@
 #![feature(const_fn)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(array_methods)]
+#![feature(alloc_error_handler)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
+
+extern crate alloc;
 
 mod arch;
 mod int;
@@ -29,6 +32,10 @@ use int::*;
 use int::idt::Handler;
 use util::misc;
 use mem::*;
+use alloc::boxed::Box;
+use alloc::collections::*;
+use alloc::vec::Vec;
+use alloc::vec;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !
@@ -140,7 +147,7 @@ const order_size: usize = 0x100;
 fn test ()
 {
 	eprintln! ("=============================== start test output ===============================");
-	let mem = [0; order_size * 512];
+	/*let mem = [0; order_size * 512];
 	let addr = mem.as_slice ().as_ptr () as u64;
 	let mut allocator = unsafe { phys_alloc::BuddyAllocator::new (VirtAddr::new (addr), VirtAddr::new (addr + (order_size as u64) * 512), order_size) };
 	eprintln! ("Start addr: {:x}\nEnd eddr: {:x}\nSize: {:x}", addr, addr + (order_size as u64) * 512, order_size);
@@ -183,6 +190,19 @@ fn test ()
 		allocator.dealloc (a9);
 		allocator.dealloc (a10);
 		allocator.dealloc (a11);
+	}*/
+	let a = Box::new (123);
+	let b = Box::new (123);
+	let mut c = vec![1, 2, 3];
+	c.push (4);
+	let mut d: Vec<u8> = Vec::new ();
+	for a in 0..(PAGE_SIZE * 4)
+	{
+		d.push (a as u8);
 	}
+	eprintln! ("{:?}", d);
+	println! ("{:?}", c);
+	println! ("{}", *a);
+	println! ("{}", *b);
 	eprintln! ("test finished");
 }

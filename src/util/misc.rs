@@ -130,7 +130,52 @@ pub fn log2 (n: usize) -> usize
 // TODO: make faster
 pub fn log2_up (n: usize) -> usize
 {
-	log2 (align_up (n, 1 << log2 (n)))
+	if n == 1
+	{
+		1
+	}
+	else
+	{
+		log2 (align_up (n, 1 << log2 (n)))
+	}
+}
+
+pub const fn log2_const (n: usize) -> usize
+{
+	if n == 0
+	{
+		return 0;
+	}
+
+	let mut out = 0;
+	while get_bits (n, out..64) > 0
+	{
+		out += 1;
+	}
+
+	out - 1
+}
+
+pub const fn log2_up_const (n: usize) -> usize
+{
+	if n == 1
+	{
+		1
+	}
+	else
+	{
+		log2_const (align_up (n, 1 << log2_const (n)))
+	}
+}
+
+pub unsafe fn unbound<'a, 'b, T> (r: &'a T) -> &'b T
+{
+	(r as *const T).as_ref ().unwrap ()
+}
+
+pub unsafe fn unbound_mut<'a, 'b, T> (r: &'a mut T) -> &'b mut T
+{
+	(r as *mut T).as_mut ().unwrap ()
 }
 
 pub fn init (mem_offset: u64)

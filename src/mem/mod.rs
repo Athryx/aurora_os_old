@@ -6,6 +6,7 @@ use bootloader::bootinfo::BootInfo;
 // unless otherwise stated, all lens in this module are in bytes, not pages
 
 pub mod phys_alloc;
+pub mod kernel_heap;
 
 pub const PAGE_SIZE: usize = 4096;
 
@@ -271,4 +272,5 @@ pub fn init (boot_info: &'static BootInfo)
 	{
 		phys_alloc::zm.init (boot_info);
 	}
+	kernel_heap::init ();
 }

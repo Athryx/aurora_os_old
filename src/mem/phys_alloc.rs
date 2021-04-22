@@ -2,7 +2,7 @@ use bootloader::bootinfo::{BootInfo, MemoryRegionType};
 use spin::{Mutex, MutexGuard};
 use core::cmp::{min};
 use crate::uses::*;
-use crate::util::{LinkedList, ListNode};
+use crate::util::{LinkedList, Node};
 use super::PAGE_SIZE;
 
 const MAX_ORDER: usize = 32;
@@ -72,54 +72,6 @@ pub struct BuddyAllocator
 	// the number of bits long that min_order_size is
 	min_order_bits: usize,
 	free_space: usize,
-}
-
-#[derive(Debug)]
-struct Node
-{
-	next: *mut Node,
-	prev: *mut Node,
-	size: usize,
-}
-
-impl Node
-{
-	unsafe fn new<'a> (addr: usize, size: usize) -> &'a mut Self
-	{
-		let out = &mut *(addr as *mut Node);
-		out.next = 0 as *mut _;
-		out.prev = 0 as *mut _;
-		out.size = size;
-		out
-	}
-
-	fn addr (&self) -> usize
-	{
-		self as *const _ as usize
-	}
-}
-
-unsafe impl ListNode for Node
-{
-	fn next (&self) -> *mut Self
-	{
-		self.next
-	}
-
-	fn set_next (&mut self, next: *mut Self)
-	{
-		self.next = next;
-	}
-
-	fn prev (&self) -> *mut Self
-	{
-		self.prev
-	}
-
-	fn set_prev (&mut self, prev: *mut Self)
-	{
-		self.prev = prev;
-	}
 }
 
 impl BuddyAllocator
