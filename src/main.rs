@@ -128,6 +128,9 @@ pub extern "C" fn _start (boot_info: &'static BootInfo) -> !
 {
 	// so you can tell when compiler output stops
 	eprintln! ("=========================== start kernel debug output ===========================");
+	eprintln! ("{:#x?}", boot_info);
+	eprintln! ("{:?}", boot_info as *const _);
+	eprintln! ("{:?}", init as *const u8);
 
 	init (boot_info).expect ("kernel init failed");
 
