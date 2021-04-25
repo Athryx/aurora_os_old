@@ -227,3 +227,12 @@ pub fn set_cr4 (n: usize)
 		asm!("mov {}, cr4", in(reg) n, options(nomem, nostack));
 	}
 }
+
+#[inline]
+pub fn invlpg (addr: usize)
+{
+	unsafe
+	{
+		asm!("invlpg [{}]", in (reg) addr);
+	}
+}

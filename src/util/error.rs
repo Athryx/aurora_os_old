@@ -1,3 +1,5 @@
+use core::option::NoneError;
+
 pub trait Error
 {
 	fn get_error (&self) -> &str;
@@ -23,5 +25,13 @@ impl Error for Err
 	fn get_error (&self) -> &str
 	{
 		self.msg
+	}
+}
+
+impl From<NoneError> for Err
+{
+	fn from (_: NoneError) -> Self
+	{
+		Self::new ("none error")
 	}
 }

@@ -6,6 +6,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(array_methods)]
 #![feature(alloc_error_handler)]
+#![feature(try_trait)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
@@ -34,7 +35,6 @@ use util::misc;
 use mem::*;
 use alloc::boxed::Box;
 use alloc::collections::*;
-use alloc::vec::Vec;
 use alloc::vec;
 
 #[panic_handler]

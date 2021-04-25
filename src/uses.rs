@@ -2,6 +2,7 @@ pub use core::mem::size_of;
 pub use core::marker::PhantomData;
 pub use core::ptr::{self, null, null_mut};
 pub use core::cell::RefCell;
+pub use alloc::vec::Vec;
 pub use crate::util::misc::*;
 pub use crate::util::{Err, Error};
 // probably should remove this from uses

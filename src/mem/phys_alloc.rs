@@ -1,14 +1,17 @@
 use bootloader::bootinfo::{BootInfo, MemoryRegionType};
-use spin::{Mutex, MutexGuard};
+use spin::{Mutex};
 use core::cmp::{min};
+use core::sync::atomic::{Ordering, AtomicUsize};
 use crate::uses::*;
 use crate::util::{LinkedList, Node};
 use super::PAGE_SIZE;
+use super::PhysRange;
+use super::virt_alloc::FrameAllocator;
 
 const MAX_ORDER: usize = 32;
 pub const MAX_ZONES: usize = 4;
 
-pub static mut zm: ZoneManager = ZoneManager::new ();
+pub static zm: ZoneManager = ZoneManager::new ();
 
 #[derive(Debug, Clone, Copy)]
 pub struct Allocation
@@ -21,7 +24,7 @@ pub struct Allocation
 impl Allocation
 {
 	// NOTE: panics if addr is not canonical
-	fn new (addr: usize, len: usize) -> Self
+	pub fn new (addr: usize, len: usize) -> Self
 	{
 		Allocation {
 			ptr: VirtAddr::new (addr as _),
@@ -58,6 +61,11 @@ impl Allocation
 	pub fn len (&self) -> usize
 	{
 		self.len
+	}
+
+	pub fn as_phys_zone (&self) -> PhysRange
+	{
+		PhysRange::new (virt_to_phys (self.ptr), self.len)
 	}
 }
 
@@ -273,7 +281,7 @@ impl BuddyAllocator
 		out
 	}
 
-	pub fn conrains (&self, mem: Allocation) -> bool
+	pub fn contains (&self, mem: Allocation) -> bool
 	{
 		let addr = mem.as_usize ();
 		addr >= self.start && addr + mem.len () <= self.meta_start as usize && align_of (addr) >= self.min_order_size
@@ -435,9 +443,9 @@ impl BuddyAllocator
 
 pub struct ZoneManager
 {
-	zones: [Option<Mutex<BuddyAllocator>>; MAX_ZONES],
-	zlen: usize,
-	selnum: usize,
+	zones: RefCell<[Option<Mutex<BuddyAllocator>>; MAX_ZONES]>,
+	zlen: RefCell<usize>,
+	selnum: AtomicUsize,
 }
 
 impl ZoneManager
@@ -447,14 +455,16 @@ impl ZoneManager
 		ZoneManager {
 			//zones: init_array! (Option<Mutex<BuddyAllocator>>, MAX_ZONES, None),
 			// TODO: make this automatically follow MAX_ZONES
-			zones: [None, None, None, None],
-			zlen: 0,
-			selnum: 0,
+			zones: RefCell::new ([None, None, None, None]),
+			zlen: RefCell::new (0),
+			selnum: AtomicUsize::new (0),
 		}
 	}
 
-	pub fn init (&mut self, boot_info: &'static BootInfo)
+	pub unsafe fn init (&self, boot_info: &'static BootInfo)
 	{
+		let mut zlen = self.zlen.borrow_mut ();
+
 		for region in &*boot_info.memory_map
 		{
 			if let MemoryRegionType::Usable = region.region_type
@@ -462,53 +472,94 @@ impl ZoneManager
 				let start = PhysAddr::new (region.range.start_addr ());
 				let end = PhysAddr::new (region.range.end_addr ());
 
-				if self.zlen >= MAX_ZONES
+				if *zlen >= MAX_ZONES
 				{
 					panic! ("MAX_ZONES is not big enough toe store an allocator for all the physical memory zones");
 				}
 
-				self.zones[self.zlen] = unsafe { Some(Mutex::new (BuddyAllocator::new (
+				self.zones.borrow_mut ()[*zlen] = Some(Mutex::new (BuddyAllocator::new (
 					phys_to_virt (start),
 					phys_to_virt (end),
-					PAGE_SIZE))) };
+					PAGE_SIZE)));
 
-				self.zlen += 1;
+				*zlen += 1;
 			}
 		}
 	}
 
-	fn get_alloc (&mut self) -> (MutexGuard<'_, BuddyAllocator>, usize)
+	fn get_allocer (&self) -> usize
 	{
-		let n = self.selnum % self.zlen;
-		self.selnum = self.selnum.wrapping_add (1);
-		(self.zones[n].as_ref ().unwrap ().lock (), n)
+		// I don't really know what the ordering part means, but I think relaxed is good
+		let selnum = self.selnum.fetch_add (1, Ordering::Relaxed);
+		selnum % *self.zlen.borrow ()
 	}
 
-	pub fn alloc (&mut self, size: usize) -> Option<Allocation>
+	pub fn alloc (&self, size: usize) -> Option<Allocation>
 	{
-		let (mut alloc, i) = self.get_alloc ();
-		alloc.alloc (size).map (|mut a| { a.zindex = i; a } )
+		let i = self.get_allocer ();
+		self.zones.borrow ()[i].as_ref ().unwrap ().lock ()
+			.alloc (size).map (|mut a| { a.zindex = i; a } )
 	}
 
-	pub fn oalloc (&mut self, order: usize) -> Option<Allocation>
+	pub fn allocz (&self, size: usize) -> Option<Allocation>
 	{
-		let (mut alloc, i) = self.get_alloc ();
-		alloc.oalloc (order).map (|mut a| { a.zindex = i; a } )
+		let mut out = self.alloc (size)?;
+		unsafe { memset (out.as_mut_ptr (), out.len (), 0); }
+		Some(out)
+	}
+
+	pub fn oalloc (&self, order: usize) -> Option<Allocation>
+	{
+		let i = self.get_allocer ();
+		self.zones.borrow ()[i].as_ref ().unwrap ().lock ()
+			.oalloc (order).map (|mut a| { a.zindex = i; a } )
+	}
+
+	pub fn oallocz (&self, order: usize) -> Option<Allocation>
+	{
+		let mut out = self.alloc (order)?;
+		unsafe { memset (out.as_mut_ptr (), out.len (), 0); }
+		Some(out)
 	}
 
 	// TODO: support reallocating to a different zone if new size doesn't fit
-	pub unsafe fn realloc (&mut self, mem: Allocation, size: usize) -> Option<Allocation>
+	pub unsafe fn realloc (&self, mem: Allocation, size: usize) -> Option<Allocation>
 	{
-		self.zones[mem.zindex].as_ref ().unwrap ().lock ().realloc (mem, size)
+		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().realloc (mem, size)
 	}
 
-	pub unsafe fn orealloc (&mut self, mem: Allocation, order: usize) -> Option<Allocation>
+	pub unsafe fn orealloc (&self, mem: Allocation, order: usize) -> Option<Allocation>
 	{
-		self.zones[mem.zindex].as_ref ().unwrap ().lock ().orealloc (mem, order)
+		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().orealloc (mem, order)
 	}
 
-	pub unsafe fn dealloc (&mut self, mem: Allocation)
+	pub unsafe fn dealloc (&self, mem: Allocation)
 	{
-		self.zones[mem.zindex].as_ref ().unwrap ().lock ().dealloc (mem);
+		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().dealloc (mem);
 	}
 }
+
+unsafe impl FrameAllocator for ZoneManager
+{
+	fn alloc_frame (&self) -> Allocation
+	{
+		self.alloc (PAGE_SIZE).unwrap ()
+	}
+
+	unsafe fn dealloc_frame (&self, frame: Allocation)
+	{
+		let zones = self.zones.borrow ();
+		for i in 0..*self.zlen.borrow ()
+		{
+			let mut z = zones[i].as_ref ().unwrap ().lock ();
+			if z.contains (frame)
+			{
+				z.dealloc (frame);
+				break;
+			}
+		}
+	}
+}
+
+unsafe impl Send for ZoneManager {}
+unsafe impl Sync for ZoneManager {}

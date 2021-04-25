@@ -6,12 +6,34 @@ use bootloader::bootinfo::BootInfo;
 // unless otherwise stated, all lens in this module are in bytes, not pages
 
 pub mod phys_alloc;
+pub mod virt_alloc;
 pub mod kernel_heap;
 
 pub const PAGE_SIZE: usize = 4096;
+pub const MAX_VIRT_ADDR: usize = 1 << 47;
+
+pub fn align_down_to_page_size (n: usize) -> usize
+{
+	if n > PageSize::G1 as usize
+	{
+		PageSize::G1 as usize
+	}
+	else if n > PageSize::M2 as usize
+	{
+		PageSize::M2 as usize
+	}
+	else if n > PageSize::K4 as usize
+	{
+		PageSize::K4 as usize
+	}
+	else
+	{
+		0
+	}
+}
 
 #[repr(u64)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PageSize
 {
 	K4 = 0x1000,
@@ -29,6 +51,17 @@ impl PageSize
 			0x200000 => Self::M2,
 			0x40000000 => Self::G1,
 			_ => panic! ("tried to convert u64 to PageSize, but it wasn't a valid page size"),
+		}
+	}
+
+	pub fn from_usize (n: usize) -> Self
+	{
+		match n
+		{
+			0x1000 => Self::K4,
+			0x200000 => Self::M2,
+			0x40000000 => Self::G1,
+			_ => panic! ("tried to convert usize to PageSize, but it wasn't a valid page size"),
 		}
 	}
 }
@@ -88,16 +121,16 @@ impl PhysFrame
 pub struct PhysRange
 {
 	addr: PhysAddr,
-	len: u64,
+	size: usize,
 }
 
 impl PhysRange
 {
-	pub fn new (addr: PhysAddr, len: u64) -> Self
+	pub fn new (addr: PhysAddr, size: usize) -> Self
 	{
 		PhysRange {
 			addr: addr.align_down (PageSize::K4 as u64),
-			len: align_down (len as _, PageSize::K4 as _) as _,
+			size: align_down (size, PageSize::K4 as _),
 		}
 	}
 
@@ -106,16 +139,41 @@ impl PhysRange
 		self.addr
 	}
 
-	pub fn len (&self) -> u64
+	pub fn as_usize (&self) -> usize
 	{
-		self.len
+		self.addr.as_u64 () as usize
+	}
+
+	pub fn size (&self) -> usize
+	{
+		self.size
+	}
+
+	pub fn get_take_size (&self) -> PageSize
+	{
+		PageSize::from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
+	}
+
+	pub fn take (&mut self, size: PageSize) -> Option<PhysFrame>
+	{
+		if size > self.get_take_size ()
+		{
+			None
+		}
+		else
+		{
+			let size = size as usize;
+			self.addr += size;
+			self.size -= size;
+			Some(PhysFrame::new (self.addr, PageSize::from_usize (size)))
+		}
 	}
 
 	pub fn iter<'a> (&'a self) -> PhysRangeIter<'a>
 	{
 		PhysRangeIter {
 			start: self.addr,
-			end: self.addr + self.len,
+			end: self.addr + self.size,
 			life: PhantomData,
 		}
 	}
@@ -143,7 +201,8 @@ impl Iterator for PhysRangeIter<'_>
 
 		// wrong
 		let size = min (align_of (self.start.as_u64 () as _),
-			align_of ((self.end - self.start) as _));
+			1 << log2 ((self.end - self.start) as _));
+		let size = align_down_to_page_size (size);
 		self.start += size;
 		let size = PageSize::from_u64 (size as _);
 		Some(PhysFrame::new (self.start, size))
@@ -201,20 +260,21 @@ impl VirtFrame
 	}
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtRange
 {
+	// XXX: this field must be first because it is the first one compared
 	addr: VirtAddr,
-	len: u64,
+	size: usize,
 }
 
 impl VirtRange
 {
-	pub fn new (addr: VirtAddr, len: u64) -> Self
+	pub fn new (addr: VirtAddr, size: usize) -> Self
 	{
 		VirtRange {
 			addr: addr.align_down (PageSize::K4 as u64),
-			len: align_down (len as _, PageSize::K4 as _) as _,
+			size: align_down (size, PageSize::K4 as _),
 		}
 	}
 
@@ -223,16 +283,41 @@ impl VirtRange
 		self.addr
 	}
 
-	pub fn len (&self) -> u64
+	pub fn as_usize (&self) -> usize
 	{
-		self.len
+		self.addr.as_u64 () as usize
+	}
+
+	pub fn size (&self) -> usize
+	{
+		self.size
+	}
+
+	pub fn get_take_size (&self) -> PageSize
+	{
+		PageSize::from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
+	}
+
+	pub fn take (&mut self, size: PageSize) -> Option<VirtFrame>
+	{
+		if size > self.get_take_size ()
+		{
+			None
+		}
+		else
+		{
+			let size = size as usize;
+			self.addr += size;
+			self.size -= size;
+			Some(VirtFrame::new (self.addr, PageSize::from_usize (size)))
+		}
 	}
 
 	pub fn iter<'a> (&'a self) -> VirtRangeIter<'a>
 	{
 		VirtRangeIter {
 			start: self.addr,
-			end: self.addr + self.len,
+			end: self.addr + self.size,
 			life: PhantomData,
 		}
 	}
@@ -259,7 +344,8 @@ impl Iterator for VirtRangeIter<'_>
 		}
 
 		let size = min (align_of (self.start.as_u64 () as _),
-			align_of ((self.end - self.start) as _));
+			1 << log2 ((self.end - self.start) as _));
+		let size = align_down_to_page_size (size);
 		self.start += size;
 		let size = PageSize::from_u64 (size as _);
 		Some(VirtFrame::new (self.start, size))
