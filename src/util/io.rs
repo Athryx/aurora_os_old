@@ -3,6 +3,7 @@ use volatile::Volatile;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use crate::arch::x64::*;
+use crate::consts;
 
 const VGA_BUF_WIDTH: usize = 80;
 const VGA_BUF_HEIGHT: usize = 25;
@@ -16,9 +17,8 @@ lazy_static!
 		xpos: 0,
 		ypos: 0,
 		color: ColorCode::new (Color::Yellow, Color::Black),
-		buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+		buffer: unsafe { ((*consts::KERNEL_VMA + 0xb8000) as *mut Buffer).as_mut ().unwrap () },
 	});
-
 }
 pub static E_WRITER: Mutex<PortWriter> = Mutex::new (PortWriter::new (DEBUGCON_PORT));
 
@@ -58,7 +58,7 @@ struct ColorCode(u8);
 
 impl ColorCode
 {
-	fn new (foreground: Color, background: Color) -> Self
+	const fn new (foreground: Color, background: Color) -> Self
 	{
 		ColorCode((background as u8) << 4 | (foreground as u8))
 	}
@@ -118,6 +118,14 @@ impl Writer
 				0x20..=0x7e | b'\n' => self.write_byte (b),
 				_ => self.write_byte (0xfe),
 			}
+		}
+	}
+
+	pub fn clear (&mut self)
+	{
+		for y in 0..VGA_BUF_HEIGHT
+		{
+			self.clear_row (y);
 		}
 	}
 

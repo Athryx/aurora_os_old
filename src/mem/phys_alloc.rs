@@ -92,8 +92,6 @@ impl BuddyAllocator
 		let start = start.align_up (min_order_size as u64).as_u64 () as usize;
 		let end = end.as_u64 () as usize;
 
-		eprintln! ("start: {:x}, end: {:x}", start, end);
-
 		if end <= start
 		{
 			panic! ("allocator passed invalid memory region");
@@ -102,13 +100,9 @@ impl BuddyAllocator
 		let meta_size = ((end - start) / (8 * min_order_size)) + 1;
 		let meta_start = align_down (end - meta_size, min_order_size);
 
-		eprintln! ("meta_start: {:x}, meta_size {:x}", meta_start, meta_size);
-
 		let meta_startp = meta_start as *mut u8;
 
 		memset (meta_startp, meta_size, 0);
-
-		eprintln! ("post memset");
 
 		let mut out = BuddyAllocator {
 			start,
@@ -133,8 +127,6 @@ impl BuddyAllocator
 		{
 			let len = min (align_of (a), 1 << log2 (ms - a));
 
-			eprintln! ("{}", len);
-
 			let order = self.get_order (len);
 			let node = Node::new (a, len);
 
@@ -142,8 +134,6 @@ impl BuddyAllocator
 			{
 				panic! ("MAX_ORDER for buddy allocator was smaller than order {}", order);
 			}
-
-			eprintln! ("{:?}", node);
 
 			self.olist[order].push (node);
 			if order > self.max_order
