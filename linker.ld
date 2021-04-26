@@ -8,10 +8,10 @@ SECTIONS
 	__KERNEL_START = __KERNEL_VMA + .;
 	__KERNEL_LMA = .;
 
-	.multiboot_header ALIGN(4K) :
+	/*.multiboot_header ALIGN(4K) :
 	{
 		*(.multiboot_header)
-	}
+	}*/
 
 	.boot_text ALIGN(4K) :
 	{

@@ -147,11 +147,11 @@ section .boot_bss
 align 4096
 PML4_table:
 	resb 4096
+stack_bottom:
+	resb 65536
+stack_top:
 PDP_table:
 	resb 4096
-stack_bottom:
-	resb 4096
-stack_top:
 
 section .boot_rodata
 gdt64:		; 64 bit global descriptor table
