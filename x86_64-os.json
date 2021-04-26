@@ -11,8 +11,8 @@
 	"panic-strategy": "abort",
 	"disable-redzone": true,
 	"features": "-mmx,-sse,+soft-float",
-	"reloation-model": "pic",
-	"code-model": "kernel",
+	"relocation-model": "static",
+	"code-model": "large",
 	"pre-link-args": {
 		"ld.lld": ["--script=./linker.ld"]
 	}

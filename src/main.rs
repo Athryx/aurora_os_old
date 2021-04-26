@@ -23,10 +23,12 @@ mod time;
 mod uses;
 mod gdt;
 mod kdata;
+mod mb2;
+mod consts;
 
 use uses::*;
 use core::panic::PanicInfo;
-use bootloader::bootinfo::BootInfo;
+use mb2::BootInfo;
 use arch::x64::*;
 use sched::Regs;
 use int::*;
@@ -101,9 +103,9 @@ registers:
 			regs);
 }
 
-fn init (boot_info: &'static BootInfo) -> Result<(), util::Err>
+fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 {
-	misc::init (boot_info.physical_memory_offset);
+	misc::init (*consts::KERNEL_VMA as u64);
 
 	gdt::init ();
 
@@ -124,15 +126,16 @@ fn init (boot_info: &'static BootInfo) -> Result<(), util::Err>
 }
 
 #[no_mangle]
-pub extern "C" fn _start (boot_info: &'static BootInfo) -> !
+pub extern "C" fn _start (boot_info_addr: usize) -> !
 {
 	// so you can tell when compiler output stops
 	eprintln! ("=========================== start kernel debug output ===========================");
+	let boot_info = unsafe { BootInfo::new (boot_info_addr) };
 	eprintln! ("{:#x?}", boot_info);
-	eprintln! ("{:?}", boot_info as *const _);
-	eprintln! ("{:?}", init as *const u8);
+	eprintln! ("{:x}", _start as usize);
+	eprintln! ("{:x}", *consts::KERNEL_LMA);
 
-	init (boot_info).expect ("kernel init failed");
+	init (&boot_info).expect ("kernel init failed");
 
 	println! ("epoch v0.0.1");
 

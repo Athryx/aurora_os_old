@@ -1,9 +1,10 @@
 use core::cmp::min;
 use core::marker::PhantomData;
 use crate::uses::*;
-use bootloader::bootinfo::BootInfo;
+use crate::mb2::BootInfo;
 
 // unless otherwise stated, all lens in this module are in bytes, not pages
+// TODO: make traits or macros to reduce duplicated code on Phys and Virt versions of all these types
 
 pub mod phys_alloc;
 pub mod virt_alloc;
@@ -134,9 +135,58 @@ impl PhysRange
 		}
 	}
 
+	pub fn new_unaligned (addr: PhysAddr, size: usize) -> Self
+	{
+		PhysRange {
+			addr,
+			size,
+		}
+	}
+
 	pub fn addr (&self) -> PhysAddr
 	{
 		self.addr
+	}
+
+	pub fn conains (&self, addr: PhysAddr) -> bool
+	{
+		(addr >= self.addr) && (addr < (self.addr + self.size))
+	}
+
+	pub fn contains_range (&self, range: Self) -> bool
+	{
+		self.conains (range.addr ()) || self.conains (range.addr () + range.size ())
+	}
+
+	pub fn split_at (&self, range: Self) -> (Option<PhysRange>, Option<PhysRange>)
+	{
+		let sbegin = self.addr;
+		let send = self.addr + self.size;
+
+		let begin = range.addr ();
+		let end = begin + range.size ();
+
+		if !self.contains_range (range)
+		{
+			(Some(*self), None)
+		}
+		else if begin <= sbegin && end >= send
+		{
+			(None, None)
+		}
+		else if self.conains (begin - 1u64) && !self.conains (end + 1u64)
+		{
+			(Some(PhysRange::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
+		}
+		else if self.conains (end + 1u64) && !self.conains (begin - 1u64)
+		{
+			(Some(PhysRange::new_unaligned (end, (send - end) as usize)), None)
+		}
+		else
+		{
+			(Some(PhysRange::new_unaligned (sbegin, (begin - sbegin) as usize)),
+				Some(PhysRange::new_unaligned (end, (send - end) as usize)))
+		}
 	}
 
 	pub fn as_usize (&self) -> usize
@@ -278,9 +328,58 @@ impl VirtRange
 		}
 	}
 
+	pub fn new_unaligned (addr: VirtAddr, size: usize) -> Self
+	{
+		VirtRange {
+			addr,
+			size,
+		}
+	}
+
 	pub fn addr (&self) -> VirtAddr
 	{
 		self.addr
+	}
+
+	pub fn conains (&self, addr: VirtAddr) -> bool
+	{
+		(addr >= self.addr) && (addr < (self.addr + self.size))
+	}
+
+	pub fn contains_range (&self, range: Self) -> bool
+	{
+		self.conains (range.addr ()) || self.conains (range.addr () + range.size ())
+	}
+
+	pub fn split_at (&self, range: Self) -> (Option<VirtRange>, Option<VirtRange>)
+	{
+		let sbegin = self.addr;
+		let send = self.addr + self.size;
+
+		let begin = range.addr ();
+		let end = begin + range.size ();
+
+		if !self.contains_range (range)
+		{
+			(Some(*self), None)
+		}
+		else if begin <= sbegin && end >= send
+		{
+			(None, None)
+		}
+		else if self.conains (begin - 1u64) && !self.conains (end + 1u64)
+		{
+			(Some(VirtRange::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
+		}
+		else if self.conains (end + 1u64) && !self.conains (begin - 1u64)
+		{
+			(Some(VirtRange::new_unaligned (end, (send - end) as usize)), None)
+		}
+		else
+		{
+			(Some(VirtRange::new_unaligned (sbegin, (begin - sbegin) as usize)),
+				Some(VirtRange::new_unaligned (end, (send - end) as usize)))
+		}
 	}
 
 	pub fn as_usize (&self) -> usize
@@ -352,7 +451,7 @@ impl Iterator for VirtRangeIter<'_>
 	}
 }
 
-pub fn init (boot_info: &'static BootInfo)
+pub fn init (boot_info: &BootInfo)
 {
 	unsafe
 	{

@@ -1,47 +1,70 @@
 ENTRY(start)
 
-KERNEL_VMA = 0xffffff8000000000;
+__KERNEL_VMA = 0xffffff8000000000;
 
 SECTIONS
 {
-	. = 4M;
+	. = 1M;
+	__KERNEL_START = __KERNEL_VMA + .;
+	__KERNEL_LMA = .;
 
-	KERNEL_LMA = .;
-	. += KERNEL_VMA;
-
-	.text ALIGN(4K) : AT(ADDR(.text) - KERNEL_VMA)
+	.multiboot_header ALIGN(4K) :
 	{
-		TEXT_START = .;
-		*(.text)
-		TEXT_END = .;
+		*(.multiboot_header)
 	}
 
-	.rodata ALIGN(4K) : AT(ADDR(.rodata) - KERNEL_VMA)
+	.boot_text ALIGN(4K) :
 	{
-		RODATA_START = .;
-		*(.rodata)
-		RODATA_END = .;
+		*(.boot_text)
 	}
 
-	.data ALIGN(4K) : AT(ADDR(.data) - KERNEL_VMA)
+	.boot_rodata ALIGN(4K) :
 	{
-		DATA_START = .;
-		*(.data)
-		DATA_END = .;
+		*(.boot_rodata)
 	}
 
-	.bss ALIGN(4K) : AT(ADDR(.bss) - KERNEL_VMA)
+	.boot_bss ALIGN(4K) :
 	{
-		BSS_START = .;
-		*(.bss)
-		BSS_END = .;
+		*(.boot_bss)
+	}
+
+	. += __KERNEL_VMA;
+
+	.text ALIGN(4K) : AT(ADDR(.text) - __KERNEL_VMA)
+	{
+		__TEXT_START = .;
+		*(.text*)
+		__TEXT_END = .;
+	}
+
+	.rodata ALIGN(4K) : AT(ADDR(.rodata) - __KERNEL_VMA)
+	{
+		__RODATA_START = .;
+		*(.rodata*)
+		__RODATA_END = .;
+	}
+
+	.data ALIGN(4K) : AT(ADDR(.data) - __KERNEL_VMA)
+	{
+		__DATA_START = .;
+		*(.data*)
+		__DATA_END = .;
+	}
+
+	.bss ALIGN(4K) : AT(ADDR(.bss) - __KERNEL_VMA)
+	{
+		__BSS_START = .;
+		*(.bss*)
+		__BSS_END = .;
 	}
 	. = ALIGN(4K);
-	KERNEL_END = .;
+	__KERNEL_END = .;
 
 	/DISCARD/ :
 	{
 		*(.comment)
 		*(.eh_frame)
+		*(.eh_frame_hdr)
+		/*(.debug*)*/
 	}
 }

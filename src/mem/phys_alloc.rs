@@ -1,9 +1,9 @@
-use bootloader::bootinfo::{BootInfo, MemoryRegionType};
 use spin::{Mutex};
-use core::cmp::{min};
+use core::cmp::{min, max};
 use core::sync::atomic::{Ordering, AtomicUsize};
 use crate::uses::*;
 use crate::util::{LinkedList, Node};
+use crate::mb2::{BootInfo, MemoryRegionType};
 use super::PAGE_SIZE;
 use super::PhysRange;
 use super::virt_alloc::FrameAllocator;
@@ -87,11 +87,12 @@ impl BuddyAllocator
 	// NOTE: start and end are aligned to min_order_size's allignment
 	pub unsafe fn new (start: VirtAddr, end: VirtAddr, min_order_size: usize) -> Self
 	{
-		// NOTE: testing
-		// let min_order_size = max (align_up (min_order_size, PAGE_SIZE), PAGE_SIZE);
+		let min_order_size = max (align_up (min_order_size, PAGE_SIZE), PAGE_SIZE);
 
 		let start = start.align_up (min_order_size as u64).as_u64 () as usize;
 		let end = end.as_u64 () as usize;
+
+		eprintln! ("start: {:x}, end: {:x}", start, end);
 
 		if end <= start
 		{
@@ -101,9 +102,13 @@ impl BuddyAllocator
 		let meta_size = ((end - start) / (8 * min_order_size)) + 1;
 		let meta_start = align_down (end - meta_size, min_order_size);
 
+		eprintln! ("meta_start: {:x}, meta_size {:x}", meta_start, meta_size);
+
 		let meta_startp = meta_start as *mut u8;
 
 		memset (meta_startp, meta_size, 0);
+
+		eprintln! ("post memset");
 
 		let mut out = BuddyAllocator {
 			start,
@@ -128,6 +133,8 @@ impl BuddyAllocator
 		{
 			let len = min (align_of (a), 1 << log2 (ms - a));
 
+			eprintln! ("{}", len);
+
 			let order = self.get_order (len);
 			let node = Node::new (a, len);
 
@@ -135,6 +142,8 @@ impl BuddyAllocator
 			{
 				panic! ("MAX_ORDER for buddy allocator was smaller than order {}", order);
 			}
+
+			eprintln! ("{:?}", node);
 
 			self.olist[order].push (node);
 			if order > self.max_order
@@ -461,20 +470,20 @@ impl ZoneManager
 		}
 	}
 
-	pub unsafe fn init (&self, boot_info: &'static BootInfo)
+	pub unsafe fn init (&self, boot_info: &BootInfo)
 	{
 		let mut zlen = self.zlen.borrow_mut ();
 
 		for region in &*boot_info.memory_map
 		{
-			if let MemoryRegionType::Usable = region.region_type
+			if let MemoryRegionType::Usable(mem) = region
 			{
-				let start = PhysAddr::new (region.range.start_addr ());
-				let end = PhysAddr::new (region.range.end_addr ());
+				let start = mem.addr ();
+				let end = mem.addr () + mem.size ();
 
 				if *zlen >= MAX_ZONES
 				{
-					panic! ("MAX_ZONES is not big enough toe store an allocator for all the physical memory zones");
+					panic! ("MAX_ZONES is not big enough to store an allocator for all the physical memory zones");
 				}
 
 				self.zones.borrow_mut ()[*zlen] = Some(Mutex::new (BuddyAllocator::new (

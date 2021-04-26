@@ -62,7 +62,10 @@ fn asm (out_dir: &str)
 	];
 
 	let files = vec![
-		"int/int.asm"
+		//"boot/mb2.asm",
+		"boot/boot.asm",
+		"boot/long_init.asm",
+		"int/int.asm",
 	];
 
 	for f in incl_files.iter ()

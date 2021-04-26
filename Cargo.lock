@@ -15,12 +15,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
-name = "bootloader"
-version = "0.9.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cb1dc91ba8f16c89133c569bc2516833a632a654d61d228b16ae8d2bad5ed8a"
-
-[[package]]
 name = "concat-idents"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -62,7 +56,6 @@ name = "rust_os"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "bootloader",
  "concat-idents",
  "lazy_static",
  "spin",
