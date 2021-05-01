@@ -150,7 +150,7 @@ fn thread_cleaner ()
 				}
 			}
 		}
-		rprintln ("end thread_cleaner loop");
+		rprintln! ("end thread_cleaner loop");
 	}
 }
 
