@@ -7,6 +7,11 @@
 #![feature(array_methods)]
 #![feature(alloc_error_handler)]
 #![feature(try_trait)]
+#![feature(arc_new_cyclic)]
+#![feature(const_btree_new)]
+#![feature(alloc_prelude)]
+#![feature(allocator_api)]
+#![feature(map_first_last)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
@@ -25,12 +30,13 @@ mod gdt;
 mod kdata;
 mod mb2;
 mod consts;
+mod upriv;
 
 use uses::*;
 use core::panic::PanicInfo;
 use mb2::BootInfo;
 use arch::x64::*;
-use sched::Regs;
+use sched::Registers;
 use int::*;
 use int::idt::Handler;
 use util::misc;
@@ -51,19 +57,19 @@ fn panic(info: &PanicInfo) -> !
 	}
 }
 
-fn double_fault (_: &Regs, _: u64) -> Option<&Regs>
+fn double_fault (_: &Registers, _: u64) -> Option<&Registers>
 {
 	println! ("double fault");
 	None
 }
 
-fn gp_exception (_: &Regs, _: u64) -> Option<&Regs>
+fn gp_exception (_: &Registers, _: u64) -> Option<&Registers>
 {
 	println! ("general protection exception");
 	None
 }
 
-fn page_fault (regs: &Regs, code: u64) -> Option<&Regs>
+fn page_fault (regs: &Registers, code: u64) -> Option<&Registers>
 {
 	let ring = if code & idt::PAGE_FAULT_USER != 0
 	{
@@ -124,6 +130,8 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 
 	mem::init (boot_info);
 
+	sched::init ()?;
+
 	Ok(())
 }
 
@@ -138,7 +146,9 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	println! ("epoch v0.0.1");
 
-	sti ();
+	gdt::tss.lock ().rsp0 = align_up (get_rsp () + 0x100, 16) as u64;
+
+	sti_safe ();
 
 	//test ();
 

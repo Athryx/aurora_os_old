@@ -58,8 +58,10 @@ impl MemoryMap
 		}
 	}
 
+	// pushes kernel zone on list if applicable
 	fn push (&mut self, region: MemoryRegionType)
 	{
+		// this is kind of ugly to do here
 		if region.range ().addr () == consts::KERNEL_PHYS_RANGE.addr () + consts::KERNEL_PHYS_RANGE.size ()
 		{
 			self.push (MemoryRegionType::Kernel(*consts::KERNEL_PHYS_RANGE));

@@ -1,4 +1,4 @@
-use spin::Mutex;
+use crate::util::IMutex;
 use crate::util::misc::*;
 use crate::uses::*;
 
@@ -8,7 +8,7 @@ lazy_static!
 {
 	static ref gdt: Gdt = Gdt::new ();
 }
-pub static tss: Mutex<Tss> = Mutex::new (Tss::new ());
+pub static tss: IMutex<Tss> = IMutex::new (Tss::new ());
 
 #[repr(C, packed)]
 struct Gdt

@@ -440,6 +440,7 @@ impl BuddyAllocator
 	}
 }
 
+#[derive(Debug)]
 pub struct ZoneManager
 {
 	zones: RefCell<[Option<Mutex<BuddyAllocator>>; MAX_ZONES]>,

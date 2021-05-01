@@ -1,8 +1,9 @@
 use concat_idents::concat_idents;
 use crate::uses::*;
-use crate::sched::Regs;
+use crate::sched::{Registers, thread_c};
 use crate::gdt;
 use crate::kdata;
+use crate::arch::x64::{cli_inc, sti_inc};
 
 pub const PICM_OFFSET: u8 = 32;
 pub const PICS_OFFSET: u8 = 40;
@@ -73,7 +74,7 @@ const IDT_SIZE: usize = 256;
 static mut idt: Idt = Idt::new ();
 static mut int_handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE] = [[None; MAX_HANDLERS]; IDT_SIZE];
 
-pub type IntHandlerFunc = fn(&Regs, u64) -> Option<&Regs>;
+pub type IntHandlerFunc = fn(&Registers, u64) -> Option<&Registers>;
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
@@ -237,8 +238,14 @@ impl Handler
 }
 
 #[no_mangle]
-extern "C" fn rust_int_handler (vec: u8, regs: &mut Regs, error_code: u64) -> Option<&Regs>
+extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) -> Option<&Registers>
 {
+	// the only ones where interrupt disable matters, the rest I don't know if they do disable interrupts or not
+	if vec == IRQ_TIMER || vec == INT_SCHED
+	{
+		cli_inc ();
+	}
+
 	let vec = vec as usize;
 	if regs.cs & 0b11 != 0
 	{
@@ -246,6 +253,8 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Regs, error_code: u64) -> Op
 		regs.call_rsp = data.call_rsp;
 		regs.call_save_rsp = data.call_save_rsp;
 	}
+
+	*thread_c ().regs.lock () = *regs;
 
 	let mut out = None;
 
@@ -271,7 +280,14 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Regs, error_code: u64) -> Op
 		let mut data = kdata::gs_data.lock ();
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
+		rprintln! ("switching to:\n{:#x?}", regs);
 	}
+
+	if vec as u8 == IRQ_TIMER || vec as u8 == INT_SCHED
+	{
+		sti_inc ();
+	}
+
 	out
 }
 

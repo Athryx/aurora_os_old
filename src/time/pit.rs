@@ -1,8 +1,10 @@
 use spin::Mutex;
+use core::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use crate::uses::*;
 use crate::arch::x64::*;
-use crate::sched::Regs;
+use crate::sched::Registers;
 use crate::int::idt::{Handler, IRQ_TIMER};
+use super::NANOSEC_PER_SEC;
 
 const PIT_INTERRUPT_TERMINAL_COUNT: u8 = 0;
 const PIT_ONE_SHOT: u8 = 1;
@@ -20,79 +22,92 @@ const NANOSEC_PER_CLOCK: u64 = 838;
 
 lazy_static!
 {
-	pub static ref pit: Mutex<Pit> = Mutex::new (Pit::new (0xffff));
+	pub static ref pit: Pit = Pit::new (0xffff);
 }
 
 pub struct Pit
 {
 	// elapsed time since boot in nanoseconds
-	elapsed_time: u64,
+	elapsed_time: AtomicU64,
 	// value pit counter resets too
-	reset: u16,
+	reset: AtomicU16,
 	// nanosaconds elapsed per reset
-	nano_reset: u64,
+	nano_reset: AtomicU64,
+	// needed for certain operations
+	lock: Mutex<()>,
 }
 
 impl Pit
 {
 	fn new (reset: u16) -> Self
 	{
-		let mut out = Pit {
-			elapsed_time: 0,
-			reset: 0,
-			nano_reset: 0,
+		let out = Pit {
+			elapsed_time: AtomicU64::new (0),
+			reset: AtomicU16::new (0),
+			nano_reset: AtomicU64::new (0),
+			lock: Mutex::new (()),
 		};
 		out.set_reset (reset);
 		out
 	}
 
-	pub fn set_reset (&mut self, ticks: u16)
+	// not safe to call from scheduler interrupt handler
+	pub fn set_reset (&self, ticks: u16)
 	{
 		// channel 0, low - high byte, square wave mode, 16 bit binary
+		self.lock.lock ();
 		outb (PIT_COMMAND, 0b00110110);
 		outb (PIT_CHANNEL_0, get_bits (ticks as _, 0..8) as _);
 		outb (PIT_CHANNEL_0, get_bits (ticks as _, 8..16) as _);
 
-		self.reset = ticks;
-		self.nano_reset = NANOSEC_PER_CLOCK * ticks as u64;
+		self.reset.store (ticks, Ordering::Relaxed);
+		self.nano_reset.store (NANOSEC_PER_CLOCK * ticks as u64, Ordering::Relaxed);
 	}
 
-	pub fn tick (&mut self)
+	fn tick (&self)
 	{
-		self.elapsed_time += self.nano_reset;
+		self.elapsed_time.fetch_add(self.nano_reset.load (Ordering::Relaxed), Ordering::Relaxed);
 	}
 
 	pub fn nsec (&self) -> u64
 	{
-		// lock latch
-		outb (PIT_COMMAND, 0);
-		let low = inb (PIT_CHANNEL_0);
-		let high = inb (PIT_CHANNEL_0);
-
-		self.elapsed_time + (NANOSEC_PER_CLOCK * ((high as u64) << 8 | low as u64))
+		if let Some(_lock) = self.lock.try_lock ()
+		{
+			// lock latch
+			outb (PIT_COMMAND, 0);
+			let low = inb (PIT_CHANNEL_0);
+			let high = inb (PIT_CHANNEL_0);
+	
+			self.elapsed_time.load (Ordering::Relaxed) + (NANOSEC_PER_CLOCK * ((high as u64) << 8 | low as u64))
+		}
+		else
+		{
+			// lower accuracy, but ensures no deadlocks in sheduler
+			self.nsec_no_latch ()
+		}
 	}
 
 	pub fn sec (&self) -> u64
 	{
-		(self.nsec () + 500000000) / 1000000000
+		(self.nsec () + 500000000) / NANOSEC_PER_SEC
 	}
 
 	// less accurate, but faster
 	// it will be much more accurate if also running in a timer interrupt handler
 	pub fn nsec_no_latch (&self) -> u64
 	{
-		self.elapsed_time
+		self.elapsed_time.load (Ordering::Relaxed)
 	}
 
 	pub fn sec_no_latch (&self) -> u64
 	{
-		(self.nsec_no_latch () + 500000000) / 1000000000
+		(self.nsec_no_latch () + 500000000) / NANOSEC_PER_SEC
 	}
 }
 
-fn timer_irq_handler (_: &Regs, _: u64) -> Option<&Regs>
+fn timer_irq_handler (_: &Registers, _: u64) -> Option<&Registers>
 {
-	pit.lock ().tick ();
+	pit.tick ();
 	None
 }
 

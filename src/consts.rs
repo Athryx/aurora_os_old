@@ -20,6 +20,8 @@ extern "C"
 	static __KERNEL_START: usize;
 	// virtual address that kernel ends at
 	static __KERNEL_END: usize;
+	static stack_bottom: usize;
+	static stack_top: usize;
 }
 
 lazy_static!
@@ -39,4 +41,7 @@ lazy_static!
 
 	pub static ref KERNEL_PHYS_RANGE: PhysRange = PhysRange::new (PhysAddr::new (*KERNEL_LMA as u64), *KERNEL_END - *KERNEL_START);
 	pub static ref KERNEL_VIRT_RANGE: VirtRange = VirtRange::new (VirtAddr::new (*KERNEL_START as u64), *KERNEL_END - *KERNEL_START);
+
+	pub static ref INIT_STACK: VirtRange = VirtRange::new (phys_to_virt (PhysAddr::new (unsafe { &stack_bottom } as *const _ as u64)),
+		(unsafe { &stack_top } as *const _ as usize) - (unsafe { &stack_bottom } as *const _ as usize));
 }

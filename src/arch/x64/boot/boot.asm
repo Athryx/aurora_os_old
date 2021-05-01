@@ -5,6 +5,9 @@ extern KERNEL_LMA
 global PML4_table
 global PDP_table
 
+global stack_bottom
+global stack_top
+
 section .boot_text
 bits 32
 

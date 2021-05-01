@@ -1,11 +1,14 @@
+use spin::Mutex;
 use bitflags::bitflags;
 use alloc::collections::BTreeMap;
 use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
-use super::phys_alloc::{Allocation};
+use super::phys_alloc::{Allocation, ZoneManager, zm};
 use super::*;
 
 const PAGE_ADDR_BITMASK: usize = 0x000ffffffffff000;
+
+pub type FAllocerType = ZoneManager;
 
 pub unsafe trait FrameAllocator
 {
@@ -84,7 +87,8 @@ impl PageTable
 {
 	fn new<T: FrameAllocator> (allocer: &T, flags: PageTableFlags, dropable: bool) -> PageTablePointer
 	{
-		let addr = allocer.alloc_frame ().as_usize ();
+		let frame = allocer.alloc_frame ().as_usize ();
+		let addr = virt_to_phys_usize (frame);
 		let flags = flags | PageTableFlags::PRESENT;
 		let mut out = PageTablePointer(addr | flags.bits ());
 		if !dropable
@@ -230,6 +234,19 @@ impl VirtLayout
 	{
 		self.0.iter ().fold (0, |n, a| n + a.size ())
 	}
+
+	// must onlt be called once
+	pub unsafe fn dealloc (&self)
+	{
+		for a in self.0.iter ()
+		{
+			match a
+			{
+				VirtLayoutElement::AllocedMem(allocation) => zm.dealloc (*allocation),
+				_ => (),
+			}
+		}
+	}
 }
 
 #[must_use = "unused Unflushed, call flush to flush tlb cache"]
@@ -252,7 +269,7 @@ impl<T: FrameAllocator> Unflushed<'_, T>
 
 	pub fn flush (&self) -> VirtRange
 	{
-		self.mapper.flush (self.virt_zone);
+		//self.mapper.flush (self.virt_zone);
 		self.virt_zone
 	}
 }
@@ -331,8 +348,8 @@ impl Iterator for PageMappingIterator
 #[derive(Debug)]
 pub struct VirtMapper<T: FrameAllocator + 'static>
 {
-	virt_map: BTreeMap<VirtRange, VirtLayout>,
-	cr3: PageTablePointer,
+	virt_map: Mutex<BTreeMap<VirtRange, VirtLayout>>,
+	cr3: Mutex<PageTablePointer>,
 	frame_allocer: &'static T,
 }
 
@@ -342,8 +359,8 @@ impl<T: FrameAllocator> VirtMapper<T>
 	pub fn new (frame_allocer: &'static T) -> VirtMapper<T>
 	{
 		VirtMapper {
-			virt_map: BTreeMap::new (),
-			cr3: PageTable::new (frame_allocer, PageTableFlags::PRESENT, false),
+			virt_map: Mutex::new (BTreeMap::new ()),
+			cr3: Mutex::new (PageTable::new (frame_allocer, PageTableFlags::PRESENT, false)),
 			frame_allocer,
 		}
 	}
@@ -355,12 +372,12 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 	pub unsafe fn load (&self)
 	{
-		set_cr3 (self.cr3.0);
+		set_cr3 (self.cr3.lock ().0);
 	}
 
 	pub fn is_loaded (&self) -> bool
 	{
-		self.cr3.0 == get_cr3 ()
+		self.cr3.lock ().0 == get_cr3 ()
 	}
 
 	fn flush (&self, _virt_zone: VirtRange)
@@ -368,14 +385,16 @@ impl<T: FrameAllocator> VirtMapper<T>
 		unimplemented! ();
 	}
 
-	pub unsafe fn map (&mut self, phys_zones: VirtLayout, flags: PageTableFlags) -> Result<Unflushed<T>, Err>
+	pub unsafe fn map (&self, phys_zones: VirtLayout, flags: PageTableFlags) -> Result<VirtRange, Err>
 	{
 		// TODO: choose better zones based off alignment so more big pages cna be used saving tlb cache space
 		let size = phys_zones.size ();
 		let mut laddr = 0;
 		let mut found = false;
 
-		for zone in self.virt_map.keys ()
+		let mut btree = self.virt_map.lock ();
+
+		for zone in btree.keys ()
 		{
 			let diff = zone.as_usize () - laddr;
 			if diff >= size
@@ -393,18 +412,22 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		let virt_zone = VirtRange::new (VirtAddr::new (laddr as _), size);
 
+		btree.insert (virt_zone, phys_zones.clone ());
+
 		self.map_at_unchecked (phys_zones, virt_zone, flags)
 	}
 
-	pub unsafe fn map_at (&mut self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<Unflushed<T>, Err>
+	pub unsafe fn map_at (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
 	{
 		if phys_zones.size () != virt_zone.size ()
 		{
 			return Err(Err::new ("phys_zones and virt_zone size did not match"));
 		}
 
-		let prev = self.virt_map.range (..virt_zone).next_back ();
-		let next = self.virt_map.range (virt_zone..).next ();
+		let mut btree = self.virt_map.lock ();
+
+		let prev = btree.range (..virt_zone).next_back ();
+		let next = btree.range (virt_zone..).next ();
 
 		if let Some((prev, _)) = prev
 		{
@@ -422,11 +445,13 @@ impl<T: FrameAllocator> VirtMapper<T>
 			}
 		}
 
+		btree.insert (virt_zone, phys_zones.clone ());
+
 		self.map_at_unchecked (phys_zones, virt_zone, flags)
 	}
 
 	// TODO: improve performance by caching previous virt parents
-	unsafe fn map_at_unchecked (&mut self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<Unflushed<T>, Err>
+	unsafe fn map_at_unchecked (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
 	{
 		let iter = PageMappingIterator::new (phys_zones, virt_zone);
 		for (pframe, vframe) in iter
@@ -449,7 +474,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 				PhysFrame::G1(_) => (2, PageTableFlags::HUGE),
 			};
 
-			let mut ptable = self.cr3.as_mut ().unwrap ();
+			let mut ptable = self.cr3.lock ().as_mut ().unwrap ();
 
 			for a in 0..depth
 			{
@@ -469,12 +494,12 @@ impl<T: FrameAllocator> VirtMapper<T>
 			invlpg (addr);
 		}
 
-		Ok(Unflushed::new (virt_zone, self))
+		Ok(virt_zone)
 	}
 
-	pub unsafe fn unmap (&mut self, virt_zone: VirtRange) -> Result<VirtLayout, Err>
+	pub unsafe fn unmap (&self, virt_zone: VirtRange) -> Result<VirtLayout, Err>
 	{
-		let phys_zones = self.virt_map.remove (&virt_zone)?;
+		let phys_zones = self.virt_map.lock ().remove (&virt_zone)?;
 
 		let iter = PageMappingIterator::new (phys_zones.clone (), virt_zone);
 		for (pframe, vframe) in iter
@@ -494,7 +519,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 				PhysFrame::G1(_) => 2,
 			};
 
-			let mut tables = [Some(self.cr3.as_mut ().unwrap ()), None, None, None];
+			let mut tables = [Some(self.cr3.lock ().as_mut ().unwrap ()), None, None, None];
 
 			for a in 1..depth
 			{

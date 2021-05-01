@@ -8,6 +8,9 @@ pub use linked_list::{LinkedList, ListNode, Node};
 mod error;
 pub use error::{Error, Err};
 
+mod imutex;
+pub use imutex::IMutex;
+
 // code from some reddit post
 #[macro_export]
 macro_rules! init_array (

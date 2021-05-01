@@ -34,6 +34,10 @@ impl PrivLevel
 	}
 }
 
+pub const EFER_MSR: u32 = 0xc0000080;
+// TODO: use bitflags
+pub const EFER_EXEC_DISABLE: u64 = 1 << 11;
+
 pub const FSBASE_MSR: u32 = 0xc0000100;
 pub const GSBASE_MSR: u32 = 0xc0000101;
 pub const GSBASEK_MSR: u32 = 0xc0000102;
@@ -70,6 +74,29 @@ pub fn hlt ()
 	}
 }
 
+// TODO: use bitflags
+pub const RFLAGS_INT: usize = 1 << 9;
+
+#[inline]
+pub fn get_flags () -> usize
+{
+	let out;
+	unsafe
+	{
+		asm!("pushfq\npop {}", out(reg) out, options(nomem));
+	}
+	out
+}
+
+#[inline]
+pub fn set_flags (flags: usize)
+{
+	unsafe
+	{
+		asm!("push {}\npopfq", in(reg) flags, options(nomem));
+	}
+}
+
 #[inline]
 pub fn cli ()
 {
@@ -85,6 +112,98 @@ pub fn sti ()
 	unsafe
 	{
 		asm!("sti", options(nomem, nostack));
+	}
+}
+
+#[inline]
+pub fn sti_nop ()
+{
+	unsafe
+	{
+		asm!("sti\nnop", options(nomem, nostack));
+	}
+}
+
+#[inline]
+pub fn sti_hlt ()
+{
+	unsafe
+	{
+		asm!("sti\nhlt", options(nomem, nostack));
+	}
+}
+
+// note: this is supposed to be a cpu local var when smp is a thing,
+// so there is no need for special synchronization, simple usize will do
+static mut cli_count: usize = 1;
+
+#[inline]
+pub fn cli_safe ()
+{
+	cli ();
+	unsafe { cli_count = cli_count.saturating_add (1); }
+}
+
+#[inline]
+pub fn sti_safe ()
+{
+	unsafe { cli_count = cli_count.saturating_sub (1); }
+	if unsafe { cli_count == 0 }
+	{
+		sti ();
+	}
+}
+
+pub fn cli_inc ()
+{
+	unsafe { cli_count = cli_count.saturating_add (1) }
+}
+
+pub fn sti_inc ()
+{
+	unsafe { cli_count = cli_count.saturating_sub (1) }
+}
+
+pub fn is_int_enabled () -> bool
+{
+	get_flags () & RFLAGS_INT != 0
+}
+
+pub fn set_int_enabled (enabled: bool)
+{
+	if enabled
+	{
+		sti_nop ();
+	}
+	else
+	{
+		cli ();
+	}
+}
+
+#[derive(Debug)]
+struct IntDisable
+{
+	old_status: bool,
+}
+
+impl IntDisable
+{
+	fn new () -> Self
+	{
+		let old_status = is_int_enabled ();
+		cli ();
+		IntDisable {
+			old_status,
+		}
+	}
+}
+
+impl Drop for IntDisable
+{
+	fn drop (&mut self)
+	{
+		set_int_enabled (self.old_status);
 	}
 }
 
@@ -154,7 +273,7 @@ pub fn get_cr0 () -> usize
 	let out;
 	unsafe
 	{
-		asm!("mov cr0, {}", out(reg) out, options(nomem, nostack));
+		asm!("mov {}, cr0", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
@@ -164,7 +283,7 @@ pub fn set_cr0 (n: usize)
 {
 	unsafe
 	{
-		asm!("mov {}, cr0", in(reg) n, options(nomem, nostack));
+		asm!("mov cr0, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
@@ -174,7 +293,7 @@ pub fn get_cr2 () -> usize
 	let out;
 	unsafe
 	{
-		asm!("mov cr2, {}", out(reg) out, options(nomem, nostack));
+		asm!("mov {}, cr2", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
@@ -184,7 +303,7 @@ pub fn set_cr2 (n: usize)
 {
 	unsafe
 	{
-		asm!("mov {}, cr2", in(reg) n, options(nomem, nostack));
+		asm!("mov cr2, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
@@ -194,7 +313,7 @@ pub fn get_cr3 () -> usize
 	let out;
 	unsafe
 	{
-		asm!("mov cr3, {}", out(reg) out, options(nomem, nostack));
+		asm!("mov {}, cr3", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
@@ -204,7 +323,7 @@ pub fn set_cr3 (n: usize)
 {
 	unsafe
 	{
-		asm!("mov {}, cr3", in(reg) n, options(nomem, nostack));
+		asm!("mov cr3, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
@@ -214,7 +333,7 @@ pub fn get_cr4 () -> usize
 	let out;
 	unsafe
 	{
-		asm!("mov cr4, {}", out(reg) out, options(nomem, nostack));
+		asm!("mov {}, cr4", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
@@ -224,8 +343,19 @@ pub fn set_cr4 (n: usize)
 {
 	unsafe
 	{
-		asm!("mov {}, cr4", in(reg) n, options(nomem, nostack));
+		asm!("mov cr4, {}", in(reg) n, options(nomem, nostack));
 	}
+}
+
+#[inline]
+pub fn get_rsp () -> usize
+{
+	let out;
+	unsafe
+	{
+		asm!("mov {}, rsp", out(reg) out, options(nomem));
+	}
+	out
 }
 
 #[inline]

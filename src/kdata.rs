@@ -1,8 +1,8 @@
 use core::ops::Deref;
-use spin::Mutex;
+use crate::util::IMutex;
 use crate::arch::x64::*;
 
-pub static gs_data: Mutex<GsData> = Mutex::new (GsData::new ());
+pub static gs_data: IMutex<GsData> = IMutex::new (GsData::new ());
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]

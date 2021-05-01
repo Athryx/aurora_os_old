@@ -15,13 +15,23 @@ pub fn phys_to_virt (paddr: PhysAddr) -> VirtAddr
 
 pub fn virt_to_phys (vaddr: VirtAddr) -> PhysAddr
 {
-	let a = get_bits (vaddr.as_u64 () as _, 0..48) as u64;
+	let a = vaddr.as_u64 ();
 	if a < unsafe { MEM_OFFSET }
 	{
 		panic! ("virtual address was too small to convert to physical address");
 	}
 	// TODO: handle case when VirtAddr is bigger than meximum physical memory available
 	PhysAddr::new (a - unsafe { MEM_OFFSET })
+}
+
+pub fn phys_to_virt_usize (paddr: usize) -> usize
+{
+	phys_to_virt (PhysAddr::new (paddr as u64)).as_u64 () as usize
+}
+
+pub fn virt_to_phys_usize (vaddr: usize) -> usize
+{
+	virt_to_phys (VirtAddr::new (vaddr as u64)).as_u64 () as usize
 }
 
 // must be power of 2 for correct results

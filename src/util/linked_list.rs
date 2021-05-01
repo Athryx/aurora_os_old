@@ -96,6 +96,7 @@ impl Node
 impl_list_node! (Node, prev, next);
 
 // TODO: make this more safe
+// TODO: maybe make in into_iter method
 // this linked list doesn't require memory allocation, and it doesn't own any of its values
 pub struct LinkedList<T: ListNode>
 {
@@ -106,7 +107,7 @@ pub struct LinkedList<T: ListNode>
 
 impl<T: ListNode> LinkedList<T>
 {
-	pub fn new () -> Self
+	pub const fn new () -> Self
 	{
 		LinkedList {
 			start: 0 as *mut T,
@@ -504,6 +505,9 @@ impl<T: ListNode + Debug> Debug for LinkedList<T>
 	}
 }
 
+unsafe impl<T: ListNode> Send for LinkedList<T> {}
+
+// NOTE: it is safe to deallocate nodes returned from Iter and IterMut
 pub struct Iter<'a, T: ListNode>
 {
 	start: *mut T,

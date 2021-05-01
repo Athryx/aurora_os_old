@@ -1,4 +1,5 @@
 use core::fmt::{self, Write};
+use core::cell::UnsafeCell;
 use volatile::Volatile;
 use lazy_static::lazy_static;
 use spin::Mutex;
@@ -21,6 +22,8 @@ lazy_static!
 	});
 }
 pub static E_WRITER: Mutex<PortWriter> = Mutex::new (PortWriter::new (DEBUGCON_PORT));
+// doesn't lock, so ideal for calling from interrupt handlers, but it is not synchronized
+pub static mut R_WRITER: PortWriter = PortWriter::new (DEBUGCON_PORT);
 
 
 #[repr(transparent)]
@@ -201,7 +204,7 @@ macro_rules! println {
 }
 
 #[doc(hidden)]
-pub fn _print(args: fmt::Arguments)
+pub fn _print (args: fmt::Arguments)
 {
 	WRITER.lock ().write_fmt (args).unwrap ();
 }
@@ -255,7 +258,27 @@ macro_rules! eprintln {
 }
 
 #[doc(hidden)]
-pub fn _eprint(args: fmt::Arguments)
+pub fn _eprint (args: fmt::Arguments)
 {
 	E_WRITER.lock ().write_fmt (args).unwrap ();
+}
+
+#[macro_export]
+macro_rules! rprint {
+	($($arg:tt)*) => ($crate::util::io::_rprint(format_args!($($arg)*)));
+}
+
+#[macro_export]
+macro_rules! rprintln {
+	() => ($crate::rprint!("\n"));
+	($($arg:tt)*) => ($crate::rprint!("{}\n", format_args!($($arg)*)));
+}
+
+#[doc(hidden)]
+pub fn _rprint (args: fmt::Arguments)
+{
+	unsafe
+	{
+		R_WRITER.write_fmt (args).unwrap ();
+	}
 }
