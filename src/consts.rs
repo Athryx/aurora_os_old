@@ -22,6 +22,7 @@ extern "C"
 	static __KERNEL_END: usize;
 	static stack_bottom: usize;
 	static stack_top: usize;
+	static PDP_table: usize;
 }
 
 lazy_static!

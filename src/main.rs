@@ -36,7 +36,7 @@ use uses::*;
 use core::panic::PanicInfo;
 use mb2::BootInfo;
 use arch::x64::*;
-use sched::Registers;
+use sched::*;
 use int::*;
 use int::idt::Handler;
 use util::misc;
@@ -150,7 +150,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-	//test ();
+	proc_c ().new_thread (test).unwrap ();
 
 	loop {
 		hlt ();
@@ -162,7 +162,7 @@ const order_size: usize = 0x100;
 fn test ()
 {
 	eprintln! ("=============================== start test output ===============================");
-	/*unsafe
+	unsafe
 	{
 		let a1 = zm.alloc (1).unwrap ();
 		let a2 = zm.alloc (1).unwrap ();
@@ -214,6 +214,7 @@ fn test ()
 	eprintln! ("{:?}", d);
 	println! ("{:?}", c);
 	println! ("{}", *a);
-	println! ("{}", *b);*/
+	println! ("{}", *b);
 	eprintln! ("test finished");
+	thread_c ().block (ThreadState::Destroy);
 }

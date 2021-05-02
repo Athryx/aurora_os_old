@@ -1,5 +1,4 @@
 use core::fmt::{self, Write};
-use core::cell::UnsafeCell;
 use volatile::Volatile;
 use lazy_static::lazy_static;
 use spin::Mutex;

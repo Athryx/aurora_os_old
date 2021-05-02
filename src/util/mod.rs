@@ -9,7 +9,7 @@ mod error;
 pub use error::{Error, Err};
 
 mod imutex;
-pub use imutex::IMutex;
+pub use imutex::{IMutex, IMutexGuard};
 
 // code from some reddit post
 #[macro_export]

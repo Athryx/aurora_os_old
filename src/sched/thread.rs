@@ -1,17 +1,18 @@
 use spin::Mutex;
-use core::ptr::NonNull;
+use ptr::NonNull;
+use core::time::Duration;
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
-//use core::cell::UnsafeCell;
 use crate::uses::*;
 use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageTableFlags};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
-use crate::util::{ListNode, IMutex};
-use super::process::Process;
-use super::{Registers, ThreadList};
+use crate::util::{ListNode, IMutex, IMutexGuard};
+use crate::time::timer;
+use super::process::{Process, ThreadListProcLocal};
+use super::{Registers, ThreadList, int_sched, tlist};
 
 const USER_REGS: Registers = Registers::new (0x3202, 0x23, 0x1b);
 const IOPRIV_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
@@ -103,7 +104,7 @@ pub enum ThreadState
 	Ready,
 	Destroy,
 	// nsecs to sleep
-	Sleep(usize),
+	Sleep(u64),
 	// tid to join with
 	Join(usize),
 	// virtual address currently waiting on
@@ -122,6 +123,33 @@ impl ThreadState
 			_ => false,
 		}
 	}
+
+	pub fn sleep_nsec (&self) -> Option<u64>
+	{
+		match self
+		{
+			Self::Sleep(nsec) => Some(*nsec),
+			_ => None,
+		}
+	}
+
+	pub fn join_tid (&self) -> Option<usize>
+	{
+		match self
+		{
+			Self::Join(tid) => Some(*tid),
+			_ => None,
+		}
+	}
+
+	pub fn futex_wait_addr (&self) -> Option<usize>
+	{
+		match self
+		{
+			Self::FutexBlock(addr) => Some(*addr),
+			_ => None,
+		}
+	}
 }
 
 #[derive(Debug)]
@@ -135,8 +163,6 @@ pub struct Thread
 	stack: Stack,
 	kstack: Option<Stack>,
 
-	// should only be modified in interrupt hanlders or interrupts disabled
-	//state: UnsafeCell<ThreadState>,
 	run_time: usize,
 }
 
@@ -185,7 +211,6 @@ impl Thread
 			regs: IMutex::new (regs),
 			stack,
 			kstack,
-			//state: UnsafeCell::new (ThreadState::Ready),
 			run_time: 0,
 		}))
 	}
@@ -211,7 +236,6 @@ impl Thread
 			regs: IMutex::new (regs),
 			stack,
 			kstack: None,
-			//state: UnsafeCell::new (ThreadState::Ready),
 			run_time: 0,
 		}))
 	}
@@ -225,16 +249,6 @@ impl Thread
 	{
 		self.tid
 	}
-
-	/*pub unsafe fn state (&self) -> ThreadState
-	{
-		*self.state.get ().as_ref ().unwrap ()
-	}
-
-	pub unsafe fn set_state (&self, state: ThreadState)
-	{
-		*self.state.get ().as_mut ().unwrap () = state;
-	}*/
 }
 
 impl Drop for Thread
@@ -306,54 +320,113 @@ impl ThreadLNode
 		self.state = state;
 	}
 
-	pub fn remove_from_current (&mut self, gtlist: &mut ThreadList)
+	// returns false if failed to remove
+	pub fn remove_from_current (&mut self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
 		if !self.state.is_proc_local ()
 		{
-			gtlist[self.state].remove_node (self);
+			match gtlist
+			{
+				Some(list) => {
+					list[self.state].remove_node (self);
+					true
+				},
+				None => false,
+			}
 		}
 		else if self.is_alive ()
 		{
-			let old = &self.thread ().unwrap ().process ().tlproc[self.state];
-			old.lock ().remove_node (self);
+			match proctlist
+			{
+				Some(list) => {
+					list[self.state].remove_node (self);
+					true
+				},
+				None => false,
+			}
+		}
+		else
+		{
+			false
 		}
 	}
 
 	// returns false if failed to insert into list
 	// inserts into currnet state
-	pub fn insert_into (&mut self, gtlist: &mut ThreadList) -> bool
+	pub fn insert_into (&mut self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
-		if self.state.is_proc_local ()
+		if !self.state.is_proc_local ()
 		{
-			if !self.is_alive ()
+			match gtlist
 			{
-				return false;
+				Some(list) => {
+					list[self.state].push (self);
+					true
+				},
+				None => false,
 			}
-			let list = &self.thread ().unwrap ().process ().tlproc[self.state];
-			list.lock ().push (self);
+		}
+		else if self.is_alive ()
+		{
+			match proctlist
+			{
+				Some(list) => {
+					list[self.state].push (self);
+					true
+				},
+				None => false,
+			}
 		}
 		else
 		{
-			gtlist[self.state].push (self);
+			false
 		}
-		true
 	}
 
 	// moves ThreadLNode from old thread state data structure to specified new thread state data structure and return true
 	// will set state variable accordingly
 	// if the thread has already been destroyed via process exiting, this will return false
-	pub fn move_to (&mut self, state: ThreadState, gtlist: &mut ThreadList) -> bool
+	pub fn move_to (&mut self, state: ThreadState, mut gtlist: Option<&mut ThreadList>, mut proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
-		self.remove_from_current (gtlist);
+		if !self.remove_from_current (gtlist.as_mut ().map (|t| &mut **t), proctlist.as_mut ().map (|t| &mut **t))
+		{
+			return false;
+		}
 		self.state = state;
-		self.insert_into (gtlist)
+		self.insert_into (gtlist, proctlist)
+	}
+
+	pub fn block (&mut self, state: ThreadState)
+	{
+		// do nothing if new state is stil running
+		if let ThreadState::Running = state
+		{
+			return;
+		}
+
+		self.state = state;
+
+		int_sched ();
+	}
+
+	pub fn sleep (&mut self, duration: Duration)
+	{
+		self.sleep_until (timer.nsec () + duration.as_nanos () as u64);
+	}
+
+	pub fn sleep_until (&mut self, nsec: u64)
+	{
+		self.block (ThreadState::Sleep(nsec));
 	}
 
 	// TODO: figure out if it is safe to drop data pointed to by self
-	pub unsafe fn dealloc (&mut self)
+	// will also put threas that are waiting on this thread in ready queue,
+	// but only if process is still alive and thread_list is not None
+	pub unsafe fn dealloc (&mut self, thread_list: Option<&mut ThreadList>)
 	{
+		// FIXME: smp reace condition if process is freed after initial thread () call
 		self.thread ().map (|thread| {
-			thread.process ().remove_thread (thread.tid).expect ("thread should have been in process");
+			thread.process ().remove_thread (thread.tid, thread_list).expect ("thread should have been in process");
 		});
 
 		let Self {

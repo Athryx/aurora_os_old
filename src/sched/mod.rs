@@ -1,5 +1,6 @@
 use spin::Mutex;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::time::Duration;
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
@@ -10,16 +11,20 @@ use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use process::Process;
-use thread::{Thread, ThreadLNode, ThreadState};
+pub use thread::{Thread, ThreadLNode, ThreadState};
 use core::ops::{Index, IndexMut};
 
+// TODO: clean up code, it is kind of ugly
+// use new interrupt disabling machanism
+
 // TODO: the scheduler uses a bad choice of data structures, i'll implement better ones later
+// running list should be not list and cpu local
 // ready list should be changed once I decide what scheduling algorithm to use
 // sleeping threads should be min heap or min tree
 // futex list should be hash map or binary tree of linkedlists
 // join should probably have a list in each thread that says all the threads that are waiting on them
 
-// TODO: decide on locking api (function or regular mutex) and discard the other
+// FIXME: there are a few possible race conditions with smp and (planned) process exit syscall
 
 mod process;
 mod thread;
@@ -36,14 +41,34 @@ static last_switch_nsec: AtomicU64 = AtomicU64::new (0);
 // FIXME: this is a bad way to return registers, and won't be safe with smp
 static mut out_regs: Registers = Registers::new (0, 0, 0);
 
+// These interrupt handlers, and all other timer interrupt handlers must not:
+// lock any reguler mutexes or spinlocks (only IMutex)
+// this means no memory allocation
 fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 {
 	lock ();
-	rprintln! ("hi");
+	rprintln! ("int");
 
 	let mut out = None;
 
 	let nsec = timer.nsec_no_latch ();
+
+	let mut thread_list = tlist.lock ();
+	let time_list = &mut thread_list[ThreadState::Sleep(0)];
+
+	// FIXME: ugly
+	for tpointer in unsafe { unbound_mut (time_list).iter_mut () }
+	{
+		let sleep_nsec = tpointer.state ().sleep_nsec ().unwrap ();
+		if nsec >= sleep_nsec
+		{
+			tpointer.move_to (ThreadState::Ready, Some(&mut thread_list), None);
+		}
+	}
+
+	// release mutex
+	drop (thread_list);
+
 	if nsec - last_switch_nsec.load (Ordering::Relaxed) > SCHED_TIME
 	{
 		out = schedule (regs);
@@ -55,6 +80,9 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 	out
 }
 
+// FIXME: this could potentially have a thread switch occur before lock
+// when this happens, switching back to this thread will cause it to immediataly give up control again
+// this is probably undesirable
 fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 {
 	lock ();
@@ -67,12 +95,20 @@ fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 	out
 }
 
+fn int_sched ()
+{
+	unsafe
+	{
+		asm!("int 128");
+	}
+}
+
 // schedule takes in current registers, and picks new thread to switch to
 // if it doesn't, schedule returns None and does nothing with regs
 // if it does, schedule sets the old thread's registers to be regs, switches address
 // space if necessary, and returns the new thread's registers
 // schedule will disable interrupts if necessary
-fn schedule (regs: &Registers) -> Option<&Registers>
+fn schedule (_regs: &Registers) -> Option<&Registers>
 {
 	let mut thread_list = tlist.lock ();
 
@@ -83,7 +119,7 @@ fn schedule (regs: &Registers) -> Option<&Registers>
 			Some(t) => {
 				if !t.is_alive ()
 				{
-					t.move_to (ThreadState::Destroy, &mut thread_list);
+					t.move_to (ThreadState::Destroy, Some(&mut thread_list), None);
 				}
 				else
 				{
@@ -99,11 +135,11 @@ fn schedule (regs: &Registers) -> Option<&Registers>
 	{
 		old_thread.set_state (ThreadState::Ready);
 	}
-	old_thread.insert_into (&mut thread_list);
+	old_thread.insert_into (Some(&mut thread_list), None);
 
 	// TODO: add premptive multithreading here
 	tpointer.set_state (ThreadState::Running);
-	tpointer.insert_into (&mut thread_list);
+	tpointer.insert_into (Some(&mut thread_list), None);
 	let new_process = tpointer.thread ().unwrap ().process ();
 
 	if !old_thread.is_alive () || old_thread.thread ().unwrap ().process ().pid () != new_process.pid ()
@@ -141,16 +177,20 @@ fn thread_cleaner ()
 	loop
 	{
 		{
-			let list = &mut tlist.lock ()[ThreadState::Destroy];
-			while let Some(tpointer) = list.pop_front ()
+			let mut thread_list = tlist.lock ();
+			// FIXME: ugly
+			for tpointer in unsafe { unbound_mut (&mut thread_list[ThreadState::Destroy]).iter_mut () }
 			{
+				eprintln! ("Deallocing thread pointer:\n{:#x?}", tpointer);
+				tpointer.remove_from_current (Some(&mut thread_list), None);
 				unsafe
 				{
-					tpointer.dealloc ();
+					tpointer.dealloc (Some(&mut thread_list));
 				}
 			}
 		}
 		rprintln! ("end thread_cleaner loop");
+		thread_c ().sleep (Duration::new (1, 0));
 	}
 }
 
@@ -272,14 +312,25 @@ impl Registers
 	}
 }
 
-pub fn thread_c () -> Arc<Thread>
+pub fn thread_c<'a> () -> &'a mut ThreadLNode
+{
+	// This is safe to do (only not in interrupt) because thread that called it is guarenteed
+	// to have state restored back to same as before if it is interrupted
+	unsafe
+	{
+		unbound_mut (&mut tlist.lock ()[ThreadState::Running][0])
+	}
+}
+
+pub fn thread_res_c () -> Arc<Thread>
 {
 	tlist.lock ()[ThreadState::Running][0].thread ().unwrap ()
 }
 
+// FIXME: this locks too many locks, potential smp race condition
 pub fn proc_c () -> Arc<Process>
 {
-	thread_c ().process ()
+	thread_res_c ().process ()
 }
 
 pub fn init () -> Result<(), Err>

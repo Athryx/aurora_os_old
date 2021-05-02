@@ -1,5 +1,5 @@
 use spin::Mutex;
-use core::ops::Index;
+use core::ops::{Index, IndexMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
@@ -8,25 +8,25 @@ use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, IMutex};
-use super::tlist;
+use super::{ThreadList, tlist};
 use super::thread::{Thread, ThreadLNode, ThreadState};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
-pub struct ThreadListProcLocal([IMutex<LinkedList<ThreadLNode>>; 2]);
+pub struct ThreadListProcLocal([LinkedList<ThreadLNode>; 2]);
 
 impl ThreadListProcLocal
 {
 	const fn new () -> Self
 	{
 		ThreadListProcLocal([
-			IMutex::new (LinkedList::new ()),
-			IMutex::new (LinkedList::new ()),
+			LinkedList::new (),
+			LinkedList::new (),
 		])
 	}
 
-	pub fn get (&self, state: ThreadState) -> Option<&IMutex<LinkedList<ThreadLNode>>>
+	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<ThreadLNode>>
 	{
 		match state
 		{
@@ -35,15 +35,34 @@ impl ThreadListProcLocal
 			_ => None
 		}
 	}
+
+	pub fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<ThreadLNode>>
+	{
+		match state
+		{
+			ThreadState::Join(_) => Some(&mut self.0[0]),
+			ThreadState::FutexBlock(_) => Some(&mut self.0[1]),
+			_ => None
+		}
+	}
 }
 
 impl Index<ThreadState> for ThreadListProcLocal
 {
-	type Output = IMutex<LinkedList<ThreadLNode>>;
+	type Output = LinkedList<ThreadLNode>;
 
 	fn index (&self, state: ThreadState) -> &Self::Output
 	{
 		self.get (state).expect ("attempted to index ThreadState with invalid state")
+	}
+}
+
+
+impl IndexMut<ThreadState> for ThreadListProcLocal
+{
+	fn index_mut (&mut self, state: ThreadState) -> &mut Self::Output
+	{
+		self.get_mut (state).expect ("attempted to index ThreadState with invalid state")
 	}
 }
 
@@ -59,7 +78,7 @@ pub struct Process
 	next_tid: AtomicUsize,
 	threads: Mutex<BTreeMap<usize, Arc<Thread>>>,
 
-	pub tlproc: ThreadListProcLocal,
+	pub tlproc: IMutex<ThreadListProcLocal>,
 
 	pub addr_space: VirtMapper<FAllocerType>,
 }
@@ -75,7 +94,7 @@ impl Process
 			uid,
 			next_tid: AtomicUsize::new (0),
 			threads: Mutex::new (BTreeMap::new ()),
-			tlproc: ThreadListProcLocal::new (),
+			tlproc: IMutex::new (ThreadListProcLocal::new ()),
 			addr_space: VirtMapper::new (&zm),
 		})
 	}
@@ -119,9 +138,29 @@ impl Process
 		}
 	}
 
-	pub fn remove_thread (&self, tid: usize) -> Option<Arc<Thread>>
+	// sets any threads waiting on this thread to ready to run if thread_list is Some
+	// acquires the tlproc lock
+	pub fn remove_thread (&self, tid: usize, thread_list: Option<&mut ThreadList>) -> Option<Arc<Thread>>
 	{
-		self.threads.lock ().remove (&tid)
+		let out = self.threads.lock ().remove (&tid)?;
+
+		if let Some(thread_list) = thread_list
+		{
+			let mut list = self.tlproc.lock ();
+
+			// FIXME: ugly
+			for tpointer in unsafe { unbound_mut (&mut list[ThreadState::Join(0)]).iter_mut () }
+			{
+				let join_tid = tpointer.state ().join_tid ().unwrap ();
+
+				if tid == join_tid
+				{
+					tpointer.move_to (ThreadState::Ready, Some(thread_list), Some(&mut list));
+				}
+			}
+		}
+
+		Some(out)
 	}
 
 	// returns tid in ok
@@ -154,12 +193,14 @@ impl Drop for Process
 		let mut threads = self.threads.lock ();
 		while let Some(_) = threads.pop_first () {}
 
-		for mutex in self.tlproc.0.iter ()
+		let mut tlproc = self.tlproc.lock ();
+		for tpointer in tlproc[ThreadState::Join (0)].iter_mut ()
 		{
-			for tpointer in mutex.lock ().iter_mut ()
-			{
-				unsafe { tpointer.dealloc (); }
-			}
+			unsafe { tpointer.dealloc (None); }
+		}
+		for tpointer in tlproc[ThreadState::FutexBlock (0)].iter_mut ()
+		{
+			unsafe { tpointer.dealloc (None); }
 		}
 	}
 }
