@@ -3,10 +3,19 @@ use bitflags::bitflags;
 use alloc::collections::BTreeMap;
 use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
+use crate::consts;
 use super::phys_alloc::{Allocation, ZoneManager, zm};
 use super::*;
 
 const PAGE_ADDR_BITMASK: usize = 0x000ffffffffff000;
+lazy_static!
+{
+	static ref MAX_MAP_ADDR: usize = consts::KERNEL_VIRT_RANGE.as_usize ();
+
+	// TODO: make global
+	static ref HIGHER_HALF_PAGE_POINTER: PageTablePointer = PageTablePointer::new (*consts::KZONE_PAGE_TABLE_POINTER,
+		PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::SUPERUSER);
+}
 
 pub type FAllocerType = ZoneManager;
 
@@ -117,7 +126,7 @@ impl PageTable
 
 	fn present (&self, index: usize) -> bool
 	{
-		(self.0[index].0 | PageTableFlags::PRESENT.bits ()) != 0
+		(self.0[index].0 & PageTableFlags::PRESENT.bits ()) != 0
 	}
 
 	// TODO: make this more safe
@@ -198,7 +207,7 @@ impl VirtLayoutElement
 	{
 		match self
 		{
-			Self::Mem(mem) => mem.size () as usize,
+			Self::Mem(mem) => mem.size (),
 			Self::AllocedMem(mem) => mem.len (),
 			Self::Empty(size) => *size,
 		}
@@ -358,9 +367,15 @@ impl<T: FrameAllocator> VirtMapper<T>
 	// TODO: lazy tlb flushing
 	pub fn new (frame_allocer: &'static T) -> VirtMapper<T>
 	{
+		let mut pml4_table = PageTable::new (frame_allocer, PageTableFlags::PRESENT, false);
+		// NOTE: change index if kernel_vma changes
+		unsafe
+		{
+			pml4_table.as_mut ().unwrap ().set (511, *HIGHER_HALF_PAGE_POINTER);
+		}
 		VirtMapper {
 			virt_map: Mutex::new (BTreeMap::new ()),
-			cr3: Mutex::new (PageTable::new (frame_allocer, PageTableFlags::PRESENT, false)),
+			cr3: Mutex::new (pml4_table),
 			frame_allocer,
 		}
 	}
@@ -405,7 +420,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 			laddr = zone.as_usize () + zone.size ();
 		}
 
-		if !found && (MAX_VIRT_ADDR - laddr < size)
+		if !found && (*MAX_MAP_ADDR - laddr < size)
 		{
 			return Err(Err::new ("not enough space in virtual memory space for allocation"));
 		}
@@ -422,6 +437,11 @@ impl<T: FrameAllocator> VirtMapper<T>
 		if phys_zones.size () != virt_zone.size ()
 		{
 			return Err(Err::new ("phys_zones and virt_zone size did not match"));
+		}
+
+		if virt_zone.end_usize () >= *MAX_MAP_ADDR
+		{
+			return Err(Err::new ("attempted to map an address in the higher half kernel zone"));
 		}
 
 		let mut btree = self.virt_map.lock ();

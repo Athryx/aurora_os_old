@@ -525,12 +525,18 @@ impl ZoneManager
 	// TODO: support reallocating to a different zone if new size doesn't fit
 	pub unsafe fn realloc (&self, mem: Allocation, size: usize) -> Option<Allocation>
 	{
-		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().realloc (mem, size)
+		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().realloc (mem, size).map (|mut out| {
+			out.zindex = mem.zindex;
+			out
+		})
 	}
 
 	pub unsafe fn orealloc (&self, mem: Allocation, order: usize) -> Option<Allocation>
 	{
-		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().orealloc (mem, order)
+		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().orealloc (mem, order).map (|mut out| {
+			out.zindex = mem.zindex;
+			out
+		})
 	}
 
 	pub unsafe fn dealloc (&self, mem: Allocation)

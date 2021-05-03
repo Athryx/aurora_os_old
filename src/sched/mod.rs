@@ -140,6 +140,7 @@ fn schedule (_regs: &Registers) -> Option<&Registers>
 	// TODO: add premptive multithreading here
 	tpointer.set_state (ThreadState::Running);
 	tpointer.insert_into (Some(&mut thread_list), None);
+	rprintln! ("switching to:\n{:#x?}", tpointer);
 	let new_process = tpointer.thread ().unwrap ().process ();
 
 	if !old_thread.is_alive () || old_thread.thread ().unwrap ().process ().pid () != new_process.pid ()
@@ -181,7 +182,7 @@ fn thread_cleaner ()
 			// FIXME: ugly
 			for tpointer in unsafe { unbound_mut (&mut thread_list[ThreadState::Destroy]).iter_mut () }
 			{
-				eprintln! ("Deallocing thread pointer:\n{:#x?}", tpointer);
+				rprintln! ("Deallocing thread pointer:\n{:#x?}", tpointer);
 				tpointer.remove_from_current (Some(&mut thread_list), None);
 				unsafe
 				{
@@ -341,7 +342,7 @@ pub fn init () -> Result<(), Err>
 
 	let kernel_proc = Process::new (PrivLevel::Kernel, "kernel".to_string ());
 
-	kernel_proc.new_thread (thread_cleaner)?;
+	kernel_proc.new_thread (thread_cleaner, Some("thread_cleaner".to_string ()))?;
 
 	// rip will be set on first context switch
 	let idle_thread = Thread::from_stack (Arc::downgrade (&kernel_proc), kernel_proc.next_tid (), "idle_thread".to_string (), 0, *INIT_STACK)?;

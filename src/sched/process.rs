@@ -165,10 +165,10 @@ impl Process
 
 	// returns tid in ok
 	// locks thread list
-	pub fn new_thread (&self, thread_func: fn() -> ()) -> Result<usize, Err>
+	pub fn new_thread (&self, thread_func: fn() -> (), name: Option<String>) -> Result<usize, Err>
 	{
 		let tid = self.next_tid ();
-		let thread = Thread::new (self.self_ref.clone (), tid, format! ("{}-thread{}", self.name, tid), thread_func as usize)?;
+		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name, tid)), thread_func as usize)?;
 		let tweak = Arc::downgrade (&thread);
 		if self.insert_thread (thread)
 		{

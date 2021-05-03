@@ -1,5 +1,4 @@
 use crate::uses::*;
-use lazy_static::lazy_static;
 use crate::mem::{PhysRange, VirtRange};
 
 extern "C"
@@ -45,4 +44,6 @@ lazy_static!
 
 	pub static ref INIT_STACK: VirtRange = VirtRange::new (phys_to_virt (PhysAddr::new (unsafe { &stack_bottom } as *const _ as u64)),
 		(unsafe { &stack_top } as *const _ as usize) - (unsafe { &stack_bottom } as *const _ as usize));
+
+	pub static ref KZONE_PAGE_TABLE_POINTER: PhysAddr = PhysAddr::new (unsafe { &PDP_table } as *const _ as u64);
 }

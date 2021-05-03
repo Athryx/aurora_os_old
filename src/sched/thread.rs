@@ -1,6 +1,7 @@
 use spin::Mutex;
 use ptr::NonNull;
 use core::time::Duration;
+use core::fmt;
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
@@ -268,8 +269,7 @@ unsafe impl Send for Thread {}
 // This isn't true on its own, but there will be checks in the scheduler
 unsafe impl Sync for Thread {}
 
-// FIXME: should probably merge into one type with Thread
-#[derive(Debug)]
+// TODO: should probably merge into one type with Thread
 pub struct ThreadLNode
 {
 	pub thread: Weak<Thread>,
@@ -439,6 +439,19 @@ impl ThreadLNode
 		ptr::drop_in_place (thread as *mut Weak<Thread>);
 		let ptr = NonNull::new (self as *mut Self).unwrap ().cast ();
 		Global.deallocate (ptr, Self::LAYOUT);
+	}
+}
+
+impl fmt::Debug for ThreadLNode
+{
+	fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
+	{
+		f.debug_struct ("ThreadLNode")
+			.field ("thread", &self.thread ())
+			.field ("state", &self.state)
+			.field ("prev", &self.prev)
+			.field ("next", &self.next)
+			.finish ()
 	}
 }
 

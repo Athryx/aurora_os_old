@@ -64,13 +64,12 @@ any other value: thread id
 
 
 reason:
-0: does nothing
-1: yield, sets thread to running state and switches to another thread, if available
+0: yield, sets thread to running state and switches to another thread, if available
 if no threads other than the idle thread are ready to run, the current thread will continue to run
-2: destroy, switches to another thread and terminates the current thread
-3: sleep, will sleep until {nsec} nanoseconds after boot
+1: destroy, switches to another thread and terminates the current thread
+2: sleep, will sleep until {nsec} nanoseconds after boot
+3: join, will block until thread with id {thread_id} terminates
 any other number will do nothing
-4: join, will block until thread with id {thread_id} terminates
 
 
 5: void exit (usize code)

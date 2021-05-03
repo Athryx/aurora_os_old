@@ -280,7 +280,6 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		let mut data = kdata::gs_data.lock ();
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
-		rprintln! ("switching to:\n{:#x?}", regs);
 	}
 
 	if vec as u8 == IRQ_TIMER || vec as u8 == INT_SCHED

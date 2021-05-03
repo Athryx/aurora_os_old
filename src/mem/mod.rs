@@ -148,6 +148,21 @@ impl PhysRange
 		self.addr
 	}
 
+	pub fn as_usize (&self) -> usize
+	{
+		self.addr.as_u64 () as usize
+	}
+
+	pub fn end_addr (&self) -> PhysAddr
+	{
+		self.addr + self.size
+	}
+
+	pub fn end_usize (&self) -> usize
+	{
+		self.as_usize () + self.size
+	}
+
 	pub fn conains (&self, addr: PhysAddr) -> bool
 	{
 		(addr >= self.addr) && (addr < (self.addr + self.size))
@@ -187,11 +202,6 @@ impl PhysRange
 			(Some(PhysRange::new_unaligned (sbegin, (begin - sbegin) as usize)),
 				Some(PhysRange::new_unaligned (end, (send - end) as usize)))
 		}
-	}
-
-	pub fn as_usize (&self) -> usize
-	{
-		self.addr.as_u64 () as usize
 	}
 
 	pub fn size (&self) -> usize
@@ -341,6 +351,21 @@ impl VirtRange
 		self.addr
 	}
 
+	pub fn as_usize (&self) -> usize
+	{
+		self.addr.as_u64 () as usize
+	}
+
+	pub fn end_addr (&self) -> VirtAddr
+	{
+		self.addr + self.size
+	}
+
+	pub fn end_usize (&self) -> usize
+	{
+		self.as_usize () + self.size
+	}
+
 	pub fn conains (&self, addr: VirtAddr) -> bool
 	{
 		(addr >= self.addr) && (addr < (self.addr + self.size))
@@ -380,11 +405,6 @@ impl VirtRange
 			(Some(VirtRange::new_unaligned (sbegin, (begin - sbegin) as usize)),
 				Some(VirtRange::new_unaligned (end, (send - end) as usize)))
 		}
-	}
-
-	pub fn as_usize (&self) -> usize
-	{
-		self.addr.as_u64 () as usize
 	}
 
 	pub fn size (&self) -> usize

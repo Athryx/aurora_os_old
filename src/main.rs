@@ -150,7 +150,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-	proc_c ().new_thread (test).unwrap ();
+	//proc_c ().new_thread (test, None).unwrap ();
 
 	loop {
 		hlt ();
