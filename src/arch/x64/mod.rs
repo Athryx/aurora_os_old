@@ -1,14 +1,14 @@
 use crate::util::misc::*;
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
-pub enum PrivLevel
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CPUPrivLevel
 {
 	Ring0 = 0,
 	Ring3 = 3,
 }
 
-impl PrivLevel
+impl CPUPrivLevel
 {
 	pub const fn n (&self) -> u8
 	{
@@ -31,6 +31,16 @@ impl PrivLevel
 			Self::Ring0 => 0x10,
 			Self::Ring3 => 0x1b,
 		}
+	}
+
+	pub fn is_ring0 (&self) -> bool
+	{
+		*self == Self::Ring0
+	}
+
+	pub fn is_ring3 (&self) -> bool
+	{
+		*self == Self::Ring3
 	}
 }
 

@@ -131,7 +131,7 @@ impl PhysRange
 	{
 		PhysRange {
 			addr: addr.align_down (PageSize::K4 as u64),
-			size: align_down (size, PageSize::K4 as _),
+			size: align_up (size, PageSize::K4 as _),
 		}
 	}
 
@@ -141,6 +141,11 @@ impl PhysRange
 			addr,
 			size,
 		}
+	}
+
+	pub fn aligned (&self) -> PhysRange
+	{
+		Self::new (self.addr, self.size)
 	}
 
 	pub fn addr (&self) -> PhysAddr
@@ -334,7 +339,7 @@ impl VirtRange
 	{
 		VirtRange {
 			addr: addr.align_down (PageSize::K4 as u64),
-			size: align_down (size, PageSize::K4 as _),
+			size: align_up (size, PageSize::K4 as _),
 		}
 	}
 
@@ -344,6 +349,11 @@ impl VirtRange
 			addr,
 			size,
 		}
+	}
+
+	pub fn aligned (&self) -> VirtRange
+	{
+		Self::new (self.addr, self.size)
 	}
 
 	pub fn addr (&self) -> VirtAddr

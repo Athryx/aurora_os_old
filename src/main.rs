@@ -150,16 +150,36 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-	//proc_c ().new_thread (test, None).unwrap ();
+	//test ();
 
 	loop {
 		hlt ();
 	}
 }
 
-const order_size: usize = 0x100;
+// just for test
+static mut join_tid: usize = 0;
 
 fn test ()
+{
+	unsafe
+	{
+		join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
+	}
+	proc_c ().new_thread (test_thread_2, Some("join_test_thread".to_string ())).unwrap ();
+}
+
+fn test_thread_2 ()
+{
+	eprintln! ("join test thread started");
+	thread_c ().block (ThreadState::Join(unsafe { join_tid }));
+	eprintln! ("finished joining");
+	thread_c ().block (ThreadState::Destroy);
+}
+
+const order_size: usize = 0x100;
+
+fn test_thread_1 ()
 {
 	eprintln! ("=============================== start test output ===============================");
 	unsafe

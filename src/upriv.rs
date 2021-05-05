@@ -1,3 +1,5 @@
+use crate::arch::x64::CPUPrivLevel;
+
 pub const KERNEL_UID: usize = 0;
 pub const SUPERUSER_UID: usize = 1;
 pub const IOPRIV_UID: usize = 2;
@@ -32,6 +34,15 @@ impl PrivLevel
 			Self::SuperUser => SUPERUSER_UID,
 			Self::IOPriv => IOPRIV_UID,
 			Self::User(uid) => *uid,
+		}
+	}
+
+	pub fn as_cpu_priv (&self) -> CPUPrivLevel
+	{
+		match self
+		{
+			Self::Kernel => CPUPrivLevel::Ring0,
+			_ => CPUPrivLevel::Ring3,
 		}
 	}
 }

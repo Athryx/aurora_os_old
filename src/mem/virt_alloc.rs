@@ -82,6 +82,11 @@ impl PageTablePointer
 		}
 	}
 
+	fn flags (&self) -> PageTableFlags
+	{
+		PageTableFlags::from_bits_truncate (self.0)
+	}
+
 	unsafe fn set_flags (&mut self, flags: PageTableFlags)
 	{
 		self.0 = (self.0 & PAGE_ADDR_BITMASK) | flags.bits ();
@@ -97,6 +102,11 @@ impl PageTable
 	fn new<T: FrameAllocator> (allocer: &T, flags: PageTableFlags, dropable: bool) -> PageTablePointer
 	{
 		let frame = allocer.alloc_frame ().as_usize ();
+		unsafe
+		{
+			memset (frame as *mut u8, PAGE_SIZE, 0);
+		}
+
 		let addr = virt_to_phys_usize (frame);
 		let flags = flags | PageTableFlags::PRESENT;
 		let mut out = PageTablePointer(addr | flags.bits ());
@@ -134,14 +144,51 @@ impl PageTable
 	{
 		if self.count () == 0
 		{
-			let frame = Allocation::new (self.addr (), PAGE_SIZE);
-			allocer.dealloc_frame (frame);
+			self.dealloc (allocer);
 			true
 		}
 		else
 		{
 			false
 		}
+	}
+
+	unsafe fn dealloc<'a, T: FrameAllocator + 'a> (&mut self, allocer: &'a T)
+	{
+		let frame = Allocation::new (self.addr (), PAGE_SIZE);
+		allocer.dealloc_frame (frame);
+	}
+
+	unsafe fn dealloc_all<'a, T: FrameAllocator + 'a> (&mut self, allocer: &'a T)
+	{
+		self.dealloc_recurse (allocer, 3);
+	}
+
+	unsafe fn dealloc_recurse<'a, T: FrameAllocator + 'a> (&mut self, allocer: &'a T, level: usize)
+	{
+		if level > 0
+		{
+			for pointer in self.0.iter_mut ()
+			{
+				if pointer.flags ().contains (PageTableFlags::HUGE)
+				{
+					continue;
+				}
+	
+				match pointer.as_mut ()
+				{
+					Some(page_table) => {
+						if level > 0
+						{
+							page_table.dealloc_recurse (allocer, level - 1);
+						}
+					},
+					None => continue,
+				}
+			}
+		}
+
+		self.dealloc (allocer)
 	}
 
 	fn set (&mut self, index: usize, ptr: PageTablePointer)
@@ -434,6 +481,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 	pub unsafe fn map_at (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
 	{
+		let virt_zone = virt_zone.aligned ();
 		if phys_zones.size () != virt_zone.size ()
 		{
 			return Err(Err::new ("phys_zones and virt_zone size did not match"));
@@ -559,5 +607,25 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 
 		Ok(phys_zones)
+	}
+}
+
+impl<T: FrameAllocator> Drop for VirtMapper<T>
+{
+	// Note: it is unsafe to drop a VirtMapper if the VirtMapper is currently loaded
+	fn drop (&mut self)
+	{
+		for virt_layout in self.virt_map.lock ().values ()
+		{
+			unsafe
+			{
+				virt_layout.dealloc ();
+			}
+		}
+
+		unsafe
+		{
+			self.cr3.lock ().as_mut ().unwrap ().dealloc_all (self.frame_allocer);
+		}
 	}
 }

@@ -5,10 +5,11 @@ use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::mem::phys_alloc::zm;
-use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType};
+use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageTableFlags, FAllocerType};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, IMutex};
-use super::{ThreadList, tlist};
+use super::{ThreadList, tlist, proc_list};
+use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadLNode, ThreadState};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
@@ -85,6 +86,7 @@ pub struct Process
 
 impl Process
 {
+	// NOTE: must insert into process list before making a thread
 	pub fn new (uid: PrivLevel, name: String) -> Arc<Self>
 	{
 		Arc::new_cyclic (|weak| Self {
@@ -99,9 +101,68 @@ impl Process
 		})
 	}
 
-	pub fn from_elf (elf_data: &[u8], uid: PrivLevel, name: String) -> Arc<Self>
+	// NOTE: this doesn't quite adhere to elf format I think
+	// ignores align field, does not enforce that p_vaddr == P_offset % p_align
+	// different segments also must not have any overlapping page frames
+	pub fn from_elf (elf_data: &[u8], uid: PrivLevel, name: String) -> Result<Arc<Self>, Err>
 	{
-		unimplemented! ();
+		let process = Process::new (uid, name);
+
+		let elf = ElfParser::new (elf_data)?;
+		let sections = elf.program_headers ();
+
+		let priv_flag = if uid.as_cpu_priv ().is_ring0 ()
+		{
+			PageTableFlags::SUPERUSER
+		}
+		else
+		{
+			PageTableFlags::NONE
+		};
+
+		for section in sections.iter ()
+		{
+			let mut flags = priv_flag;
+
+			let sf = section.flags;
+			if sf.writable ()
+			{
+				flags |= PageTableFlags::WRITABLE;
+			}
+			if !sf.executable ()
+			{
+				flags |= PageTableFlags::NO_EXEC;
+			}
+
+			let vrange = section.virt_range.aligned ();
+			let mem  = zm.allocz (vrange.size ())
+				.ok_or (Err::new ("not enough memory to load executable"))?;
+
+			let v_elem = VirtLayoutElement::AllocedMem (mem);
+
+			let mut vec = Vec::new ();
+			vec.push (v_elem);
+
+			let layout = VirtLayout::new (vec);
+
+			unsafe
+			{
+				process.addr_space.map_at (layout, vrange, flags)?;
+			}
+		}
+
+		// in order to avoid a race condition
+		// FIXME: this is kind of messy that we have to do this
+		let mut plist = proc_list.lock ();
+		let pid = process.pid ();
+		plist.insert (pid, process.clone ());
+
+		process.new_thread (elf.entry_point (), None).map_err (|err| {
+			plist.remove (&pid);
+			err
+		})?;
+
+		Ok(process)
 	}
 
 	pub fn pid (&self) -> usize
@@ -139,26 +200,26 @@ impl Process
 	}
 
 	// sets any threads waiting on this thread to ready to run if thread_list is Some
-	// acquires the tlproc lock
-	pub fn remove_thread (&self, tid: usize, thread_list: Option<&mut ThreadList>) -> Option<Arc<Thread>>
+	// NOTE: acquires the tlproc lock and tlist lock
+	// TODO: make process die after last thread removed
+	pub fn remove_thread (&self, tid: usize) -> Option<Arc<Thread>>
 	{
 		let out = self.threads.lock ().remove (&tid)?;
+		let mut thread_list = tlist.lock ();
+		let mut list = self.tlproc.lock ();
 
-		if let Some(thread_list) = thread_list
+		// FIXME: ugly
+		for tpointer in unsafe { unbound_mut (&mut list[ThreadState::Join(0)]).iter_mut () }
 		{
-			let mut list = self.tlproc.lock ();
+			let join_tid = tpointer.state ().join_tid ().unwrap ();
 
-			// FIXME: ugly
-			for tpointer in unsafe { unbound_mut (&mut list[ThreadState::Join(0)]).iter_mut () }
+			if tid == join_tid
 			{
-				let join_tid = tpointer.state ().join_tid ().unwrap ();
-
-				if tid == join_tid
-				{
-					tpointer.move_to (ThreadState::Ready, Some(thread_list), Some(&mut list));
-				}
+				tpointer.move_to (ThreadState::Ready, Some(&mut thread_list), Some(&mut list));
 			}
 		}
+
+		drop (thread_list);
 
 		Some(out)
 	}
@@ -193,14 +254,41 @@ impl Drop for Process
 		let mut threads = self.threads.lock ();
 		while let Some(_) = threads.pop_first () {}
 
-		let mut tlproc = self.tlproc.lock ();
-		for tpointer in tlproc[ThreadState::Join (0)].iter_mut ()
+		loop
 		{
-			unsafe { tpointer.dealloc (None); }
+			let mut tlproc = self.tlproc.lock ();
+			let tpointer = match tlproc[ThreadState::Join(0)].pop_front ()
+			{
+				Some(thread) => thread,
+				None => break,
+			};
+
+			// TODO: this is probably slow
+			// avoid race condition with dealloc
+			drop (tlproc);
+
+			unsafe
+			{
+				tpointer.dealloc ();
+			}
 		}
-		for tpointer in tlproc[ThreadState::FutexBlock (0)].iter_mut ()
+		loop
 		{
-			unsafe { tpointer.dealloc (None); }
+			let mut tlproc = self.tlproc.lock ();
+			let tpointer = match tlproc[ThreadState::FutexBlock(0)].pop_front ()
+			{
+				Some(thread) => thread,
+				None => break,
+			};
+
+			// TODO: this is probably slow
+			// avoid race condition with dealloc
+			drop (tlproc);
+
+			unsafe
+			{
+				tpointer.dealloc ();
+			}
 		}
 	}
 }

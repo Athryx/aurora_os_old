@@ -28,6 +28,7 @@ use core::ops::{Index, IndexMut};
 
 mod process;
 mod thread;
+mod elf;
 
 static tlist: IMutex<ThreadList> = IMutex::new (ThreadList::new ());
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());
@@ -131,11 +132,15 @@ fn schedule (_regs: &Registers) -> Option<&Registers>
 	};
 
 	let old_thread = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
+	// FIXME: smp race condition
+	let old_process = old_thread.thread ().unwrap ().process ();
+	let mut tlproc_list = old_process.tlproc.lock ();
+
 	if let ThreadState::Running = old_thread.state ()
 	{
 		old_thread.set_state (ThreadState::Ready);
 	}
-	old_thread.insert_into (Some(&mut thread_list), None);
+	old_thread.insert_into (Some(&mut thread_list), Some(&mut tlproc_list));
 
 	// TODO: add premptive multithreading here
 	tpointer.set_state (ThreadState::Running);
@@ -143,7 +148,7 @@ fn schedule (_regs: &Registers) -> Option<&Registers>
 	rprintln! ("switching to:\n{:#x?}", tpointer);
 	let new_process = tpointer.thread ().unwrap ().process ();
 
-	if !old_thread.is_alive () || old_thread.thread ().unwrap ().process ().pid () != new_process.pid ()
+	if !old_thread.is_alive () || old_process.pid () != new_process.pid ()
 	{
 		unsafe { new_process.addr_space.load (); }
 	}
@@ -177,17 +182,25 @@ fn thread_cleaner ()
 {
 	loop
 	{
+		// TODO: probably a good idea to put this logic in separate function
+		loop
 		{
 			let mut thread_list = tlist.lock ();
-			// FIXME: ugly
-			for tpointer in unsafe { unbound_mut (&mut thread_list[ThreadState::Destroy]).iter_mut () }
+			let tpointer = match thread_list[ThreadState::Destroy].pop_front ()
 			{
-				rprintln! ("Deallocing thread pointer:\n{:#x?}", tpointer);
-				tpointer.remove_from_current (Some(&mut thread_list), None);
-				unsafe
-				{
-					tpointer.dealloc (Some(&mut thread_list));
-				}
+				Some(thread) => thread,
+				None => break,
+			};
+
+			rprintln! ("Deallocing thread pointer:\n{:#x?}", tpointer);
+
+			// TODO: this is probably slow
+			// avoid race condition with dealloc
+			drop (thread_list);
+
+			unsafe
+			{
+				tpointer.dealloc ();
 			}
 		}
 		rprintln! ("end thread_cleaner loop");

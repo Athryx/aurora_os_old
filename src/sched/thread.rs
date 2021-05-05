@@ -422,11 +422,12 @@ impl ThreadLNode
 	// TODO: figure out if it is safe to drop data pointed to by self
 	// will also put threas that are waiting on this thread in ready queue,
 	// but only if process is still alive and thread_list is not None
-	pub unsafe fn dealloc (&mut self, thread_list: Option<&mut ThreadList>)
+	// NOTE: don't call with any IMutexs locked
+	pub unsafe fn dealloc (&mut self)
 	{
 		// FIXME: smp reace condition if process is freed after initial thread () call
 		self.thread ().map (|thread| {
-			thread.process ().remove_thread (thread.tid, thread_list).expect ("thread should have been in process");
+			thread.process ().remove_thread (thread.tid).expect ("thread should have been in process");
 		});
 
 		let Self {

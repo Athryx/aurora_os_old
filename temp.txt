@@ -1,0 +1,96 @@
+ELF Header:
+  Magic:   7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00 
+  Class:                             ELF64
+  Data:                              2's complement, little endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - System V
+  ABI Version:                       0
+  Type:                              EXEC (Executable file)
+  Machine:                           Advanced Micro Devices X86-64
+  Version:                           0x1
+  Entry point address:               0x100018
+  Start of program headers:          64 (bytes into file)
+  Start of section headers:          3596928 (bytes into file)
+  Flags:                             0x0
+  Size of this header:               64 (bytes)
+  Size of program headers:           56 (bytes)
+  Number of program headers:         6
+  Size of section headers:           64 (bytes)
+  Number of section headers:         21
+  Section header string table index: 19
+
+Section Headers:
+  [Nr] Name              Type             Address           Offset
+       Size              EntSize          Flags  Link  Info  Align
+  [ 0]                   NULL             0000000000000000  00000000
+       0000000000000000  0000000000000000           0     0     0
+  [ 1] .boot_text        PROGBITS         0000000000100000  00001000
+       0000000000000153  0000000000000000   A       0     0     1
+  [ 2] .boot_rodata      PROGBITS         0000000000101000  00002000
+       000000000000001a  0000000000000000   A       0     0     1
+  [ 3] .boot_bss         PROGBITS         0000000000102000  00003000
+       0000000000012000  0000000000000000   A       0     0     4096
+  [ 4] .text             PROGBITS         ffffff8000114000  00015000
+       0000000000062e2a  0000000000000000  AX       0     0     16
+  [ 5] .rodata           PROGBITS         ffffff8000177000  00078000
+       0000000000006420  0000000000000000  AM       0     0     16
+  [ 6] .data             PROGBITS         ffffff800017e000  0007f000
+       0000000000000078  0000000000000000  WA       0     0     8
+  [ 7] .bss              NOBITS           ffffff800017f000  00080000
+       000000000000a050  0000000000000000  WA       0     0     8
+  [ 8] .debug_abbrev     PROGBITS         0000000000000000  00080000
+       0000000000007e6a  0000000000000000           0     0     1
+  [ 9] .debug_info       PROGBITS         0000000000000000  00087e6a
+       0000000000096916  0000000000000000           0     0     1
+  [10] .debug_aranges    PROGBITS         0000000000000000  0011e780
+       000000000000c520  0000000000000000           0     0     1
+  [11] .debug_ranges     PROGBITS         0000000000000000  0012aca0
+       0000000000010fa0  0000000000000000           0     0     1
+  [12] .debug_str        PROGBITS         0000000000000000  0013bc40
+       00000000000b10d5  0000000000000001  MS       0     0     1
+  [13] .debug_pubnames   PROGBITS         0000000000000000  001ecd15
+       0000000000042d6f  0000000000000000           0     0     1
+  [14] .debug_pubtypes   PROGBITS         0000000000000000  0022fa84
+       000000000009c74f  0000000000000000           0     0     1
+  [15] .debug_frame      PROGBITS         0000000000000000  002cc1d8
+       0000000000018300  0000000000000000           0     0     8
+  [16] .debug_line       PROGBITS         0000000000000000  002e44d8
+       0000000000035d71  0000000000000000           0     0     1
+  [17] .debug_loc        PROGBITS         0000000000000000  0031a249
+       00000000000054ab  0000000000000000           0     0     1
+  [18] .symtab           SYMTAB           0000000000000000  0031f6f8
+       0000000000010f98  0000000000000018          20   2737     8
+  [19] .shstrtab         STRTAB           0000000000000000  00330690
+       00000000000000dc  0000000000000000           0     0     1
+  [20] .strtab           STRTAB           0000000000000000  0033076c
+       000000000003db0d  0000000000000000           0     0     1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
+  L (link order), O (extra OS processing required), G (group), T (TLS),
+  C (compressed), x (unknown), o (OS specific), E (exclude),
+  l (large), p (processor specific)
+
+Program Headers:
+  Type           Offset             VirtAddr           PhysAddr
+                 FileSiz            MemSiz              Flags  Align
+  LOAD           0x0000000000001000 0x0000000000100000 0x0000000000100000
+                 0x0000000000014000 0x0000000000014000  R      0x1000
+  LOAD           0x0000000000015000 0xffffff8000114000 0x0000000000114000
+                 0x0000000000062e2a 0x0000000000062e2a  R E    0x1000
+  LOAD           0x0000000000078000 0xffffff8000177000 0x0000000000177000
+                 0x0000000000006420 0x0000000000006420  R      0x1000
+  LOAD           0x000000000007f000 0xffffff800017e000 0x000000000017e000
+                 0x0000000000000078 0x0000000000000078  RW     0x1000
+  LOAD           0x0000000000080000 0xffffff800017f000 0x000000000017f000
+                 0x0000000000000000 0x000000000000a050  RW     0x1000
+  GNU_STACK      0x0000000000000000 0x0000000000000000 0x0000000000000000
+                 0x0000000000000000 0x0000000000000000  RW     0x0
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .boot_text .boot_rodata .boot_bss 
+   01     .text 
+   02     .rodata 
+   03     .data 
+   04     .bss 
+   05     
