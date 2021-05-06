@@ -1,0 +1,158 @@
+TODO:
+change abi to allow returning in multiple registers
+after that, make sure to return error information in one register
+
+figure out how that whole execfolder thing will work
+
+decide if vfs should go in kernel or not
+if it does, can probably remove the info syscall and just use a proc like filesystem
+also decide if files should be like unix or not (thinking no)
+
+figure out if exec and fork should be a thing
+(currently thinking probably not)
+
+figure out how to implement exit code if fork and exec are not a thing
+
+figure out details in msg
+
+syscall for getting access to certain ports
+
+figure out how reg and domains would work
+
+allow memory to be alloced at certain virtual addressess
+
+figure out how user permissions would work
+
+
+abi:
+rax: arg 6, return value
+rbx: arg 2
+rcx: not saved
+rdx: arg 1
+rbp: saved
+rsp: saved
+rsi[0-31]: syscall number
+rsi[32-63]: syscall options
+rdi: arg 5
+r8: arg 3
+r9: arg 4
+r10: not saved
+r11: not saved
+r12: arg 7, saved if unused
+r13: arg 8, saved if unused
+r14: arg 9, saved if unused
+r15: arg 10, saved if unused
+
+bit 0 of options should always be set if syscall uses arg 7-10
+
+0: info
+
+
+1: exec
+
+
+2: usize thread_new (thread_func_t func)
+creates a new thread and returns its id
+the thread func should not return, it should call thread_block with destroy in order to terminate itself
+
+return value:
+0: failed to create new thread
+any other value: thread id
+
+
+3: void thread_block (usize reason, | usize nsec | usize thread_id | usize futex_addr)
+
+
+reason:
+0: yield, sets thread to running state and switches to another thread, if available
+if no threads other than the idle thread are ready to run, the current thread will continue to run
+1: destroy, switches to another thread and terminates the current thread
+2: sleep, will sleep until {nsec} nanoseconds after boot
+3: join, will block until thread with id {thread_id} terminates
+any other number will do nothing
+
+
+5: void exit (usize code)
+terminates process with exit code code
+
+
+6: void futex_block (usize addr)
+bloocks the thread until woken by another thread via futex_unblock
+
+
+7: usize futex_unblock (usize addr, usize n)
+unblocks {n} threads waiting on addr and returns how many threads were unblocked
+if addr is shared memory, this can also unblock threads in other processess that are waiting
+on the same value, with a different virtual address
+
+
+8: usize futex_move (usize addr_old, usize addr_new, usize n)
+moves {n} threads waiting on {addr_old} to start waiting on {addr_new} and returns how many threads were moved
+it is not allowed to move a futex from an address within a shared memory zone to an address in a different shared
+memory zone or into a non shared memory zone
+
+
+9: set_proc_properties
+// I don't know if this will stay
+
+
+11: usize realloc (usize mem, usize size)
+allocates, rellocates, or frees memory pointed to by mem
+
+if {mem} == 0:
+	allocates {size} pages, returns pointer on succes or 0 on failure
+	returns 0 if {size} == 0
+if {mem} != 0 and {size} == 0:
+	frees pages pointed to by {mem} and returns 1 on success or 0 on failure
+if {mem} != 0 and {size} != 0:
+	reallocates pages to have size {size} and returns pointer on success or 0 on failure
+	if it fails, the original pages will still be allocated and must be freed later
+
+
+12: usize mmap (usize phys_addr, usize n)
+maps n pages starting at physical address phys_addr into the calling process's address space
+only superuser processes can call mmap
+
+
+return value:
+0: mmap was called with insufficent privallages or the requested memory zone is not memory mapped io
+virtual address of mapped region
+
+
+13: void munmap (usize virt_addr)
+unmaps memory previously mapped by mmap
+only superuser processes can call munmap
+
+
+14: usize salloc (usize pages)
+allocate shared memory to be shared with msg
+
+
+15: void sfree (usize addr)
+free shared memory allocated by salloc or recieved by another process
+removes the shared memory from current address space, and once all processes that had it
+free it, shared memory is deallocated from physical memory
+
+
+16: bool reg (usize domain)
+
+
+17: usize msg (char *eid | usize pid, usize a1, usize a2, usize a3, usize a4, usize a5, | usize a6, | usize a7, | usize a8, | usize a9)
+
+
+options:
+
+bit 0 (msg_eargs):
+0: send args a1 to a5 to process
+1: send args a1 to a9 to process, a6 to a9 may not be saved
+
+bit 1 (msg_pid):
+0: send message to all processes with executable id specified in arg
+1: send message to process with pid
+
+bit 2 (msg_block):
+
+
+return value:
+0: success
+1: no process with eid or pid exists

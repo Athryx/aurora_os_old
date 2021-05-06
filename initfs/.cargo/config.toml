@@ -1,0 +1,3 @@
+[build]
+target = "../x86_64-os-userland.json"
+rustflags = ["--sysroot", "/home/jack/projects/rust/rust_os/initfs/target/sysroot"]
