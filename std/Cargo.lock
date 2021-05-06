@@ -25,19 +25,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "initfs"
-version = "0.1.0"
-dependencies = [
- "bitflags",
- "concat-idents",
- "lazy_static",
- "spin",
- "std",
- "volatile",
- "x86_64",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
