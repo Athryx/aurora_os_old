@@ -15,15 +15,15 @@ pub const MAX_VIRT_ADDR: usize = 1 << 47;
 
 pub fn align_down_to_page_size (n: usize) -> usize
 {
-	if n > PageSize::G1 as usize
+	if n >= PageSize::G1 as usize
 	{
 		PageSize::G1 as usize
 	}
-	else if n > PageSize::M2 as usize
+	else if n >= PageSize::M2 as usize
 	{
 		PageSize::M2 as usize
 	}
-	else if n > PageSize::K4 as usize
+	else if n >= PageSize::K4 as usize
 	{
 		PageSize::K4 as usize
 	}
@@ -46,23 +46,22 @@ impl PageSize
 {
 	pub fn from_u64 (n: u64) -> Self
 	{
-		match n
-		{
-			0x1000 => Self::K4,
-			0x200000 => Self::M2,
-			0x40000000 => Self::G1,
-			_ => panic! ("tried to convert u64 to PageSize, but it wasn't a valid page size"),
-		}
+		Self::from_usize (n as _)
 	}
 
 	pub fn from_usize (n: usize) -> Self
 	{
+		Self::try_from_usize (n).expect ("tried to convert integer to PageSize, but it wasn't a valid page size")
+	}
+
+	pub fn try_from_usize (n: usize) -> Option<Self>
+	{
 		match n
 		{
-			0x1000 => Self::K4,
-			0x200000 => Self::M2,
-			0x40000000 => Self::G1,
-			_ => panic! ("tried to convert usize to PageSize, but it wasn't a valid page size"),
+			0x1000 => Some(Self::K4),
+			0x200000 => Some(Self::M2),
+			0x40000000 => Some(Self::G1),
+			_ => None,
 		}
 	}
 }
@@ -214,14 +213,15 @@ impl PhysRange
 		self.size
 	}
 
-	pub fn get_take_size (&self) -> PageSize
+	pub fn get_take_size (&self) -> Option<PageSize>
 	{
-		PageSize::from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
+		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
 	}
 
 	pub fn take (&mut self, size: PageSize) -> Option<PhysFrame>
 	{
-		if size > self.get_take_size ()
+		let take_size = self.get_take_size ()?;
+		if size > take_size
 		{
 			None
 		}
@@ -422,14 +422,15 @@ impl VirtRange
 		self.size
 	}
 
-	pub fn get_take_size (&self) -> PageSize
+	pub fn get_take_size (&self) -> Option<PageSize>
 	{
-		PageSize::from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
+		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
 	}
 
 	pub fn take (&mut self, size: PageSize) -> Option<VirtFrame>
 	{
-		if size > self.get_take_size ()
+		let take_size = self.get_take_size ()?;
+		if size > take_size
 		{
 			None
 		}

@@ -45,6 +45,7 @@ use mem::phys_alloc::zm;
 use alloc::boxed::Box;
 use alloc::collections::*;
 use alloc::vec;
+use upriv::{PrivLevel, IOPRIV_UID};
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !
@@ -53,6 +54,7 @@ fn panic(info: &PanicInfo) -> !
 	eprintln! ("{}", info);
 
 	loop {
+		cli ();
 		hlt ();
 	}
 }
@@ -149,6 +151,8 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 	gdt::tss.lock ().rsp0 = align_up (get_rsp () + 0x100, 16) as u64;
 
 	sti_safe ();
+
+	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
 	//test ();
 

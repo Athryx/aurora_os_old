@@ -15,8 +15,9 @@ use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal};
 use super::{Registers, ThreadList, int_sched, tlist};
 
-const USER_REGS: Registers = Registers::new (0x3202, 0x23, 0x1b);
-const IOPRIV_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
+const USER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
+// FIXME: temporarily setting IOPL to 3 for testing
+const IOPRIV_REGS: Registers = Registers::new (0x3202, 0x23, 0x1b);
 const SUPERUSER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 const KERNEL_REGS: Registers = Registers::new (0x202, 0x08, 0x10);
 
@@ -199,7 +200,11 @@ impl Thread
 		let kstack = match uid
 		{
 			PrivLevel::Kernel => None,
-			_ => Some(Stack::kernel_new (kstack_size)?),
+			_ => {
+				let stack = Stack::kernel_new (kstack_size)?;
+				regs.call_rsp = stack.top () - 16;
+				Some(stack)
+			},
 		};
 
 		regs.rip = rip;

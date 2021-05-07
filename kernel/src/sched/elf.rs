@@ -78,21 +78,21 @@ impl<'a> ElfParser<'a>
 
 	fn extract_slice<T> (data: &[u8], index: usize, len: usize) -> Option<&[T]>
 	{
-		let slice = data.get (index..(index + len))?;
-		let ptr = unsafe { (slice.as_ptr () as *const T).as_ref ().unwrap () };
+		let slice = data.get (index..(index + len * size_of::<T> ()))?;
+		let ptr = slice.as_ptr () as *const T;
 		unsafe
 		{
-			Some(core::slice::from_raw_parts (ptr, slice.len ()))
+			Some(core::slice::from_raw_parts (ptr, len))
 		}
 	}
 
 	fn extract<T> (&self, index: usize, len: usize) -> Option<&[T]>
 	{
-		let slice = self.data.get (index..(index + len))?;
-		let ptr = unsafe { (slice.as_ptr () as *const T).as_ref ().unwrap () };
+		let slice = self.data.get (index..(index + len * size_of::<T> ()))?;
+		let ptr = slice.as_ptr () as *const T;
 		unsafe
 		{
-			Some(core::slice::from_raw_parts (ptr, slice.len ()))
+			Some(core::slice::from_raw_parts (ptr, len))
 		}
 	}
 }
@@ -194,10 +194,10 @@ impl ElfHeader
 }
 
 const P_TYPE_NULL: u32 = 0;
-const P_TYPE_LOAD: u32 = 0;
-const P_TYPE_DYNAMIC: u32 = 0;
-const P_TYPE_INTERP: u32 = 0;
-const P_TYPE_NOTE: u32 = 0;
+const P_TYPE_LOAD: u32 = 1;
+const P_TYPE_DYNAMIC: u32 = 2;
+const P_TYPE_INTERP: u32 = 3;
+const P_TYPE_NOTE: u32 = 4;
 
 bitflags!
 {

@@ -287,6 +287,8 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		sti_inc ();
 	}
 
+	d ();
+
 	out
 }
 

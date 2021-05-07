@@ -10,7 +10,7 @@ use crate::arch::x64::{cli_safe, sti_safe, sti_inc, rdmsr, wrmsr, EFER_MSR, EFER
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
-use process::Process;
+pub use process::Process;
 pub use thread::{Thread, ThreadLNode, ThreadState};
 use core::ops::{Index, IndexMut};
 

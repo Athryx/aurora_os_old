@@ -1,5 +1,5 @@
 set disassembly-flavor intel
-add-symbol-file target/x86_64-os/debug/rust_os
+add-symbol-file kernel/target/x86_64-os/debug/kernel
 break _start
 target remote localhost:1234
 layout asm

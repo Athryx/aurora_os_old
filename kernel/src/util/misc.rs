@@ -67,8 +67,13 @@ pub fn align_of (addr: usize) -> usize
 
 pub const fn get_bits (n: usize, bits: Range<usize>) -> usize
 {
+	if bits.end == 0
+	{
+		return 0;
+	}
+
 	let l = if bits.start > 63 { 63 } else { bits.start };
-	let h = if bits.end > 63 { 63 } else { bits.end };
+	let h = if bits.end > 64 { 63 } else { bits.end - 1 };
 	if l >= h
 	{
 		return 0;

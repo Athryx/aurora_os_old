@@ -12,3 +12,8 @@ pub use crate::arch::x64::CPUPrivLevel;
 pub use crate::{print, println, eprint, eprintln, rprint, rprintln, init_array};
 pub use lazy_static::lazy_static;
 pub use x86_64::{PhysAddr, VirtAddr};
+
+pub fn d ()
+{
+	rprintln! ("debug");
+}

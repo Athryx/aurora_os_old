@@ -361,16 +361,33 @@ impl Iterator for PageMappingIterator
 			return None;
 		}
 
-		let vsize = self.virt_zone.get_take_size ();
-		let psize = match self.phys_zone.0[self.pindex]
+		let vsize = self.virt_zone.get_take_size ()?;
+		let psize = loop
 		{
-			VirtLayoutElement::AllocedMem(mem) => {
-				let prange = mem.as_phys_zone ();
-				self.phys_zone.0[self.pindex] = VirtLayoutElement::Mem(prange);
-				prange.get_take_size ()
+			let psize = match self.phys_zone.0[self.pindex]
+			{
+				VirtLayoutElement::AllocedMem(mem) => {
+					let prange = mem.as_phys_zone ();
+					self.phys_zone.0[self.pindex] = VirtLayoutElement::Mem(prange);
+					prange.get_take_size ()
+				}
+				VirtLayoutElement::Mem(mem) => mem.get_take_size (),
+				VirtLayoutElement::Empty(mem) => PageSize::try_from_usize (align_down_to_page_size (mem)),
+			};
+
+			if let Some(psize) = psize
+			{
+				break psize;
 			}
-			VirtLayoutElement::Mem(mem) => mem.get_take_size (),
-			VirtLayoutElement::Empty(mem) => PageSize::from_usize (align_down_to_page_size (mem)),
+			else
+			{
+				self.pindex += 1;
+
+				if self.pindex == self.phys_zone.0.len ()
+				{
+					return None;
+				}
+			}
 		};
 
 		let size = min (vsize, psize);
