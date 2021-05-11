@@ -164,7 +164,9 @@ impl Tss
 			zero2: 0,
 			zero3: 0,
 			zero4: 0,
-			iomap: size_of::<Tss> () as _,
+			//iomap: size_of::<Tss> () as _,
+			//iomap: 0,
+			iomap: 0xdfff,
 		}
 	}
 }
@@ -194,6 +196,7 @@ impl TssEntry
 			base3: get_bits (addr, 24..32) as _,
 			base4: get_bits (addr, 32..64) as _,
 			access: 0x89,
+			//limit1: (size_of::<Tss> () - 1) as _, // length of tss
 			limit1: size_of::<Tss> () as _, // length of tss
 			limit2_flags: 0, // both limit2 and flags are 0
 			zero: 0,

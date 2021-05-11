@@ -83,8 +83,8 @@ impl Node
 		let ptr = addr as *mut Node;
 
 		let out = Node {
-			prev: 0 as *mut _,
-			next: 0 as *mut _,
+			prev: null_mut (),
+			next: null_mut (),
 			size,
 		};
 		ptr.write (out);
@@ -303,7 +303,7 @@ impl<T: ListNode> LinkedList<T>
 		let prev = node.prev_ptr ();
 		let next = node.next_ptr ();
 
-		if prev == null_mut ()
+		if prev.is_null ()
 		{
 			self.start = next;
 		}
@@ -312,7 +312,7 @@ impl<T: ListNode> LinkedList<T>
 			unsafe { prev.as_mut ().unwrap ().set_next (next); }
 		}
 
-		if next == null_mut ()
+		if next.is_null ()
 		{
 			self.end = prev;
 		}

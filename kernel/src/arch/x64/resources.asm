@@ -9,5 +9,5 @@ global %1 %+ _len
 %1 %+ _len	equ	$ - %1
 %endmacro
 
-section .rodata
+section .resources
 incres initfs, "../initfs/initfs.bin"

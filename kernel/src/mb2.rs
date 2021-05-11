@@ -76,7 +76,7 @@ impl MemoryMap
 pub enum MemoryRegionType
 {
 	Usable(PhysRange),
-	ACPI(PhysRange),
+	Acpi(PhysRange),
 	HibernatePreserve(PhysRange),
 	Defective(PhysRange),
 	Reserved(PhysRange),
@@ -95,7 +95,7 @@ impl MemoryRegionType
 		match region.typ
 		{
 			USABLE => Self::Usable(prange),
-			ACPI => Self::ACPI(prange),
+			ACPI => Self::Acpi(prange),
 			HIBERNATE_PRESERVE => Self::HibernatePreserve(prange),
 			DEFECTIVE => Self::Defective(prange),
 			_ => Self::Reserved(prange),
@@ -111,7 +111,7 @@ impl MemoryRegionType
 			match region.typ
 			{
 				USABLE => Self::Usable(prange),
-				ACPI => Self::ACPI(prange),
+				ACPI => Self::Acpi(prange),
 				HIBERNATE_PRESERVE => Self::HibernatePreserve(prange),
 				DEFECTIVE => Self::Defective(prange),
 				_ => Self::Reserved(prange),
@@ -126,7 +126,7 @@ impl MemoryRegionType
 		match self
 		{
 			Self::Usable(mem) => *mem,
-			Self::ACPI(mem) => *mem,
+			Self::Acpi(mem) => *mem,
 			Self::HibernatePreserve(mem) => *mem,
 			Self::Defective(mem) => *mem,
 			Self::Reserved(mem) => *mem,

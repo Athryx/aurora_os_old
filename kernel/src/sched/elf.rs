@@ -2,13 +2,17 @@ use bitflags::bitflags;
 use crate::uses::*;
 use crate::mem::VirtRange;
 
+#[derive(Debug)]
 pub struct Section<'a>
 {
 	pub virt_range: VirtRange,
 	pub data: &'a [u8],
+	// data virtual offset from start of virt_range
+	pub data_offset: usize,
 	pub flags: PHdrFlags,
 }
 
+#[derive(Debug)]
 pub struct ElfParser<'a>
 {
 	data: &'a [u8],
@@ -21,7 +25,7 @@ impl<'a> ElfParser<'a>
 	pub fn new (data: &[u8]) -> Result<ElfParser, Err>
 	{
 		let elf_header = ElfHeader::new (data)?;
-		elf_header.check (data.len ())?;
+		elf_header.check ()?;
 
 		let phdr = elf_header.program_header;
 		let phdr_len = elf_header.phdr_len as usize;
@@ -29,12 +33,7 @@ impl<'a> ElfParser<'a>
 		// TODO: figure out if it matters that alignment requirements might not be met
 		// (probably not on x86)
 		let program_headers = Self::extract_slice (data, phdr, phdr_len)
-			.ok_or (Err::new ("invalid program headers"))?;
-
-		if elf_header.entry >= data.len ()
-		{
-			return Err(Err::new ("invalid entry point"));
-		}
+			.ok_or_else (|| Err::new ("invalid program headers"))?;
 
 		Ok(ElfParser {
 			data,
@@ -50,14 +49,21 @@ impl<'a> ElfParser<'a>
 		{
 			if header.ptype == P_TYPE_LOAD
 			{
+				if header.p_filesz == 0 || header.p_memsz == 0
+				{
+					continue;
+				}
+
 				let virt_range = VirtRange::new_unaligned (VirtAddr::new (header.p_vaddr as u64), header.p_memsz);
+				let virt_range_aligned = virt_range.aligned ();
 				let data = self.extract (header.p_offset, header.p_filesz);
 				match data
 				{
-					Some(pdata) => {
+					Some(data) => {
 						out.push (Section {
-							virt_range,
-							data: pdata,
+							virt_range: virt_range_aligned,
+							data,
+							data_offset: virt_range.as_usize () - virt_range_aligned.as_usize (),
 							flags: header.flags,
 						})
 					},
@@ -164,7 +170,7 @@ impl ElfHeader
 		}
 	}
 
-	fn check (&self, expected_size: usize) -> Result<(), Err>
+	fn check (&self) -> Result<(), Err>
 	{
 		if self.magic != ELF_MAGIC
 		{

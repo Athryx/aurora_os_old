@@ -115,7 +115,7 @@ fn schedule (_regs: &Registers) -> Option<&Registers>
 
 	let tpointer = loop
 	{
-		match thread_list[ThreadState::Ready].pop ()
+		match thread_list[ThreadState::Ready].pop_front ()
 		{
 			Some(t) => {
 				if !t.is_alive ()

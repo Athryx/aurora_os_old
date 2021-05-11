@@ -18,6 +18,7 @@ use super::{Registers, ThreadList, int_sched, tlist};
 const USER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 // FIXME: temporarily setting IOPL to 3 for testing
 const IOPRIV_REGS: Registers = Registers::new (0x3202, 0x23, 0x1b);
+//const IOPRIV_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 const SUPERUSER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 const KERNEL_REGS: Registers = Registers::new (0x202, 0x08, 0x10);
 
@@ -40,9 +41,10 @@ impl Stack
 	{
 		let allocation = zm.alloc (size)?;
 
-		let mut elem_vec = Vec::new ();
-		elem_vec.push (VirtLayoutElement::Empty(PAGE_SIZE));
-		elem_vec.push (VirtLayoutElement::AllocedMem(allocation));
+		let elem_vec = vec![
+			VirtLayoutElement::Empty(PAGE_SIZE),
+			VirtLayoutElement::AllocedMem(allocation),
+		];
 		let vlayout = VirtLayout::new (elem_vec);
 
 		let flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXEC;
@@ -51,6 +53,7 @@ impl Stack
 		Ok(Self::User(vrange))
 	}
 
+	// TODO: put guard page in this one
 	fn kernel_new (size: usize) -> Result<Self, Err>
 	{
 		let allocation = zm.alloc (size)?;
@@ -118,12 +121,7 @@ impl ThreadState
 	// is the data structure for storing this thread local to the process
 	pub fn is_proc_local (&self) -> bool
 	{
-		match self
-		{
-			Self::Join(_) => true,
-			Self::FutexBlock(_) => true,
-			_ => false,
-		}
+		matches! (self, Self::Join(_) | Self::FutexBlock(_))
 	}
 
 	pub fn sleep_nsec (&self) -> Option<u64>
@@ -265,7 +263,10 @@ impl Drop for Thread
 		unsafe
 		{
 			self.stack.dealloc (mapper);
-			self.kstack.as_ref ().map (|stack| stack.dealloc (mapper));
+			if let Some(stack) = self.kstack.as_ref ()
+			{
+				stack.dealloc (mapper);
+			}
 		}
 	}
 }
@@ -393,7 +394,7 @@ impl ThreadLNode
 	// if the thread has already been destroyed via process exiting, this will return false
 	pub fn move_to (&mut self, state: ThreadState, mut gtlist: Option<&mut ThreadList>, mut proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
-		if !self.remove_from_current (gtlist.as_mut ().map (|t| &mut **t), proctlist.as_mut ().map (|t| &mut **t))
+		if !self.remove_from_current (gtlist.as_deref_mut (), proctlist.as_deref_mut ())
 		{
 			return false;
 		}
@@ -431,9 +432,10 @@ impl ThreadLNode
 	pub unsafe fn dealloc (&mut self)
 	{
 		// FIXME: smp reace condition if process is freed after initial thread () call
-		self.thread ().map (|thread| {
+		if let Some(thread) = self.thread ()
+		{
 			thread.process ().remove_thread (thread.tid).expect ("thread should have been in process");
-		});
+		}
 
 		let Self {
 			thread,

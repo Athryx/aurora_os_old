@@ -50,7 +50,7 @@ pub fn align_of (addr: usize) -> usize
 {
 	if addr == 0
 	{
-		return 0;
+		return 1 << 63;
 	}
 
 	let out: usize;

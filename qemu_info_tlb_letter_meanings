@@ -1,0 +1,28 @@
+letter (index)
+
+X (0):
+present: execute is diabled
+
+G (1):
+present: global page
+
+P (2):
+present: page is a big page
+
+D (3):
+present: page is dirty
+
+A (4):
+present: page is accesed
+
+C (5):
+present: pcd bit is set
+
+T (6):
+present: pwt bit is set
+
+U (7):
+present: page is a user page
+
+W (8):
+present: page is writable

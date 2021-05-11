@@ -44,6 +44,11 @@ SECTIONS
 		__RODATA_END = .;
 	}
 
+	.resources ALIGN(4K) : AT(ADDR(.resources) - __KERNEL_VMA)
+	{
+		*(.resources)
+	}
+
 	.data ALIGN(4K) : AT(ADDR(.data) - __KERNEL_VMA)
 	{
 		__DATA_START = .;

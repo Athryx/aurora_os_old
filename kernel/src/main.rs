@@ -15,6 +15,7 @@
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
+#![allow(clippy::suspicious_else_formatting)]
 
 extern crate alloc;
 
@@ -86,16 +87,13 @@ fn page_fault (regs: &Registers, code: u64) -> Option<&Registers>
 	{
 		"instruction fetch"
 	}
+	else if code & idt::PAGE_FAULT_WRITE != 0
+	{
+		"write"
+	}
 	else
 	{
-		if code & idt::PAGE_FAULT_WRITE != 0
-		{
-			"write"
-		}
-		else
-		{
-			"read"
-		}
+		"read"
 	};
 
 	// can't indent because it will print tabs
@@ -140,6 +138,7 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 #[no_mangle]
 pub extern "C" fn _start (boot_info_addr: usize) -> !
 {
+	bochs_break ();
 	// so you can tell when compiler output stops
 	eprintln! ("=========================== start kernel debug output ===========================");
 	let boot_info = unsafe { BootInfo::new (boot_info_addr) };
@@ -152,9 +151,9 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
+	//Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
-	//test ();
+	test ();
 
 	loop {
 		hlt ();
@@ -176,6 +175,10 @@ fn test ()
 fn test_thread_2 ()
 {
 	eprintln! ("join test thread started");
+	loop
+	{
+		hlt ();
+	}
 	thread_c ().block (ThreadState::Join(unsafe { join_tid }));
 	eprintln! ("finished joining");
 	thread_c ().block (ThreadState::Destroy);
@@ -240,5 +243,9 @@ fn test_thread_1 ()
 	println! ("{}", *a);
 	println! ("{}", *b);
 	eprintln! ("test finished");
+	loop
+	{
+		hlt ();
+	}
 	thread_c ().block (ThreadState::Destroy);
 }

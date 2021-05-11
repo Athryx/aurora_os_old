@@ -215,7 +215,7 @@ impl PhysRange
 
 	pub fn get_take_size (&self) -> Option<PageSize>
 	{
-		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
+		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_down_to_page_size (align_of (self.addr.as_u64 () as _))))
 	}
 
 	pub fn take (&mut self, size: PageSize) -> Option<PhysFrame>
@@ -228,13 +228,14 @@ impl PhysRange
 		else
 		{
 			let size = size as usize;
+			let addr = self.addr;
 			self.addr += size;
 			self.size -= size;
-			Some(PhysFrame::new (self.addr, PageSize::from_usize (size)))
+			Some(PhysFrame::new (addr, PageSize::from_usize (size)))
 		}
 	}
 
-	pub fn iter<'a> (&'a self) -> PhysRangeIter<'a>
+	pub fn iter (&self) -> PhysRangeIter
 	{
 		PhysRangeIter {
 			start: self.addr,
@@ -424,7 +425,7 @@ impl VirtRange
 
 	pub fn get_take_size (&self) -> Option<PageSize>
 	{
-		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_of (self.addr.as_u64 () as _)))
+		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_down_to_page_size (align_of (self.addr.as_u64 () as _))))
 	}
 
 	pub fn take (&mut self, size: PageSize) -> Option<VirtFrame>
@@ -437,13 +438,14 @@ impl VirtRange
 		else
 		{
 			let size = size as usize;
+			let addr = self.addr;
 			self.addr += size;
 			self.size -= size;
-			Some(VirtFrame::new (self.addr, PageSize::from_usize (size)))
+			Some(VirtFrame::new (addr, PageSize::from_usize (size)))
 		}
 	}
 
-	pub fn iter<'a> (&'a self) -> VirtRangeIter<'a>
+	pub fn iter (&self) -> VirtRangeIter
 	{
 		VirtRangeIter {
 			start: self.addr,

@@ -52,6 +52,16 @@ pub const FSBASE_MSR: u32 = 0xc0000100;
 pub const GSBASE_MSR: u32 = 0xc0000101;
 pub const GSBASEK_MSR: u32 = 0xc0000102;
 
+// bochs magic breakpoint
+#[inline]
+pub fn bochs_break ()
+{
+	unsafe
+	{
+		asm!( "xchg bx, bx", options (nomem, nostack))
+	}
+}
+
 #[inline]
 pub fn rdmsr (msr: u32) -> u64
 {

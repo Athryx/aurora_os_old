@@ -14,7 +14,10 @@ lazy_static!
 
 	// TODO: make global
 	static ref HIGHER_HALF_PAGE_POINTER: PageTablePointer = PageTablePointer::new (*consts::KZONE_PAGE_TABLE_POINTER,
-		PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::SUPERUSER);
+		PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+
+	// default page tableflags for any pages that map another page, these are the most permissive flags, and should be overriden by the final page
+	static ref PARENT_FLAGS: PageTableFlags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER;
 }
 
 pub type FAllocerType = ZoneManager;
@@ -33,7 +36,7 @@ bitflags!
 		const NONE = 		0;
 		const PRESENT = 	1;
 		const WRITABLE = 	1 << 1;
-		const SUPERUSER = 	1 << 2;
+		const USER = 		1 << 2;
 		const PWT = 		1 << 3;
 		const PCD = 		1 << 4;
 		const ACCESSED = 	1 << 5;
@@ -276,13 +279,13 @@ impl VirtLayout
 	// vec must have length greater than 0, otherwise None is returned
 	pub fn try_new (vec: Vec<VirtLayoutElement>) -> Option<Self>
 	{
-		if vec.len () > 0
+		if vec.is_empty ()
 		{
-			Some(VirtLayout(vec))
+			None
 		}
 		else
 		{
-			None
+			Some(VirtLayout(vec))
 		}
 	}
 
@@ -296,10 +299,9 @@ impl VirtLayout
 	{
 		for a in self.0.iter ()
 		{
-			match a
+			if let VirtLayoutElement::AllocedMem(allocation) = a
 			{
-				VirtLayoutElement::AllocedMem(allocation) => zm.dealloc (*allocation),
-				_ => (),
+				zm.dealloc (*allocation);
 			}
 		}
 	}
@@ -354,6 +356,7 @@ impl Iterator for PageMappingIterator
 {
 	type Item = (PhysFrame, VirtFrame);
 
+	// returns vframe with VirtAddr == 0 if mem should not be mapped, just reserved
 	fn next (&mut self) -> Option<Self::Item>
 	{
 		if self.pindex == self.phys_zone.0.len () || self.virt_zone.size () < PAGE_SIZE
@@ -395,21 +398,13 @@ impl Iterator for PageMappingIterator
 		let vframe = self.virt_zone.take (size).unwrap ();
 		let pframe = match self.phys_zone.0[self.pindex]
 		{
-			VirtLayoutElement::Mem(mut mem) => {
-				let out = mem.take (size).unwrap ();
-				if mem.size () < PAGE_SIZE
-				{
-					self.pindex += 1;
-				}
-				out
+			VirtLayoutElement::Mem(ref mut mem) => {
+				mem.take (size).unwrap ()
 			},
 			VirtLayoutElement::Empty(ref mut mem) => {
 				*mem -= size as usize;
-				if *mem < PAGE_SIZE
-				{
-					self.pindex += 1;
-				}
-				PhysFrame::new (PhysAddr::new (0), size)
+				let virt_frame = VirtFrame::new (VirtAddr::new (0), size);
+				return Some((PhysFrame::new (PhysAddr::new (0), size), virt_frame));
 			},
 			VirtLayoutElement::AllocedMem(_) => unreachable! (),
 		};
@@ -468,13 +463,19 @@ impl<T: FrameAllocator> VirtMapper<T>
 	{
 		// TODO: choose better zones based off alignment so more big pages cna be used saving tlb cache space
 		let size = phys_zones.size ();
-		let mut laddr = 0;
+		// leave page at 0 empty so null pointers will page fault
+		let mut laddr = PAGE_SIZE;
 		let mut found = false;
 
 		let mut btree = self.virt_map.lock ();
 
 		for zone in btree.keys ()
 		{
+			// TODO: remove because this is just testing
+			if zone.as_usize () == 0
+			{
+				continue;
+			}
 			let diff = zone.as_usize () - laddr;
 			if diff >= size
 			{
@@ -499,12 +500,17 @@ impl<T: FrameAllocator> VirtMapper<T>
 	pub unsafe fn map_at (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
 	{
 		let virt_zone = virt_zone.aligned ();
+		if virt_zone.as_usize () == 0
+		{
+			return Err(Err::new ("tried to map the null page"));
+		}
+
 		if phys_zones.size () != virt_zone.size ()
 		{
 			return Err(Err::new ("phys_zones and virt_zone size did not match"));
 		}
 
-		if virt_zone.end_usize () >= *MAX_MAP_ADDR
+		if virt_zone.end_usize () > *MAX_MAP_ADDR
 		{
 			return Err(Err::new ("attempted to map an address in the higher half kernel zone"));
 		}
@@ -541,6 +547,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let iter = PageMappingIterator::new (phys_zones, virt_zone);
 		for (pframe, vframe) in iter
 		{
+			// zone is reserved, no need to do anything
+			let pf = if vframe.start_addr () == VirtAddr::new (0)
+				{ continue; } else { PageTableFlags::PRESENT };
+
 			let addr = vframe.start_addr ().as_u64 () as usize;
 			let nums = [
 				get_bits (addr, 39..48),
@@ -548,9 +558,6 @@ impl<T: FrameAllocator> VirtMapper<T>
 				get_bits (addr, 21..30),
 				get_bits (addr, 12..21),
 			];
-
-			let pf = if pframe.start_addr () == PhysAddr::new (0)
-				{ PageTableFlags::NONE } else { PageTableFlags::PRESENT };
 
 			let (depth, hf) = match pframe
 			{
@@ -561,17 +568,17 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 			let mut ptable = self.cr3.lock ().as_mut ().unwrap ();
 
-			for a in 0..depth
+			for d in 0..depth
 			{
-				let i = nums[a];
-				if a == depth - 1
+				let i = nums[d];
+				if d == depth - 1
 				{
 					let flags = flags | pf | hf;
 					ptable.set (i, PageTablePointer::new (pframe.start_addr (), flags));
 				}
 				else
 				{
-					ptable = ptable.get_or_alloc (i, self.frame_allocer, flags);
+					ptable = ptable.get_or_alloc (i, self.frame_allocer, *PARENT_FLAGS);
 				}
 			}
 
@@ -589,6 +596,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let iter = PageMappingIterator::new (phys_zones.clone (), virt_zone);
 		for (pframe, vframe) in iter
 		{
+			// zone is reserved, no need to do anything
+			if vframe.start_addr () == VirtAddr::new (0)
+				{ continue; }
+
 			let addr = vframe.start_addr ().as_u64 () as usize;
 			let nums = [
 				get_bits (addr, 39..48),

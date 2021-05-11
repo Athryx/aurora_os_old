@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+#![feature(naked_functions)]
+#![feature(asm)]
+
 mod uses;
 
 use core::panic::PanicInfo;
@@ -16,6 +19,18 @@ fn panic(info: &PanicInfo) -> !
 	}
 }
 
-fn test ()
+#[no_mangle]
+#[naked]
+extern "C" fn start ()
 {
+	unsafe
+	{
+		asm!(
+			"mov al, 0x41",
+			"mov dx, 0xe9",
+			"lbl:",
+			"out dx, al",
+			"jmp lbl",
+			options (noreturn));
+	}
 }

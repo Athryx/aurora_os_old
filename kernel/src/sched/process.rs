@@ -111,9 +111,9 @@ impl Process
 		let elf = ElfParser::new (elf_data)?;
 		let sections = elf.program_headers ();
 
-		let priv_flag = if uid.as_cpu_priv ().is_ring0 ()
+		let priv_flag = if uid.as_cpu_priv ().is_ring3 ()
 		{
-			PageTableFlags::SUPERUSER
+			PageTableFlags::USER
 		}
 		else
 		{
@@ -134,14 +134,23 @@ impl Process
 				flags |= PageTableFlags::NO_EXEC;
 			}
 
-			let vrange = section.virt_range.aligned ();
-			let mem  = zm.allocz (vrange.size ())
-				.ok_or (Err::new ("not enough memory to load executable"))?;
+			// allocate section backing memory
+			// guarenteed to be aligned
+			let vrange = section.virt_range;
+			let mut mem  = zm.allocz (vrange.size ())
+				.ok_or_else (|| Err::new ("not enough memory to load executable"))?;
 
+			// copy section data over to memory
+			let memslice = unsafe
+			{
+				// mem is guarenteed to have enough space
+				core::slice::from_raw_parts_mut (mem.as_mut_ptr::<u8> ().add (section.data_offset), section.data.len ())
+			};
+			memslice.copy_from_slice (section.data);
+
+			// construct virtaddr layout
 			let v_elem = VirtLayoutElement::AllocedMem (mem);
-
-			let mut vec = Vec::new ();
-			vec.push (v_elem);
+			let vec = vec![v_elem];
 
 			let layout = VirtLayout::new (vec);
 
@@ -252,7 +261,7 @@ impl Drop for Process
 		// Need to drop all the threads first, because they asssume process is always alive if they are alive
 		// TODO: make this faster
 		let mut threads = self.threads.lock ();
-		while let Some(_) = threads.pop_first () {}
+		while threads.pop_first ().is_some () {}
 
 		loop
 		{

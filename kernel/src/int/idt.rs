@@ -98,7 +98,7 @@ impl Idt
 	fn load (&self)
 	{
 		let idtptr = IdtPointer {
-			limit: size_of::<Idt> as _,
+			limit: (size_of::<Idt> () - 1) as _,
 			base: (self as *const _) as _,
 		};
 	
@@ -200,7 +200,7 @@ impl Handler
 			match self
 			{
 				Self::First(func) => {
-					if let None = int_handlers[vec][0]
+					if int_handlers[vec][0].is_none ()
 					{
 						int_handlers[vec][0] = Some(*func);
 						Ok(())
@@ -213,7 +213,7 @@ impl Handler
 				Self::Normal(func) => {
 					for i in 1..MAX_HANDLERS
 					{
-						if let None = int_handlers[vec][i]
+						if int_handlers[vec][i].is_none ()
 						{
 							int_handlers[vec][i] = Some(*func);
 							return Ok(());
@@ -222,7 +222,7 @@ impl Handler
 					Err(Err::new ("couldn't register int handler for middle position"))
 				},
 				Self::Last(func) => {
-					if let None = int_handlers[vec][MAX_HANDLERS - 1]
+					if int_handlers[vec][MAX_HANDLERS - 1].is_none ()
 					{
 						int_handlers[vec][MAX_HANDLERS - 1] = Some(*func);
 						Ok(())
@@ -247,6 +247,8 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 	}
 
 	let vec = vec as usize;
+
+	// set call_rsp and call_save_rsp in regs data structure which are not set by assembly
 	if regs.cs & 0b11 != 0
 	{
 		let data = kdata::gs_data.lock ();
@@ -276,7 +278,11 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 
 	if let Some(regs) = out
 	{
-		gdt::tss.lock ().rsp0 = regs.call_rsp as _;
+		d ();
+		let mut gdt = gdt::tss.lock ();
+		let tss = &mut *gdt;
+		//gdt::tss.lock ().rsp0 = regs.call_rsp as _;
+		tss.rsp0 = regs.call_rsp as _;
 		let mut data = kdata::gs_data.lock ();
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
@@ -286,8 +292,6 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 	{
 		sti_inc ();
 	}
-
-	d ();
 
 	out
 }
@@ -309,54 +313,54 @@ macro_rules! minth {
 pub fn init ()
 {
 	// TODO: set IntHandlerType correctly
-	minth!(0, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(1, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(2, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(3, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(4, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(5, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(6, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(7, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(8, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(9, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(10, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(11, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(12, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(13, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(14, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(15, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(16, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(17, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(18, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(19, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(20, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(21, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(22, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(23, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(24, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(25, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(26, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(27, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(28, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(29, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(30, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(31, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(32, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(33, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(34, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(35, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(36, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(37, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(38, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(39, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(40, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(41, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(42, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(43, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(44, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(45, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(46, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
-	minth!(47, IntHandlerType::Interrupt, CPUPrivLevel::Ring3);
+	minth!(0, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(1, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(2, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(3, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(4, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(5, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(6, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(7, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(8, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(9, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(10, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(11, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(12, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(13, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(14, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(15, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(16, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(17, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(18, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(19, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(20, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(21, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(22, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(23, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(24, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(25, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(26, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(27, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(28, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(29, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(30, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(31, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(32, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(33, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(34, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(35, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(36, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(37, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(38, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(39, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(40, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(41, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(42, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(43, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(44, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(45, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(46, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(47, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 	minth!(128, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 
 	unsafe

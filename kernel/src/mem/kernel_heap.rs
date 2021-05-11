@@ -51,8 +51,8 @@ impl Node
 		let ptr = addr as *mut Node;
 
 		let out = Node {
-			prev: 0 as *mut _,
-			next: 0 as *mut _,
+			prev: null_mut (),
+			next: null_mut (),
 			size,
 		};
 		ptr.write (out);
@@ -123,8 +123,8 @@ impl HeapZone
 		let ptr = mem.as_usize () as *mut HeapZone;
 
 		let mut out = HeapZone {
-			prev: 0 as *mut _,
-			next: 0 as *mut _,
+			prev: null_mut (),
+			next: null_mut (),
 			mem,
 			free_space: size - INITIAL_CHUNK_SIZE,
 			list: LinkedList::new (),
@@ -148,13 +148,9 @@ impl HeapZone
 		(addr >= self.addr () + CHUNK_SIZE) && (addr + size <= self.addr () + CHUNK_SIZE + self.mem.len ())
 	}
 
-	// must already be removed from list
-	// drop wouldn't work, because no function would ever own this value
 	unsafe fn delete (&mut self)
 	{
-		let mem = self.mem;
-		mem::forget (self);
-		zm.dealloc (mem)
+		zm.dealloc (self.mem)
 	}
 
 	unsafe fn alloc (&mut self, layout: Layout) -> *mut u8
