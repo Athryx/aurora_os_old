@@ -28,7 +28,7 @@ abi:
 rax: arg 6, return value
 rbx: arg 2
 rcx: not saved
-rdx: arg 1
+rdx: arg 1, return value 2
 rbp: saved
 rsp: saved
 rsi[0-31]: syscall number

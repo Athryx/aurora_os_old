@@ -249,7 +249,6 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 	let vec = vec as usize;
 
 	// set call_rsp and call_save_rsp in regs data structure which are not set by assembly
-	if regs.cs & 0b11 != 0
 	{
 		let data = kdata::gs_data.lock ();
 		regs.call_rsp = data.call_rsp;
@@ -279,8 +278,7 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 	if let Some(regs) = out
 	{
 		d ();
-		let mut gdt = gdt::tss.lock ();
-		let tss = &mut *gdt;
+		let mut tss = gdt::tss.lock ();
 		//gdt::tss.lock ().rsp0 = regs.call_rsp as _;
 		tss.rsp0 = regs.call_rsp as _;
 		rprintln! ("tss.rsp0: {:x}", unsafe { tss.rsp0 });

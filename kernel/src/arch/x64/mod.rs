@@ -44,14 +44,6 @@ impl CPUPrivLevel
 	}
 }
 
-pub const EFER_MSR: u32 = 0xc0000080;
-// TODO: use bitflags
-pub const EFER_EXEC_DISABLE: u64 = 1 << 11;
-
-pub const FSBASE_MSR: u32 = 0xc0000100;
-pub const GSBASE_MSR: u32 = 0xc0000101;
-pub const GSBASEK_MSR: u32 = 0xc0000102;
-
 // bochs magic breakpoint
 #[inline]
 pub fn bochs_break ()
@@ -61,6 +53,20 @@ pub fn bochs_break ()
 		asm!( "xchg bx, bx", options (nomem, nostack))
 	}
 }
+
+pub const EFER_MSR: u32 = 0xc0000080;
+// TODO: use bitflags
+pub const EFER_EXEC_DISABLE: u64 = 1 << 11;
+pub const EFER_SYSCALL_ENABLE: u64 = 1;
+
+pub const FSBASE_MSR: u32 = 0xc0000100;
+pub const GSBASE_MSR: u32 = 0xc0000101;
+pub const GSBASEK_MSR: u32 = 0xc0000102;
+
+pub const STAR_MSR: u32 = 0xc0000081;
+pub const LSTAR_MSR: u32 = 0xc0000082;
+pub const RTAR_MSR: u32 = 0xc0000083;
+pub const FMASK_MSR: u32 = 0xc0000084;
 
 #[inline]
 pub fn rdmsr (msr: u32) -> u64

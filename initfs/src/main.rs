@@ -26,10 +26,11 @@ extern "C" fn start ()
 	unsafe
 	{
 		asm!(
-			"mov al, 0x41",
-			"mov dx, 0xe9",
 			"lbl:",
-			"out dx, al",
+			"mov rsi, 0",
+			"mov rdx, 53",
+			"syscall",
+			"out 0xe9, al",
 			"jmp lbl",
 			options (noreturn));
 	}

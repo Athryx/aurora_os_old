@@ -24,6 +24,7 @@ mod int;
 mod util;
 mod sched;
 mod mem;
+mod syscall;
 mod time;
 
 mod uses;
@@ -130,6 +131,8 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 
 	mem::init (boot_info);
 
+	syscall::init ();
+
 	sched::init ()?;
 
 	Ok(())
@@ -146,8 +149,6 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 	init (&boot_info).expect ("kernel init failed");
 
 	println! ("epoch v0.0.1");
-
-	//gdt::tss.lock ().rsp0 = align_up (get_rsp () + 0x100, 16) as u64;
 
 	sti_safe ();
 

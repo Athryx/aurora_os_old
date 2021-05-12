@@ -66,6 +66,7 @@ fn asm (out_dir: &str)
 		"boot/boot.asm",
 		"boot/long_init.asm",
 		"int/int.asm",
+		"syscall/syscall.asm",
 		"resources.asm",
 	];
 
