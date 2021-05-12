@@ -147,13 +147,13 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	println! ("epoch v0.0.1");
 
-	gdt::tss.lock ().rsp0 = align_up (get_rsp () + 0x100, 16) as u64;
+	//gdt::tss.lock ().rsp0 = align_up (get_rsp () + 0x100, 16) as u64;
 
 	sti_safe ();
 
-	//Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
+	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
-	test ();
+	//test ();
 
 	loop {
 		hlt ();

@@ -162,8 +162,6 @@ pub struct Thread
 	pub regs: IMutex<Registers>,
 	stack: Stack,
 	kstack: Option<Stack>,
-
-	run_time: usize,
 }
 
 impl Thread
@@ -215,7 +213,6 @@ impl Thread
 			regs: IMutex::new (regs),
 			stack,
 			kstack,
-			run_time: 0,
 		}))
 	}
 
@@ -240,7 +237,6 @@ impl Thread
 			regs: IMutex::new (regs),
 			stack,
 			kstack: None,
-			run_time: 0,
 		}))
 	}
 
@@ -252,6 +248,11 @@ impl Thread
 	pub fn tid (&self) -> usize
 	{
 		self.tid
+	}
+
+	pub fn name (&self) -> &str
+	{
+		&self.name
 	}
 }
 
@@ -276,10 +277,13 @@ unsafe impl Send for Thread {}
 unsafe impl Sync for Thread {}
 
 // TODO: should probably merge into one type with Thread
+// all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
 pub struct ThreadLNode
 {
 	pub thread: Weak<Thread>,
 	state: ThreadState,
+	pub run_time: u64,
+
 	prev: *mut Self,
 	next: *mut Self,
 }
@@ -295,6 +299,7 @@ impl ThreadLNode
 		let out = ThreadLNode {
 			thread,
 			state: ThreadState::Ready,
+			run_time: 0,
 			prev: null_mut (),
 			next: null_mut (),
 		};
@@ -440,6 +445,7 @@ impl ThreadLNode
 		let Self {
 			thread,
 			state: _,
+			run_time: _,
 			prev: _,
 			next: _,
 		} = self;
@@ -457,6 +463,7 @@ impl fmt::Debug for ThreadLNode
 		f.debug_struct ("ThreadLNode")
 			.field ("thread", &self.thread ())
 			.field ("state", &self.state)
+			.field ("run_time", &self.run_time)
 			.field ("prev", &self.prev)
 			.field ("next", &self.next)
 			.finish ()

@@ -10,6 +10,8 @@ lazy_static!
 }
 pub static tss: IMutex<Tss> = IMutex::new (Tss::new ());
 
+// TODO: compiler doesn't align these since they are packed, but that might slow things down
+
 #[repr(C, packed)]
 struct Gdt
 {
@@ -44,7 +46,7 @@ impl Gdt
 	fn load (&self)
 	{
 		let gdtptr = GdtPointer {
-			limit: size_of::<Gdt> () as _,
+			limit: (size_of::<Gdt> () - 1) as _,
 			base: (self as *const _) as _,
 		};
 
@@ -166,7 +168,7 @@ impl Tss
 			zero4: 0,
 			//iomap: size_of::<Tss> () as _,
 			//iomap: 0,
-			iomap: 0xdfff,
+			iomap: size_of::<Tss> () as u16,
 		}
 	}
 }
@@ -196,8 +198,8 @@ impl TssEntry
 			base3: get_bits (addr, 24..32) as _,
 			base4: get_bits (addr, 32..64) as _,
 			access: 0x89,
-			//limit1: (size_of::<Tss> () - 1) as _, // length of tss
-			limit1: size_of::<Tss> () as _, // length of tss
+			limit1: (size_of::<Tss> () - 1) as _, // length of tss
+			//limit1: size_of::<Tss> () as _, // length of tss
 			limit2_flags: 0, // both limit2 and flags are 0
 			zero: 0,
 		}
@@ -207,4 +209,11 @@ impl TssEntry
 pub fn init ()
 {
 	gdt.load ();
+
+	unsafe
+	{
+		asm! ("ltr di",
+			inout("di") 0x28 => _,
+		);
+	}
 }

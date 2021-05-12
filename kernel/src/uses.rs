@@ -17,6 +17,5 @@ use crate::arch::x64;
 
 pub fn d ()
 {
-	rprintln! ("debug");
 	x64::bochs_break ();
 }

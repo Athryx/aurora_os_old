@@ -1,5 +1,6 @@
 use spin::Mutex;
 use core::sync::atomic::{AtomicU16, AtomicU64, Ordering};
+use core::time::Duration;
 use crate::uses::*;
 use crate::arch::x64::*;
 use crate::sched::Registers;
@@ -87,9 +88,9 @@ impl Pit
 		}
 	}
 
-	pub fn sec (&self) -> u64
+	pub fn duration (&self) -> Duration
 	{
-		(self.nsec () + 500000000) / NANOSEC_PER_SEC
+		Duration::from_nanos (self.nsec ())
 	}
 
 	// less accurate, but faster
@@ -99,9 +100,9 @@ impl Pit
 		self.elapsed_time.load (Ordering::Relaxed)
 	}
 
-	pub fn sec_no_latch (&self) -> u64
+	pub fn duration_no_latch (&self) -> Duration
 	{
-		(self.nsec_no_latch () + 500000000) / NANOSEC_PER_SEC
+		Duration::from_nanos (self.nsec_no_latch ())
 	}
 }
 

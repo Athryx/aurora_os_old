@@ -1,6 +1,7 @@
 use spin::Mutex;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use core::time::Duration;
+use core::ops::{Index, IndexMut};
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
@@ -10,9 +11,9 @@ use crate::arch::x64::{cli_safe, sti_safe, sti_inc, rdmsr, wrmsr, EFER_MSR, EFER
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
+use crate::gdt::tss;
 pub use process::Process;
 pub use thread::{Thread, ThreadLNode, ThreadState};
-use core::ops::{Index, IndexMut};
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
@@ -26,6 +27,8 @@ use core::ops::{Index, IndexMut};
 
 // FIXME: there are a few possible race conditions with smp and (planned) process exit syscall
 
+// FIXME: there is a current race condition that only happens very rarely
+
 mod process;
 mod thread;
 mod elf;
@@ -34,8 +37,8 @@ static tlist: IMutex<ThreadList> = IMutex::new (ThreadList::new ());
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());
 
 // amount of time that elapses before we will switch to a new thread in nanoseconds
-// current value is 50 milliseconds
-const SCHED_TIME: u64 = 50000000;
+// current value is 100 milliseconds
+const SCHED_TIME: u64 = 100000000;
 static last_switch_nsec: AtomicU64 = AtomicU64::new (0);
 
 // TODO: make this cpu local data
@@ -72,7 +75,7 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 
 	if nsec - last_switch_nsec.load (Ordering::Relaxed) > SCHED_TIME
 	{
-		out = schedule (regs);
+		out = schedule (regs, nsec);
 	}
 
 	// returning from interrupt handler will set old flags
@@ -88,7 +91,7 @@ fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 {
 	lock ();
 
-	let out = schedule (regs);
+	let out = schedule (regs, timer.nsec ());
 
 	// returning from interrupt handler will set old flags
 	defer_unlock ();
@@ -109,7 +112,7 @@ fn int_sched ()
 // if it does, schedule sets the old thread's registers to be regs, switches address
 // space if necessary, and returns the new thread's registers
 // schedule will disable interrupts if necessary
-fn schedule (_regs: &Registers) -> Option<&Registers>
+fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 {
 	let mut thread_list = tlist.lock ();
 
@@ -132,6 +135,10 @@ fn schedule (_regs: &Registers) -> Option<&Registers>
 	};
 
 	let old_thread = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
+
+	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::Relaxed);
+	old_thread.run_time += nsec_current - nsec_last;
+
 	// FIXME: smp race condition
 	let old_process = old_thread.thread ().unwrap ().process ();
 	let mut tlproc_list = old_process.tlproc.lock ();
