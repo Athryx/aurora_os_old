@@ -190,10 +190,10 @@ fn thread_cleaner ()
 	loop
 	{
 		// TODO: probably a good idea to put this logic in separate function
+		// FIXME: there might be a race condition here (bochs freezes, but not qemu)
 		loop
 		{
 			let mut thread_list = tlist.lock ();
-			d ();
 			let tpointer = match thread_list[ThreadState::Destroy].pop_front ()
 			{
 				Some(thread) => thread,

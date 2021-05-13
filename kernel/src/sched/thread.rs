@@ -47,7 +47,7 @@ impl Stack
 		];
 		let vlayout = VirtLayout::new (elem_vec);
 
-		let flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXEC;
+		let flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXEC | PageTableFlags::USER;
 		let vrange = unsafe { mapper.map (vlayout, flags)? };
 
 		Ok(Self::User(vrange))

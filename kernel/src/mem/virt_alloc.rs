@@ -548,8 +548,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 		for (pframe, vframe) in iter
 		{
 			// zone is reserved, no need to do anything
-			let pf = if vframe.start_addr () == VirtAddr::new (0)
-				{ continue; } else { PageTableFlags::PRESENT };
+			if vframe.start_addr () == VirtAddr::new (0)
+			{
+				continue;
+			}
 
 			let addr = vframe.start_addr ().as_u64 () as usize;
 			let nums = [
@@ -573,7 +575,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 				let i = nums[d];
 				if d == depth - 1
 				{
-					let flags = flags | pf | hf;
+					let flags = flags | PageTableFlags::PRESENT | hf;
 					ptable.set (i, PageTablePointer::new (pframe.start_addr (), flags));
 				}
 				else
@@ -598,7 +600,9 @@ impl<T: FrameAllocator> VirtMapper<T>
 		{
 			// zone is reserved, no need to do anything
 			if vframe.start_addr () == VirtAddr::new (0)
-				{ continue; }
+			{
+				continue;
+			}
 
 			let addr = vframe.start_addr ().as_u64 () as usize;
 			let nums = [
