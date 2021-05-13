@@ -241,7 +241,7 @@ impl Handler
 extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) -> Option<&Registers>
 {
 	// the only ones where interrupt disable matters, the rest I don't know if they do disable interrupts or not
-	if vec == IRQ_TIMER || vec == INT_SCHED
+	//if vec == IRQ_TIMER || vec == INT_SCHED
 	{
 		cli_inc ();
 	}
@@ -287,7 +287,7 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		data.call_save_rsp = regs.call_save_rsp;
 	}
 
-	if vec as u8 == IRQ_TIMER || vec as u8 == INT_SCHED
+	//if vec as u8 == IRQ_TIMER || vec as u8 == INT_SCHED
 	{
 		sti_inc ();
 	}

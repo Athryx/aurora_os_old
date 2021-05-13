@@ -22,4 +22,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.cargo-sysroot]
-target = "../x86_64-os-userland-entry.json"
+target = "../x86_64-os-userland.json"

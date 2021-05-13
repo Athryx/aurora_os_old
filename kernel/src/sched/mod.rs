@@ -193,6 +193,7 @@ fn thread_cleaner ()
 		loop
 		{
 			let mut thread_list = tlist.lock ();
+			d ();
 			let tpointer = match thread_list[ThreadState::Destroy].pop_front ()
 			{
 				Some(thread) => thread,

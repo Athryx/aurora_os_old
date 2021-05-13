@@ -3,7 +3,6 @@
 ISO_FILE="kernel/kernel.iso"
 SUBDIRS="initfs kernel"
 
-# first arg is builddir, second is out file, and third is build system arg
 cd $(dirname $0)
 
 for SUBDIR in $SUBDIRS

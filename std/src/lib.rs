@@ -1,20 +1,11 @@
 #![no_std]
 
-mod uses;
+#![feature(lang_items)]
 
-use core::panic::PanicInfo;
+mod uses;
+mod rt;
+mod panicking;
+
 use uses::*;
 
-#[panic_handler]
-fn panic(info: &PanicInfo) -> !
-{
-	//println! ("{}", info);
-	//eprintln! ("{}", info);
-
-	loop {
-	}
-}
-
-fn test ()
-{
-}
+pub use core::*;

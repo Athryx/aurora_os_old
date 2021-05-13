@@ -1,1 +1,1 @@
-ENTRY(start)
+ENTRY(main)

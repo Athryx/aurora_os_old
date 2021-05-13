@@ -134,7 +134,7 @@ impl PageTable
 
 	fn inc_count (&mut self, n: isize)
 	{
-		self.set_count ((self.count () as isize - n) as _);
+		self.set_count ((self.count () as isize + n) as _);
 	}
 
 	fn present (&self, index: usize) -> bool
@@ -426,7 +426,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 	// TODO: lazy tlb flushing
 	pub fn new (frame_allocer: &'static T) -> VirtMapper<T>
 	{
-		let mut pml4_table = PageTable::new (frame_allocer, PageTableFlags::PRESENT, false);
+		let mut pml4_table = PageTable::new (frame_allocer, PageTableFlags::NONE, false);
 		// NOTE: change index if kernel_vma changes
 		unsafe
 		{

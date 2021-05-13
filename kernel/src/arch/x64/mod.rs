@@ -119,7 +119,7 @@ pub fn set_flags (flags: usize)
 {
 	unsafe
 	{
-		asm!("push {}\npopfq", in(reg) flags, options(nomem));
+		asm!("push {}\npopfq", in(reg) flags);
 	}
 }
 
@@ -208,14 +208,14 @@ pub fn set_int_enabled (enabled: bool)
 }
 
 #[derive(Debug)]
-struct IntDisable
+pub struct IntDisable
 {
 	old_status: bool,
 }
 
 impl IntDisable
 {
-	fn new () -> Self
+	pub fn new () -> Self
 	{
 		let old_status = is_int_enabled ();
 		cli ();

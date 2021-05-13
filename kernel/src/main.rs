@@ -98,12 +98,12 @@ fn page_fault (regs: &Registers, code: u64) -> Option<&Registers>
 	};
 
 	// can't indent because it will print tabs
-	panic! (r"page fault accessing virtual address {}
+	panic! (r"page fault accessing virtual address {:x}
 page fault during {} {}
 non present page: {}
 reserved bit set: {}
 registers:
-{:?}",
+{:x?}",
 			get_cr2 (),
 			ring, action,
 			code & idt::PAGE_FAULT_PROTECTION == 0,
