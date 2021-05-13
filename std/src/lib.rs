@@ -1,6 +1,9 @@
 #![no_std]
 
 #![feature(lang_items)]
+#![feature(asm)]
+
+pub mod os;
 
 mod uses;
 mod rt;

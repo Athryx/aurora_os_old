@@ -152,7 +152,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
+	//Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
 	//test ();
 
@@ -166,11 +166,23 @@ static mut join_tid: usize = 0;
 
 fn test ()
 {
+	let mut num = 141;
+	let test_closure = move || {
+		eprintln! ("test closure ran");
+		eprintln! ("num {}", num);
+		num += 1;
+		eprintln! ("num + 1 {}", num);
+		thread_c ().block (ThreadState::Destroy);
+	};
 	unsafe
 	{
 		join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
 	}
 	proc_c ().new_thread (test_thread_2, Some("join_test_thread".to_string ())).unwrap ();
+	/*unsafe
+	{
+		proc_c ().new_thread (core::mem::transmute (&test_closure), Some("closure_test_thread".to_string ())).unwrap ();
+	}*/
 }
 
 fn test_thread_2 ()

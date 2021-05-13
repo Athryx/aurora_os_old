@@ -46,6 +46,10 @@ pub fn init ()
 
 	// tell cpu to disable interrupts on syscall_entry
 	wrmsr (FMASK_MSR, 0x200);
+
+	// load correct segment values after syscall and sysret
+	wrmsr (STAR_MSR, 0x0013000800000000);
+
 	reg_syscall_handler (0, sys_hi as usize);
 	reg_syscall_handler (2, thread_new as usize);
 	reg_syscall_handler (3, thread_block as usize);
