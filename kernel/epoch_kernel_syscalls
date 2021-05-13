@@ -56,7 +56,7 @@ creates a new thread and returns its id
 the thread func should not return, it should call thread_block with destroy in order to terminate itself
 
 return value:
-0: failed to create new thread
+usize_max: failed to create new thread
 any other value: thread id
 
 

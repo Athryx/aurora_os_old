@@ -1,5 +1,6 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
+use crate::sched::sys::{thread_new, thread_block};
 
 extern "C"
 {
@@ -7,24 +8,7 @@ extern "C"
 }
 
 #[no_mangle]
-static mut syscalls: [usize; 16] = [
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0,
-];
+static mut syscalls: [usize; 16] = [0; 16];
 
 extern "C" fn sys_hi (vals: &SyscallVals, options: u32, num: usize) -> usize
 {
@@ -62,9 +46,7 @@ pub fn init ()
 
 	// tell cpu to disable interrupts on syscall_entry
 	wrmsr (FMASK_MSR, 0x200);
-
-	// load correct segment values after syscall and sysret
-	wrmsr (STAR_MSR, 0x0013000800000000);
-
 	reg_syscall_handler (0, sys_hi as usize);
+	reg_syscall_handler (2, thread_new as usize);
+	reg_syscall_handler (3, thread_block as usize);
 }

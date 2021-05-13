@@ -29,6 +29,7 @@ pub use thread::{Thread, ThreadLNode, ThreadState};
 
 // FIXME: there is a current race condition that only happens very rarely
 
+pub mod sys;
 mod process;
 mod thread;
 mod elf;
