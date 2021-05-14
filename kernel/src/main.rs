@@ -152,7 +152,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-	//Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
+	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
 	//test ();
 

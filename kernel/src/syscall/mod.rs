@@ -7,33 +7,56 @@ extern "C"
 	fn syscall_entry ();
 }
 
-#[no_mangle]
-static mut syscalls: [usize; 16] = [0; 16];
+pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
-extern "C" fn sys_hi (vals: &SyscallVals, options: u32, num: usize) -> usize
-{
-	println! ("hi");
-	eprintln! ("vals: {:#x?}", vals);
-	eprintln! ("options {:x}", options);
-	eprintln! ("num {}", num);
-	0x43
-}
+#[no_mangle]
+static mut syscalls: [SyscallFunc; 16] = [
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+];
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct SyscallVals
 {
+	options: usize,
+	a1: usize,
+	a2: usize,
+	a3: usize,
+	a4: usize,
+	a5: usize,
+	a6: usize,
+	a7: usize,
+	a8: usize,
+	a9: usize,
+	a10: usize,
 	rip: usize,
 	rsp: usize,
 	rflags: usize,
 }
 
-pub fn reg_syscall_handler (syscall: u32, addr: usize)
+extern "C" fn sys_hi (vals: &mut SyscallVals)
 {
-	unsafe
-	{
-		syscalls[syscall as usize] = addr;
-	}
+	println! ("hi");
+	eprintln! ("vals: {:#x?}", vals);
+	eprintln! ("options {:x}", vals.options);
+	eprintln! ("num {}", vals.a1);
+	vals.a1 = 0x43;
+	vals.a2 = 0x53;
 }
 
 pub fn init ()
@@ -49,8 +72,4 @@ pub fn init ()
 
 	// load correct segment values after syscall and sysret
 	wrmsr (STAR_MSR, 0x0013000800000000);
-
-	reg_syscall_handler (0, sys_hi as usize);
-	reg_syscall_handler (2, thread_new as usize);
-	reg_syscall_handler (3, thread_block as usize);
 }

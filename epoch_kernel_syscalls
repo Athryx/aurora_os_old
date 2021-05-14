@@ -1,50 +1,63 @@
 TODO:
-figure out how that whole execfolder thing will work
+more descriptive error values
 
 decide if vfs should go in kernel or not
 if it does, can probably remove the info syscall and just use a proc like filesystem
 also decide if files should be like unix or not (thinking no)
 
-figure out if exec and fork should be a thing
-(currently thinking probably not)
-
-figure out how to implement exit code if fork and exec are not a thing
-
 allow memory to be alloced at certain virtual addressess
 
-figure out details in msg
+allow for setting read write permissions on certain memory
 
-figure out how reg and domains would work
+pledge like syscall
+
+syscall to get groups that pid is part of
 
 figure out how user permissions would work
 
 
-abi:
-rax: arg 6, return value
-rbx: arg 2
+syscall abi:
+rax[0-31]: syscall number
+rax[32-63]: syscall options
+rbx: arg 1, return 1
 rcx: not saved
-rdx: arg 1, return value 2
+rdx: arg 2, return 2
 rbp: saved
 rsp: saved
-rsi[0-31]: syscall number
-rsi[32-63]: syscall options
-rdi: arg 5
-r8: arg 3
-r9: arg 4
+rsi: arg 3, return 3
+rdi: arg 4, return 4
+r8: arg 5, return 5
+r9: arg 6, return 6
 r10: not saved
 r11: not saved
-r12: arg 7, saved if unused
-r13: arg 8, saved if unused
-r14: arg 9, saved if unused
-r15: arg 10, saved if unused
+r12: arg 7, return 7
+r13: arg 8, return 8
+r14: arg 9, return 9
+r15: arg 10, return 10
 
-bit 0 of options should always be set if syscall uses arg 7-10
+all args are saved if they are not used by a particular syscall to return a value
+
+the kernel uses a similar abi to call message handlers
+message handler abi:
+rax: flags
+rbx: sender pid
+rcx: unused
+rdx: domain
+rbp: unused
+rsp: unused
+rsi: arg 1
+rdi: arg 2
+r8: arg 3
+r9: arg 4
+r10: unused
+r11: unused
+r12: arg 5
+r13: arg 6
+r14: arg 7
+r15: arg 8
 
 
 0: info
-
-
-1: exec
 
 
 2: fn thread_new (rip: usize) -> usize
@@ -56,7 +69,7 @@ usize_max: failed to create new thread
 any other value: thread id
 
 
-3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize | futex_addr: usize)
+3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize)
 blocks the calling thread with reason {reason}
 
 reason:
@@ -92,6 +105,9 @@ memory zone or into a non shared memory zone
 // I don't know if this will stay
 
 
+10: set_thread_properties
+
+
 11: fn realloc (mem: usize, size: usize) -> usize
 allocates, rellocates, or frees memory pointed to by mem
 
@@ -107,20 +123,21 @@ if {mem} != 0 and {size} != 0:
 
 12: fn mmap (phys_addr: usize, n: usize) -> usize
 maps n pages starting at physical address phys_addr into the calling process's address space
-only superuser processes can call mmap
+only superuser or iopriv processes can call mmap
 
 return value:
 0: mmap was called with insufficent privallages or the requested memory zone is not memory mapped io
-virtual address of mapped region
+any other value: virtual address of mapped region
 
 
 13: fn munmap (virt_addr: usize)
 unmaps memory previously mapped by mmap
-only superuser processes can call munmap
+only superuser or iopriv processes can call munmap
 
 
 14: fn pmap (port: usize) -> usize
 allows the process to use port {port}
+only superuser or iopriv processes can call munmap
 
 return value:
 0: success
@@ -129,6 +146,7 @@ return value:
 
 15: fn punmap (port: usize)
 the process can no longer use port {port}
+only superuser or iopriv processes can call munmap
 
 
 16: fn salloc (pages: usize) -> usize
@@ -141,25 +159,68 @@ removes the shared memory from current address space, and once all processes tha
 free it, shared memory is deallocated from physical memory
 
 
-18: fn reg (domain: usize) -> usize
+18: fn smem_size (addr: usize) -> usize
+returns the size of shared memory at {addr} in pages
+returns 0 if there is no shared memory at {addr}
 
 
-19: fn msg (eid: *const c_char | pid: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, | a6: usize, | a7: usize, | a8: usize, | a9: usize) -> usize
-
+19: fn reg (domain: usize, rip: usize, | gid: usize) -> usize
+register function at instrcution pointer {rip} to handle messages with domain {domain}
 
 options:
+bit 0 (reg_block):
+0: will spawn a new thread to handle the message
+1: will block the current thread and switch to a temporary stack to handle the message
+use msg_return to leave this temporary stack
 
-bit 0 (msg_eargs):
-0: send args a1 to a5 to process
-1: send args a1 to a9 to process, a6 to a9 may not be saved
+bit 1 (reg_default):
+0: reg registers function only for specified domain
+1: reg registers function to respond to all domains that don't have an infividual function registered to handle them
 
-bit 1 (msg_pid):
+bit 2 (reg_public):
+TODO: explain application modules and trees better
+0: private, domain cannot be messaged from an application not in the same module in the application tree
+1: public, domain can be messaged from outside the application module, assuming parent application modules are public
+
+bit 3 (reg_group):
+0: ignore gid argument
+1: applications must be member of group specified by {gid} to message this domain
+repated calls with {rip} == 0  and reg_group bit set will allow multiple groups to access this domain
+
+return value:
+0: success
+1: failure
+
+
+20: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, | a5: usize, | a6: usize, | a7: usize, | a8: usize) -> usize
+send a message to another process
+
+options:
+bit 0 (msg_pid):
 0: send message to all processes with executable id specified in arg
 1: send message to process with pid
 
-bit 2 (msg_block):
+bit 1 (msg_block):
+0: do not wait for reply from other process
+if the other process replies, the handler registered for the reply domain will be called
+1: block until other process replies
+if the other process replies, the data will be put in this processes registers
 
+bit 4-7 (smem_transfer_mask):
+transfers shared memory pointed to by a certain register to other process
+the recieving process has the memory mapped in their address space, and recieves a pointer to the memory in the respective register
+the calling process also recieves the size of the shared memory in the next register
+this means that the argument adjacent to the sending process is not sent
+bit 4 set: transfers a1
+bit 5 set: transfers a3
+bit 6 set: transfers a5
+bit 7 set: transfers a7
 
 return value:
 0: success
 1: no process with eid or pid exists
+
+
+21: fn msg_return ()
+returns off the message stack, and back to the regular stack, and restores all original registers
+causes any other threads waiting for a reply to unblock

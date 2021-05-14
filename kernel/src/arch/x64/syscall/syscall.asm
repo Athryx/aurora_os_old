@@ -18,53 +18,59 @@ syscall_entry:
 	push r11		; save old flags
 	push r10		; save old rsp
 
-	;mov r11, [gs:gs_data.call_save_rsp]	; need to update call_save_rsp in thread data structure
-	;mov r10, _ZN5sched8thread_cE		; need to do this to get around relocation issue
-	;add r10, registers.call_save_rsp
-	;mov [r10], r11
 	swapgs
 	sti
 
 	push rcx		; save return rip
 
-	sub rsp, 8		; for 16 byte alignment when calling c function
-	push r15		; push args on stack, needed here because rax is used
+	push r15		; push args on stack
 	push r14
 	push r13
 	push r12
-	push rax
+	push r9
+	push r8
 	push rdi
+	push rsi
+	push rdx
+	push rbx
 
-	mov rax, rsi
+	mov rcx, rax	; push options
+	shr rcx, 32
+	push rcx
+
 	shl rax, 32		; cant use and because it messes things up
 	shr rax, 32
 
-	cmp rax, 15		; make sure it is a valid syscall
+	cmp rax, 21		; make sure it is a valid syscall
 	jg .invalid_syscall
 
-	mov rcx, rbx		; move argument 2 into place
-
-	shr rsi, 32
-
-	lea rdi, [rsp + 0x38]	; move syscall_vals_t structure pointer into place
+	mov rdi, rsp
+	sub rsp, 8		; align stack
 
 	mov r10, syscalls
 	mov rax, [r10 + rax * 8]
 	call rax		; stack is already 16 byte aligned
 
+	add rsp, 8		; put stack pointer to right place
+	pop rax
+
 	jmp .valid_syscall
 
 .invalid_syscall:
+	add rsp, 16
 	mov rax, -1 
-	mov rdx, -1
 
 .valid_syscall:
-	add rsp, 16		; put stack pointer to right place
+	pop rbx
+	pop rdx
+	pop rsi
+	pop rdi
+	pop r8
+	pop r9
 	pop r12
 	pop r13
 	pop r14
 	pop r15
-	add rsp, 8
 
 	pop rcx			; restore return rip
 	pop r10			; read old rsp

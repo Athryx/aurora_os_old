@@ -17,7 +17,7 @@ use super::{Registers, ThreadList, int_sched, tlist};
 
 const USER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 // FIXME: temporarily setting IOPL to 3 for testing
-const IOPRIV_REGS: Registers = Registers::new (0x3002, 0x23, 0x1b);
+const IOPRIV_REGS: Registers = Registers::new (0x3202, 0x23, 0x1b);
 //const IOPRIV_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 const SUPERUSER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
 const KERNEL_REGS: Registers = Registers::new (0x202, 0x08, 0x10);
