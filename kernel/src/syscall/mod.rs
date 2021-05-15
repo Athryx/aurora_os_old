@@ -1,6 +1,7 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
 use crate::sched::sys::{thread_new, thread_block};
+use crate::mem::sys::realloc;
 
 extern "C"
 {
@@ -10,7 +11,11 @@ extern "C"
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
-static mut syscalls: [SyscallFunc; 16] = [
+static syscalls: [SyscallFunc; 16] = [
+	sys_hi,
+	sys_hi,
+	thread_new,
+	thread_block,
 	sys_hi,
 	sys_hi,
 	sys_hi,
@@ -18,11 +23,7 @@ static mut syscalls: [SyscallFunc; 16] = [
 	sys_hi,
 	sys_hi,
 	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
+	realloc,
 	sys_hi,
 	sys_hi,
 	sys_hi,
@@ -33,20 +34,21 @@ static mut syscalls: [SyscallFunc; 16] = [
 #[repr(C, packed)]
 pub struct SyscallVals
 {
-	options: usize,
-	a1: usize,
-	a2: usize,
-	a3: usize,
-	a4: usize,
-	a5: usize,
-	a6: usize,
-	a7: usize,
-	a8: usize,
-	a9: usize,
-	a10: usize,
-	rip: usize,
-	rsp: usize,
-	rflags: usize,
+	pub options: u32,
+	unused: u32,
+	pub a1: usize,
+	pub a2: usize,
+	pub a3: usize,
+	pub a4: usize,
+	pub a5: usize,
+	pub a6: usize,
+	pub a7: usize,
+	pub a8: usize,
+	pub a9: usize,
+	pub a10: usize,
+	pub rip: usize,
+	pub rsp: usize,
+	pub rflags: usize,
 }
 
 extern "C" fn sys_hi (vals: &mut SyscallVals)

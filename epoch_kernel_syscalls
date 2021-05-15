@@ -5,10 +5,6 @@ decide if vfs should go in kernel or not
 if it does, can probably remove the info syscall and just use a proc like filesystem
 also decide if files should be like unix or not (thinking no)
 
-allow memory to be alloced at certain virtual addressess
-
-allow for setting read write permissions on certain memory
-
 pledge like syscall
 
 syscall to get groups that pid is part of
@@ -60,13 +56,16 @@ r15: arg 8
 0: info
 
 
-2: fn thread_new (rip: usize) -> usize
+2: fn thread_new (rip: usize) -> (tid: usize, err: usize)
 creates a new thread and returns its id
-the thread func should not return, it should call thread_block with destroy in order to terminate itself
+the thread function should not return, it should call thread_block with destroy in order to terminate itself
 
 return value:
-usize_max: failed to create new thread
-any other value: thread id
+tid:
+thread id
+err:
+0: success
+1: error, could not create thread, value in .0 is garbage
 
 
 3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize)
@@ -108,20 +107,57 @@ memory zone or into a non shared memory zone
 10: set_thread_properties
 
 
-11: fn realloc (mem: usize, size: usize) -> usize
+11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (mem: usize, len: usize, err: usize)
 allocates, rellocates, or frees memory pointed to by mem
 
 if {mem} == 0:
-	allocates {size} pages, returns pointer on succes or 0 on failure
-	returns 0 if {size} == 0
-if {mem} != 0 and {size} == 0:
+	allocates {len} pages, returns pointer on succes or 0 on failure
+	returns 0 if {len} == 0
+if {mem} != 0 and {len} == 0:
 	frees pages pointed to by {mem} and returns 1 on success or 0 on failure
-if {mem} != 0 and {size} != 0:
-	reallocates pages to have size {size} and returns pointer on success or 0 on failure
+if {mem} != 0 and {len} != 0:
+	reallocates pages to have len {len} and returns pointer on success or 0 on failure
 	if it fails, the original pages will still be allocated and must be freed later
 
+if {at_addr} == 0, realloc will pick a suitable virtual address to allocae the memory at
 
-12: fn mmap (phys_addr: usize, n: usize) -> usize
+if {at_addr} != 0, realloc will ensure that the allocated memory starts at address {at_addr}
+if it cannot fit the memory at this address, it will fail
+note: if realloc is allocing at a certain addrss, it may still fail even if there is enough space for {len} pages
+this is because realloc may try to map more memory in the virtual address soace than specified by {len}
+to ensure this doesn't happen, set the optsion realloc_exact
+
+options:
+bit 0 (read):
+allows reading of memory
+
+bit 1 (write):
+allows writing to memory
+
+bit 2 (exec):
+allows executing instrcutions from memory
+
+On x86, a page will always be readable, even if read bit is set to 0,
+unless wrtie and exec are also set to 0, in which case realloc will just reserve
+the virtual memory, and not actually allocate anything
+
+bit 4 (realloc_exact):
+0: returned memory could be longer then specified {len}
+1: returned memory is exactly as long as {len}
+specifieng this option could lead to wasted physical memory
+
+return value:
+mem:
+pointer to start of memory, or 0 if all memory was freed or there was an error
+len:
+length of memory allocated in pages, this is guarenteed to ba at least {len} pages long,
+but it could be longer than specified, unless the realloc_exact option is specified
+err:
+0: success
+1: failure
+
+
+12: fn mmio_map (phys_addr: usize, n: usize) -> usize
 maps n pages starting at physical address phys_addr into the calling process's address space
 only superuser or iopriv processes can call mmap
 
@@ -130,12 +166,12 @@ return value:
 any other value: virtual address of mapped region
 
 
-13: fn munmap (virt_addr: usize)
+13: fn mmio_unmap (virt_addr: usize)
 unmaps memory previously mapped by mmap
 only superuser or iopriv processes can call munmap
 
 
-14: fn pmap (port: usize) -> usize
+14: fn port_map (port: usize) -> usize
 allows the process to use port {port}
 only superuser or iopriv processes can call munmap
 
@@ -144,7 +180,7 @@ return value:
 1: failure
 
 
-15: fn punmap (port: usize)
+15: fn port_unmap (port: usize)
 the process can no longer use port {port}
 only superuser or iopriv processes can call munmap
 
@@ -153,7 +189,7 @@ only superuser or iopriv processes can call munmap
 allocate shared memory to be shared with msg
 
 
-17: fn sfree (addr: usize)
+17: fn sdealloc (addr: usize)
 free shared memory allocated by salloc or recieved by another process
 removes the shared memory from current address space, and once all processes that had it
 free it, shared memory is deallocated from physical memory
@@ -164,7 +200,26 @@ returns the size of shared memory at {addr} in pages
 returns 0 if there is no shared memory at {addr}
 
 
-19: fn reg (domain: usize, rip: usize, | gid: usize) -> usize
+19: mprotect (addr: usize) -> usize
+sets the read, write, and execute permissions on a chunk of memory
+mprotect cannot be called on shared memory after it has already been shared
+
+options:
+bit 0 (read):
+allows reading of memory
+
+bit 1 (write):
+allows writing to memory
+
+bit 2 (exec):
+allows executing instrcutions from memory
+
+return valus:
+0: success
+1: failure
+
+
+20: fn reg (domain: usize, rip: usize, | gid: usize) -> usize
 register function at instrcution pointer {rip} to handle messages with domain {domain}
 
 options:
@@ -191,8 +246,10 @@ return value:
 0: success
 1: failure
 
+Please wait, the meeting host will let you in soon.
+1ST Adv. Eng./ Sr. Engineering I.S./ Arch. Design I.S.
 
-20: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, | a5: usize, | a6: usize, | a7: usize, | a8: usize) -> usize
+21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, | a5: usize, | a6: usize, | a7: usize, | a8: usize) -> usize
 send a message to another process
 
 options:
@@ -221,6 +278,6 @@ return value:
 1: no process with eid or pid exists
 
 
-21: fn msg_return ()
+22: fn msg_return ()
 returns off the message stack, and back to the regular stack, and restores all original registers
 causes any other threads waiting for a reply to unblock

@@ -1,12 +1,22 @@
 use crate::syscall::SyscallVals;
 use super::*;
 
-pub extern "C" fn thread_new (_: &SyscallVals, _: u32, thread_func: usize) -> usize
+pub extern "C" fn thread_new (vals: &mut SyscallVals)
 {
-	proc_c ().new_thread (unsafe { core::mem::transmute (thread_func) }, None).unwrap_or (usize::MAX)
+	match proc_c ().new_thread (unsafe { core::mem::transmute (thread_func) }, None)
+	{
+		Ok(tid) => {
+			vals.a1 = tid;
+			vals.a2 = 0;
+		},
+		Err(_) => {
+			vals.a1 = 0;
+			vals.a2 = 1;
+		}
+	}
 }
 
-pub extern "C" fn thread_block (_: &SyscallVals, _: u32, reason: usize, arg: usize) -> usize
+pub extern "C" fn thread_block (vals: &mut SyscallVals)
 {
 	match reason
 	{
@@ -16,5 +26,4 @@ pub extern "C" fn thread_block (_: &SyscallVals, _: u32, reason: usize, arg: usi
 		3 => thread_c ().block (ThreadState::Join (arg)),
 		_ => (),
 	}
-	0
 }

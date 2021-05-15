@@ -541,6 +541,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 		self.map_at_unchecked (phys_zones, virt_zone, flags)
 	}
 
+	pub unsafe fn remap (&self)
+	{
+	}
+
 	// TODO: improve performance by caching previous virt parents
 	unsafe fn map_at_unchecked (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
 	{

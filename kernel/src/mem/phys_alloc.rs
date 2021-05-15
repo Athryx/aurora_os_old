@@ -286,6 +286,7 @@ impl BuddyAllocator
 		addr >= self.start && addr + mem.len () <= self.meta_start as usize && align_of (addr) >= self.min_order_size
 	}
 
+	// size is in bytes
 	pub fn alloc (&mut self, size: usize) -> Option<Allocation>
 	{
 		if size == 0
@@ -304,7 +305,6 @@ impl BuddyAllocator
 		}
 	}
 
-	// size is in bytes
 	pub fn oalloc (&mut self, order: usize) -> Option<Allocation>
 	{
 		if order > self.max_order
