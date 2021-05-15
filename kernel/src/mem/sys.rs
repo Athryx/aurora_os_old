@@ -2,7 +2,7 @@ use crate::uses::*;
 use crate::syscall::SyscallVals;
 use super::PAGE_SIZE;
 use super::phys_alloc::zm;
-use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageTableFlags};
+use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageMappingFlags};
 use crate::sched::proc_c;
 
 const READ: u32 = 1;
@@ -11,35 +11,12 @@ const EXEC: u32 = 1 << 2;
 
 const REALLOC_EXACT: usize = 1 << 4;
 
-fn get_page_table_flags (options: u32)
-{
-	let mut out = PageTableFlags::NONE;
-	if options & WRITE != 0
-	{
-		out |= PageTableFlags::WRITABLE;
-	}
-
-	if options & EXEC == 0
-	{
-		out |= PageTableFlags::NO_EXEC;
-	}
-
-	if options & READ != 0 || out.bits () != 0
-	{
-		out |= PageTableFlags::PRESENT;
-	}
-
-	out | PageTableFlags::USER;
-}
-
 pub extern "C" fn realloc (vals: &mut SyscallVals)
 {
 	let options = vals.options;
 	let addr = vals.a1;
 	let size = vals.a2;
 	let at_addr = vals.a3;
-
-	let flags = get_page_table_flags (options);
 
 	if addr == 0
 	{
@@ -60,12 +37,12 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			}
 		};
 
-		let vec = vec![VirtLayoutElement::AllocedMem (pmem)];
+		/*let vec = vec![VirtLayoutElement::AllocedMem (pmem)];
 
 		let layout = VirtLayout::new (vec);
 
 		let mapper = proc_c ().addr_space;
 
-		mapper.map
+		mapper.map*/
 	}
 }

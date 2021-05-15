@@ -7,7 +7,7 @@ use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::mem::phys_alloc::{zm, Allocation};
-use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageTableFlags};
+use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard};
@@ -39,16 +39,14 @@ impl Stack
 	// size in bytes
 	fn user_new (size: usize, mapper: &VirtMapper<FAllocerType>) -> Result<Self, Err>
 	{
-		let allocation = zm.alloc (size)?;
-
 		let elem_vec = vec![
-			VirtLayoutElement::Empty(PAGE_SIZE),
-			VirtLayoutElement::AllocedMem(allocation),
+			VirtLayoutElement::new (size, PageMappingFlags::NONE)?,
+			VirtLayoutElement::new (size, PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::USER)?,
 		];
+
 		let vlayout = VirtLayout::new (elem_vec);
 
-		let flags = PageTableFlags::WRITABLE | PageTableFlags::NO_EXEC | PageTableFlags::USER;
-		let vrange = unsafe { mapper.map (vlayout, flags)? };
+		let vrange = unsafe { mapper.map (vlayout)? };
 
 		Ok(Self::User(vrange))
 	}

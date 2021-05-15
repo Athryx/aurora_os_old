@@ -3,7 +3,9 @@ use super::*;
 
 pub extern "C" fn thread_new (vals: &mut SyscallVals)
 {
-	match proc_c ().new_thread (unsafe { core::mem::transmute (thread_func) }, None)
+	let rip = vals.a1;
+
+	match proc_c ().new_thread (unsafe { core::mem::transmute (rip) }, None)
 	{
 		Ok(tid) => {
 			vals.a1 = tid;
@@ -18,6 +20,9 @@ pub extern "C" fn thread_new (vals: &mut SyscallVals)
 
 pub extern "C" fn thread_block (vals: &mut SyscallVals)
 {
+	let reason = vals.a1;
+	let arg = vals.a2;
+
 	match reason
 	{
 		0 => thread_c ().block (ThreadState::Running),

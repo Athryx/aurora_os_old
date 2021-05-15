@@ -31,7 +31,7 @@ pub unsafe trait FrameAllocator
 
 bitflags!
 {
-	pub struct PageTableFlags: usize
+	struct PageTableFlags: usize
 	{
 		const NONE = 		0;
 		const PRESENT = 	1;
@@ -44,6 +44,56 @@ bitflags!
 		const HUGE = 		1 << 7;
 		const GLOBAL = 		1 << 8;
 		const NO_EXEC =		1 << 63;
+	}
+}
+
+impl PageTableFlags
+{
+	fn from_mapping_flags (flags: PageMappingFlags) -> Self
+	{
+		let mut out = PageTableFlags::NONE;
+		if flags.contains (PageMappingFlags::WRITE)
+		{
+			out |= PageTableFlags::WRITABLE;
+		}
+	
+		if !flags.contains (PageMappingFlags::EXEC)
+		{
+			out |= PageTableFlags::NO_EXEC;
+		}
+	
+		if flags.exists ()
+		{
+			out |= PageTableFlags::PRESENT;
+		}
+	
+		if flags.contains (PageMappingFlags::USER)
+		{
+			out |= PageTableFlags::USER;
+		}
+
+		out
+	}
+}
+
+bitflags!
+{
+	pub struct PageMappingFlags: usize
+	{
+		const NONE =		0;
+		const READ =		1;
+		const WRITE =		1 << 1;
+		const EXEC =		1 << 2;
+		const USER = 		1 << 3;
+		const EXACT_SIZE =	1 << 4;
+	}
+}
+
+impl PageMappingFlags
+{
+	fn exists (&self) -> bool
+	{
+		self.intersects (PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::EXEC)
 	}
 }
 
@@ -243,7 +293,7 @@ impl PageTable
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum VirtLayoutElement
+pub enum VirtLayoutElementType
 {
 	Mem(PhysRange),
 	// will translate this to physical address
@@ -251,7 +301,7 @@ pub enum VirtLayoutElement
 	Empty(usize),
 }
 
-impl VirtLayoutElement
+impl VirtLayoutElementType
 {
 	pub fn size (&self) -> usize
 	{
@@ -260,6 +310,140 @@ impl VirtLayoutElement
 			Self::Mem(mem) => mem.size (),
 			Self::AllocedMem(mem) => mem.len (),
 			Self::Empty(size) => *size,
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct VirtLayoutElement
+{
+	phys_data: VirtLayoutElementType,
+	map_size: usize,
+	flags: PageTableFlags,
+}
+
+impl VirtLayoutElement
+{
+	// size is aligned up
+	pub fn new (size: usize, flags: PageMappingFlags) -> Option<Self>
+	{
+		let size = align_up (size, PAGE_SIZE);
+
+		let phys_data;
+		let map_size;
+
+		if flags.exists ()
+		{
+			let mem = zm.alloc (size)?;
+			
+			phys_data = VirtLayoutElementType::AllocedMem(mem);
+
+			map_size = if flags.contains (PageMappingFlags::EXACT_SIZE)
+			{
+				size
+			}
+			else
+			{
+				mem.len ()
+			};
+		}
+		else
+		{
+			phys_data = VirtLayoutElementType::Empty(size);
+			map_size = size;
+		}
+
+		Some(VirtLayoutElement {
+			phys_data,
+			map_size,
+			flags: PageTableFlags::from_mapping_flags (flags),
+		})
+	}
+
+	// size is only used if the exact_size flag is set
+	// size is aligned up
+	pub fn from_mem (mem: Allocation, size: usize, flags: PageMappingFlags) -> Self
+	{
+		let size = align_up (size, PAGE_SIZE);
+
+		VirtLayoutElement {
+			phys_data: VirtLayoutElementType::AllocedMem(mem),
+			map_size: if flags.contains (PageMappingFlags::EXACT_SIZE) 
+			{
+				min (mem.len (), size)
+			}
+			else
+			{
+				mem.len ()
+			},
+			flags: PageTableFlags::from_mapping_flags (flags),
+		}
+	}
+
+	pub fn size (&self) -> usize
+	{
+		self.map_size
+	}
+
+	pub fn raw_size (&self) -> usize
+	{
+		self.phys_data.size ()
+	}
+
+	fn get_take_size (&mut self) -> Option<PageSize>
+	{
+		let psize = match self.phys_data
+		{
+			VirtLayoutElementType::AllocedMem(mem) => {
+				let prange = mem.as_phys_zone ();
+				self.phys_data = VirtLayoutElementType::Mem(prange);
+				prange.get_take_size ()
+			}
+			VirtLayoutElementType::Mem(mem) => mem.get_take_size (),
+			VirtLayoutElementType::Empty(mem) => PageSize::try_from_usize (align_down_to_page_size (mem)),
+		}?;
+
+		let psize2 = PageSize::try_from_usize (align_down_to_page_size (self.map_size))?;
+
+		Some(min (psize, psize2))
+	}
+
+	fn take (&mut self, size: PageSize) -> Option<(PhysFrame, PageTableFlags)>
+	{
+		let mut flags = self.flags;
+
+		let pframe = match self.phys_data
+		{
+			VirtLayoutElementType::Mem(ref mut mem) => {
+				mem.take (size)?
+			},
+			VirtLayoutElementType::Empty(ref mut mem) => {
+				if size as usize > *mem
+				{
+					return None;
+				}
+				*mem -= size as usize;
+				flags = PageTableFlags::NONE;
+				PhysFrame::new (PhysAddr::new (0), size)
+			},
+			VirtLayoutElementType::AllocedMem(mem) => {
+				let mut prange = mem.as_phys_zone ();
+				let frame = prange.take (size)?;
+				self.phys_data = VirtLayoutElementType::Mem(prange);
+				frame
+			},
+		};
+
+		self.map_size -= size as usize;
+
+		Some((pframe, flags))
+	}
+
+	pub unsafe fn dealloc (&self)
+	{
+		if let VirtLayoutElementType::AllocedMem(mem) = self.phys_data
+		{
+			zm.dealloc (mem);
 		}
 	}
 }
@@ -294,16 +478,10 @@ impl VirtLayout
 		self.0.iter ().fold (0, |n, a| n + a.size ())
 	}
 
-	// must onlt be called once
+	// must only be called once
 	pub unsafe fn dealloc (&self)
 	{
-		for a in self.0.iter ()
-		{
-			if let VirtLayoutElement::AllocedMem(allocation) = a
-			{
-				zm.dealloc (*allocation);
-			}
-		}
+		self.0.iter ().for_each (|a| a.dealloc ());
 	}
 }
 
@@ -354,7 +532,7 @@ impl PageMappingIterator
 
 impl Iterator for PageMappingIterator
 {
-	type Item = (PhysFrame, VirtFrame);
+	type Item = (PhysFrame, VirtFrame, PageTableFlags);
 
 	// returns vframe with VirtAddr == 0 if mem should not be mapped, just reserved
 	fn next (&mut self) -> Option<Self::Item>
@@ -367,16 +545,7 @@ impl Iterator for PageMappingIterator
 		let vsize = self.virt_zone.get_take_size ()?;
 		let psize = loop
 		{
-			let psize = match self.phys_zone.0[self.pindex]
-			{
-				VirtLayoutElement::AllocedMem(mem) => {
-					let prange = mem.as_phys_zone ();
-					self.phys_zone.0[self.pindex] = VirtLayoutElement::Mem(prange);
-					prange.get_take_size ()
-				}
-				VirtLayoutElement::Mem(mem) => mem.get_take_size (),
-				VirtLayoutElement::Empty(mem) => PageSize::try_from_usize (align_down_to_page_size (mem)),
-			};
+			let psize = self.phys_zone.0[self.pindex].get_take_size ();
 
 			if let Some(psize) = psize
 			{
@@ -396,20 +565,10 @@ impl Iterator for PageMappingIterator
 		let size = min (vsize, psize);
 
 		let vframe = self.virt_zone.take (size).unwrap ();
-		let pframe = match self.phys_zone.0[self.pindex]
-		{
-			VirtLayoutElement::Mem(ref mut mem) => {
-				mem.take (size).unwrap ()
-			},
-			VirtLayoutElement::Empty(ref mut mem) => {
-				*mem -= size as usize;
-				let virt_frame = VirtFrame::new (VirtAddr::new (0), size);
-				return Some((PhysFrame::new (PhysAddr::new (0), size), virt_frame));
-			},
-			VirtLayoutElement::AllocedMem(_) => unreachable! (),
-		};
 
-		Some((pframe, vframe))
+		let (pframe, flags) = self.phys_zone.0[self.pindex].take (size).unwrap ();
+
+		Some((pframe, vframe, flags))
 	}
 }
 
@@ -459,7 +618,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		unimplemented! ();
 	}
 
-	pub unsafe fn map (&self, phys_zones: VirtLayout, flags: PageTableFlags) -> Result<VirtRange, Err>
+	pub unsafe fn map (&self, phys_zones: VirtLayout) -> Result<VirtRange, Err>
 	{
 		// TODO: choose better zones based off alignment so more big pages cna be used saving tlb cache space
 		let size = phys_zones.size ();
@@ -494,10 +653,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		btree.insert (virt_zone, phys_zones.clone ());
 
-		self.map_at_unchecked (phys_zones, virt_zone, flags)
+		self.map_at_unchecked (phys_zones, virt_zone)
 	}
 
-	pub unsafe fn map_at (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
+	pub unsafe fn map_at (&self, phys_zones: VirtLayout, virt_zone: VirtRange) -> Result<VirtRange, Err>
 	{
 		let virt_zone = virt_zone.aligned ();
 		if virt_zone.as_usize () == 0
@@ -538,7 +697,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		btree.insert (virt_zone, phys_zones.clone ());
 
-		self.map_at_unchecked (phys_zones, virt_zone, flags)
+		self.map_at_unchecked (phys_zones, virt_zone)
 	}
 
 	pub unsafe fn remap (&self)
@@ -546,13 +705,13 @@ impl<T: FrameAllocator> VirtMapper<T>
 	}
 
 	// TODO: improve performance by caching previous virt parents
-	unsafe fn map_at_unchecked (&self, phys_zones: VirtLayout, virt_zone: VirtRange, flags: PageTableFlags) -> Result<VirtRange, Err>
+	unsafe fn map_at_unchecked (&self, phys_zones: VirtLayout, virt_zone: VirtRange) -> Result<VirtRange, Err>
 	{
 		let iter = PageMappingIterator::new (phys_zones, virt_zone);
-		for (pframe, vframe) in iter
+		for (pframe, vframe, flags) in iter
 		{
 			// zone is reserved, no need to do anything
-			if vframe.start_addr () == VirtAddr::new (0)
+			if flags.bits () == 0
 			{
 				continue;
 			}
@@ -600,10 +759,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let phys_zones = self.virt_map.lock ().remove (&virt_zone)?;
 
 		let iter = PageMappingIterator::new (phys_zones.clone (), virt_zone);
-		for (pframe, vframe) in iter
+		for (pframe, vframe, flags) in iter
 		{
 			// zone is reserved, no need to do anything
-			if vframe.start_addr () == VirtAddr::new (0)
+			if flags.bits () == 0
 			{
 				continue;
 			}

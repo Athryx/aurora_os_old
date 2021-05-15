@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::mem::phys_alloc::zm;
-use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageTableFlags, FAllocerType};
+use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, IMutex};
 use super::{ThreadList, tlist, proc_list};
@@ -113,11 +113,11 @@ impl Process
 
 		let priv_flag = if uid.as_cpu_priv ().is_ring3 ()
 		{
-			PageTableFlags::USER
+			PageMappingFlags::USER
 		}
 		else
 		{
-			PageTableFlags::NONE
+			PageMappingFlags::NONE
 		};
 
 		for section in sections.iter ()
@@ -127,11 +127,11 @@ impl Process
 			let sf = section.flags;
 			if sf.writable ()
 			{
-				flags |= PageTableFlags::WRITABLE;
+				flags |= PageMappingFlags::WRITE;
 			}
-			if !sf.executable ()
+			if sf.executable ()
 			{
-				flags |= PageTableFlags::NO_EXEC;
+				flags |= PageMappingFlags::EXEC;
 			}
 
 			// allocate section backing memory
@@ -149,14 +149,14 @@ impl Process
 			memslice.copy_from_slice (section.data);
 
 			// construct virtaddr layout
-			let v_elem = VirtLayoutElement::AllocedMem (mem);
+			let v_elem = VirtLayoutElement::from_mem (mem, section.virt_range.size (), flags);
 			let vec = vec![v_elem];
 
 			let layout = VirtLayout::new (vec);
 
 			unsafe
 			{
-				process.addr_space.map_at (layout, vrange, flags)?;
+				process.addr_space.map_at (layout, vrange)?;
 			}
 		}
 
