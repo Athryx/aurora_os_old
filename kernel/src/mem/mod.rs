@@ -168,14 +168,14 @@ impl PhysRange
 		self.as_usize () + self.size
 	}
 
-	pub fn conains (&self, addr: PhysAddr) -> bool
+	pub fn contains (&self, addr: PhysAddr) -> bool
 	{
 		(addr >= self.addr) && (addr < (self.addr + self.size))
 	}
 
 	pub fn contains_range (&self, range: Self) -> bool
 	{
-		self.conains (range.addr ()) || self.conains (range.addr () + range.size ())
+		self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
 	}
 
 	pub fn split_at (&self, range: Self) -> (Option<PhysRange>, Option<PhysRange>)
@@ -194,11 +194,11 @@ impl PhysRange
 		{
 			(None, None)
 		}
-		else if self.conains (begin - 1u64) && !self.conains (end + 1u64)
+		else if self.contains (begin - 1u64) && !self.contains (end + 1u64)
 		{
 			(Some(PhysRange::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
 		}
-		else if self.conains (end + 1u64) && !self.conains (begin - 1u64)
+		else if self.contains (end + 1u64) && !self.contains (begin - 1u64)
 		{
 			(Some(PhysRange::new_unaligned (end, (send - end) as usize)), None)
 		}
@@ -378,14 +378,14 @@ impl VirtRange
 		self.as_usize () + self.size
 	}
 
-	pub fn conains (&self, addr: VirtAddr) -> bool
+	pub fn contains (&self, addr: VirtAddr) -> bool
 	{
 		(addr >= self.addr) && (addr < (self.addr + self.size))
 	}
 
 	pub fn contains_range (&self, range: Self) -> bool
 	{
-		self.conains (range.addr ()) || self.conains (range.addr () + range.size ())
+		self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
 	}
 
 	pub fn split_at (&self, range: Self) -> (Option<VirtRange>, Option<VirtRange>)
@@ -404,11 +404,11 @@ impl VirtRange
 		{
 			(None, None)
 		}
-		else if self.conains (begin - 1u64) && !self.conains (end + 1u64)
+		else if self.contains (begin - 1u64) && !self.contains (end + 1u64)
 		{
 			(Some(VirtRange::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
 		}
-		else if self.conains (end + 1u64) && !self.conains (begin - 1u64)
+		else if self.contains (end + 1u64) && !self.contains (begin - 1u64)
 		{
 			(Some(VirtRange::new_unaligned (end, (send - end) as usize)), None)
 		}

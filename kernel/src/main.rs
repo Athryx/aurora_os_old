@@ -2,7 +2,7 @@
 #![no_main]
 
 #![feature(asm)]
-#![feature(const_fn)]
+#![feature(const_fn_trait_bound)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(array_methods)]
 #![feature(alloc_error_handler)]

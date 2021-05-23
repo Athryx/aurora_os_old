@@ -111,18 +111,18 @@ impl Process
 		let elf = ElfParser::new (elf_data)?;
 		let sections = elf.program_headers ();
 
-		let priv_flag = if uid.as_cpu_priv ().is_ring3 ()
+		let base_flag = if uid.as_cpu_priv ().is_ring3 ()
 		{
-			PageMappingFlags::USER
+			PageMappingFlags::USER | PageMappingFlags::READ
 		}
 		else
 		{
-			PageMappingFlags::NONE
+			PageMappingFlags::READ
 		};
 
 		for section in sections.iter ()
 		{
-			let mut flags = priv_flag;
+			let mut flags = base_flag;
 
 			let sf = section.flags;
 			if sf.writable ()
@@ -152,7 +152,7 @@ impl Process
 			let v_elem = VirtLayoutElement::from_mem (mem, section.virt_range.size (), flags);
 			let vec = vec![v_elem];
 
-			let layout = VirtLayout::new (vec);
+			let layout = VirtLayout::from (vec);
 
 			unsafe
 			{

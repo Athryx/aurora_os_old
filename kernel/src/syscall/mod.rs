@@ -3,6 +3,8 @@ use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LS
 use crate::sched::sys::{thread_new, thread_block};
 use crate::mem::sys::realloc;
 
+pub mod consts;
+
 extern "C"
 {
 	fn syscall_entry ();
@@ -30,8 +32,9 @@ static syscalls: [SyscallFunc; 16] = [
 	sys_hi,
 ];
 
+// TODO: figure out if packed is needed
 #[derive(Debug, Clone, Copy)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct SyscallVals
 {
 	pub options: u32,

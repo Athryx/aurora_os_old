@@ -127,6 +127,8 @@ note: if realloc is allocing at a certain addrss, it may still fail even if ther
 this is because realloc may try to map more memory in the virtual address soace than specified by {len}
 to ensure this doesn't happen, set the optsion realloc_exact
 
+realloc will never allocate memory at virtual address 0
+
 options:
 bit 0 (read):
 allows reading of memory

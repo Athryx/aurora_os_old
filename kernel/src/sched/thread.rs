@@ -44,7 +44,7 @@ impl Stack
 			VirtLayoutElement::new (size, PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::USER)?,
 		];
 
-		let vlayout = VirtLayout::new (elem_vec);
+		let vlayout = VirtLayout::from (elem_vec);
 
 		let vrange = unsafe { mapper.map (vlayout)? };
 
