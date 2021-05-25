@@ -12,6 +12,7 @@
 #![feature(alloc_prelude)]
 #![feature(allocator_api)]
 #![feature(map_first_last)]
+#![feature(stmt_expr_attributes)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]

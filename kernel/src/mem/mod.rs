@@ -143,6 +143,14 @@ impl PhysRange
 		}
 	}
 
+	pub fn null () -> Self
+	{
+		PhysRange {
+			addr: PhysAddr::new (0),
+			size: 0,
+		}
+	}
+
 	pub fn aligned (&self) -> PhysRange
 	{
 		Self::new (self.addr, self.size)
@@ -350,6 +358,14 @@ impl VirtRange
 		VirtRange {
 			addr,
 			size,
+		}
+	}
+
+	pub fn null () -> Self
+	{
+		VirtRange {
+			addr: VirtAddr::new (0),
+			size: 0,
 		}
 	}
 

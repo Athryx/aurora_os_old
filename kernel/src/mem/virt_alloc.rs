@@ -590,10 +590,31 @@ impl VirtLayout
 	}
 
 	// touches all memory zones, marking them to be mapped again
-	unsafe fn touch (&mut self)
+	unsafe fn mark_unmapped (&mut self)
 	{
 		self.dirty_index = 0;
 		self.clean_size = 0;
+
+		for a in self.dealloc_que.iter ()
+		{
+			a.dealloc ();
+		}
+		self.dealloc_que.clear ();
+	}
+
+	// reverts unsynced changes and deallocates their backing resources
+	unsafe fn revert (&mut self)
+	{
+		while self.data.len () > self.dirty_index
+		{
+			self.data.pop ().unwrap ().dealloc ();
+		}
+
+		for a in self.dealloc_que.iter ().rev ()
+		{
+			self.data.push (*a);
+		}
+		self.dealloc_que.clear ();
 	}
 }
 
@@ -860,7 +881,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 	}
 
 	// find virt range of size size
-	fn find_range (btree: &mut MutexGuard<BTreeMap<VirtRange, VirtLayout>>, size: usize) -> Option<VirtRange>
+	fn find_range (btree: &MutexGuard<BTreeMap<VirtRange, VirtLayout>>, size: usize) -> Option<VirtRange>
 	{
 		// leave page at 0 empty so null pointers will page fault
 		let mut laddr = PAGE_SIZE;
@@ -889,7 +910,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 	// if there is interference to left and right of virt_zone, returns none
 	// pass with inclusive true to ensure virt_zone is not already inserted
 	// if it is inserted, pass with inclusive false
-	fn free_space (btree: &mut MutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange, exclude: Option<VirtRange>) -> Option<(usize, usize)>
+	fn free_space (btree: &MutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange, exclude: Option<VirtRange>) -> Option<(usize, usize)>
 	{
 		let mut prev_iter = btree.range (..virt_zone);
 		let mut prev = prev_iter.next_back ();
@@ -969,8 +990,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 			.ok_or_else (|| Err::new ("not enough space in virtual memory space for allocation"))?;
 
 		let iter = PageMappingIterator::new (&phys_zones, &virt_zone);
-		self.map_internal (iter)?;
-
+		self.map_internal (iter);
 		phys_zones.sync_mem ();
 
 		btree.insert (virt_zone, phys_zones);
@@ -1011,8 +1031,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 
 		let iter = PageMappingIterator::new (&phys_zones, &virt_zone);
-		self.map_internal (iter)?;
-
+		self.map_internal (iter);
 		phys_zones.sync_mem ();
 
 		btree.insert (virt_zone, phys_zones);
@@ -1020,7 +1039,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		Ok(virt_zone)
 	}
 
-	/*pub unsafe fn remap<F> (&self, virt_zone: VirtRange, alloc_func: F) -> Result<VirtRange, Err>
+	pub unsafe fn remap<F> (&self, virt_zone: VirtRange, alloc_func: F) -> Result<VirtRange, Err>
 		where F: FnOnce(&mut VirtLayout) -> Result<(), Err>
 	{
 		let virt_zone = virt_zone.aligned ();
@@ -1035,29 +1054,60 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let new_size = virt_layout.size ();
 		let nrange = VirtRange::new (virt_zone.addr (), new_size);
 
-		if Self::free_space (&mut btree, nrange, Some(virt_zone)).is_some ()
+		if new_size == 0
 		{
+			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
+
+			let iter = PageMappingIterator::new (&phys_zones, &nrange);
+			self.map_internal (iter);
+			phys_zones.sync_mem ();
+
+			return Ok(VirtRange::null ());
+		}
+
+		if Self::free_space (&btree, nrange, Some(virt_zone)).is_some ()
+		{
+			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
+
+			let iter = PageMappingIterator::new (&phys_zones, &nrange);
+			self.map_internal (iter);
+			phys_zones.sync_mem ();
+
+			btree.insert (nrange, phys_zones);
+
+			Ok(nrange)
 		}
 		else
 		{
-			let phys_zones = btree.remove (&virt_zone).unwrap ();
+			let new_virt_zone = Self::find_range (&btree, new_size)
+				.ok_or_else (|| {
+					// make borrow checker happy
+					let virt_layout = btree.get_mut (&virt_zone).unwrap ();
+					virt_layout.revert ();
+					Err::new ("not enough space in virtual memory space for allocation")
+				})?;
 
-			let virt_zone = Self::find_range (&mut btree, new_size)
-				.ok_or_else (|| Err::new ("not enough space in virtual memory space for allocation"))?;
+			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
 
-			btree.insert (virt_zone, phys_zones.clone ());
+			let iter = PageMappingIterator::new_unmapper (&phys_zones, &virt_zone);
+			self.map_internal (iter);
+			phys_zones.mark_unmapped ();
 
-			self.map_at_unchecked (phys_zones, virt_zone)?;
+			let iter = PageMappingIterator::new (&phys_zones, &new_virt_zone);
+			self.map_internal (iter);
+			phys_zones.sync_mem ();
+
+			btree.insert (new_virt_zone, phys_zones);
+
+			Ok(new_virt_zone)
 		}
-
-		unimplemented! ();
 	}
 
-	pub unsafe fn remap_at<F> (&self, virt_zone: VirtRange, target_virt_zone: VirtRange, alloc_func: F) -> Result<VirtRange, Err>
+	pub unsafe fn remap_at<F> (&self, virt_zone: VirtRange, target_addr: VirtAddr, alloc_func: F) -> Result<VirtRange, Err>
 		where F: FnOnce(&mut VirtLayout) -> Result<(), Err>
 	{
 		let virt_zone = virt_zone.aligned ();
-		let target_virt_zone = target_virt_zone.aligned ();
+		let target_addr = target_addr.align_down (PAGE_SIZE as u64);
 
 		let mut btree = self.virt_map.lock ();
 
@@ -1066,23 +1116,67 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		alloc_func (virt_layout)?;
 
-		unimplemented! ();
-	}*/
+		let new_size = virt_layout.size ();
+		let nrange = VirtRange::new (target_addr, new_size);
+
+		if new_size == 0
+		{
+			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
+
+			let iter = PageMappingIterator::new (&phys_zones, &nrange);
+			self.map_internal (iter);
+			phys_zones.sync_mem ();
+
+			return Ok(VirtRange::null ());
+		}
+
+		if Self::free_space (&btree, nrange, Some(virt_zone)).is_some ()
+		{
+			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
+
+			if target_addr == virt_zone.addr ()
+			{
+				let iter = PageMappingIterator::new (&phys_zones, &nrange);
+				self.map_internal (iter);
+				phys_zones.sync_mem ();
+			}
+			else
+			{
+				let iter = PageMappingIterator::new_unmapper (&phys_zones, &virt_zone);
+				self.map_internal (iter);
+				phys_zones.mark_unmapped ();
+	
+				let iter = PageMappingIterator::new (&phys_zones, &nrange);
+				self.map_internal (iter);
+				phys_zones.sync_mem ();
+			}
+
+			btree.insert (nrange, phys_zones);
+
+			Ok(nrange)
+		}
+		else
+		{
+			// make borrow checker happy
+			let virt_layout = btree.get_mut (&virt_zone).unwrap ();
+			virt_layout.revert ();
+			Err(Err::new ("could not remap virt zone to target virt zone"))
+		}
+	}
 
 	pub unsafe fn unmap (&self, virt_zone: VirtRange) -> Result<VirtLayout, Err>
 	{
 		let mut phys_zones = self.virt_map.lock ().remove (&virt_zone)?;
 
 		let iter = PageMappingIterator::new_unmapper (&phys_zones, &virt_zone);
-		self.map_internal (iter)?;
-
-		phys_zones.touch ();
+		self.map_internal (iter);
+		phys_zones.mark_unmapped ();
 
 		Ok(phys_zones)
 	}
 
 	// TODO: improve performance by caching previous virt parents
-	unsafe fn map_internal (&self, iter: PageMappingIterator) -> Result<(), Err>
+	unsafe fn map_internal (&self, iter: PageMappingIterator)
 	{
 		let cr3 = self.cr3.lock ().as_mut ().unwrap ();
 
@@ -1107,7 +1201,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 			match action
 			{
-				PageMappingAction::Map(pframe, vframe, flags) => {
+				PageMappingAction::Map(pframe, _vframe, flags) => {
 					let mut ptable = &mut *cr3;
 		
 					for d in 0..depth
@@ -1124,7 +1218,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 						}
 					}
 				},
-				PageMappingAction::Unmap(vframe) => {
+				PageMappingAction::Unmap(_vframe) => {
 					let mut tables = [Some(&mut *cr3), None, None, None];
 		
 					for a in 1..depth
@@ -1145,8 +1239,6 @@ impl<T: FrameAllocator> VirtMapper<T>
 			// TODO: check if address space is loaded before updating tlb cache
 			invlpg (addr);
 		}
-
-		Ok(())
 	}
 }
 
