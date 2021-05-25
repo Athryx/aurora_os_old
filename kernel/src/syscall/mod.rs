@@ -54,6 +54,113 @@ pub struct SyscallVals
 	pub rflags: usize,
 }
 
+#[macro_export]
+macro_rules! sysret
+{
+	() => {
+		return
+	};
+
+	($v:ident) => {
+		return
+	};
+
+	($v:ident, $r1:expr) => {{
+		$v.a1 = $r1;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		return
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		$v.a5 = $r5;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		$v.a5 = $r5;
+		$v.a6 = $r6;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr, $r7:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		$v.a5 = $r5;
+		$v.a6 = $r6;
+		$v.a7 = $r7;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr, $r7:expr, $r8:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		$v.a5 = $r5;
+		$v.a6 = $r6;
+		$v.a7 = $r7;
+		$v.a8 = $r8;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr, $r7:expr, $r8:expr, $r9:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		$v.a5 = $r5;
+		$v.a6 = $r6;
+		$v.a7 = $r7;
+		$v.a8 = $r8;
+		$v.a9 = $r9;
+		return;
+	}};
+
+	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr, $r7:expr, $r8:expr, $r9:expr, $r10:expr) => {{
+		$v.a1 = $r1;
+		$v.a2 = $r2;
+		$v.a3 = $r3;
+		$v.a4 = $r4;
+		$v.a5 = $r5;
+		$v.a6 = $r6;
+		$v.a7 = $r7;
+		$v.a8 = $r8;
+		$v.a9 = $r9;
+		$v.a10 = $r10;
+		return;
+	}};
+}
+
 extern "C" fn sys_hi (vals: &mut SyscallVals)
 {
 	println! ("hi");

@@ -1,4 +1,5 @@
 use crate::uses::*;
+use crate::sysret;
 use crate::syscall::{SyscallVals, consts};
 use super::{PAGE_SIZE, VirtRange};
 use super::phys_alloc::zm;
@@ -39,24 +40,13 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		// allocate memory
 		if size == 0
 		{
-			// no need to set values
-			// they are already 0
-			// but it is easier to read
-			vals.a1 = 0;
-			vals.a2 = 0;
-			vals.a3 = Realloc::Ok as usize;
-			return;
+			sysret! (vals, 0, 0, Realloc::Ok as usize);
 		}
 
 		let layout_element = match VirtLayoutElement::new (size, flags)
 		{
 			Some(elem) => elem,
-			None => {
-				vals.a1 = 0;
-				vals.a2 = 0;
-				vals.a3 = Realloc::OutOfMem as usize;
-				return;
-			}
+			None => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
 		};
 
 		let vec = vec![layout_element];
@@ -69,18 +59,9 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			{
 				match proc_c ().addr_space.map (layout)
 				{
-					Ok(virt_range) => {
-						vals.a1 = virt_range.as_usize ();
-						vals.a2 = virt_range.size () / PAGE_SIZE;
-						vals.a3 = 0;
-					},
-					Err(_) => {
-						vals.a1 = 0;
-						vals.a2 = 0;
-						vals.a3 = Realloc::OutOfMem as usize;
-					},
+					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
+					Err(_) => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
 				}
-				return;
 			}
 		}
 		else
@@ -90,16 +71,8 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			{
 				match proc_c ().addr_space.map_at (layout, virt_zone)
 				{
-					Ok(virt_range) => {
-						vals.a1 = virt_range.as_usize ();
-						vals.a2 = virt_range.size () / PAGE_SIZE;
-						vals.a3 = 0;
-					},
-					Err(_) => {
-						vals.a1 = 0;
-						vals.a2 = 0;
-						vals.a3 = Realloc::OutOfMem as usize;
-					},
+					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
+					Err(_) => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
 				}
 			}
 		}
@@ -112,27 +85,16 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => {
-				vals.a1 = 0;
-				vals.a2 = 0;
-				vals.a3 = Realloc::InvlPointer as usize;
-				return;
-			}
+			None => sysret! (vals, 0, 0, Realloc::InvlPointer as usize),
 		};
 
 		match unsafe { mapper.unmap (virt_zone) }
 		{
 			Ok(layout) => {
 				unsafe { layout.dealloc () };
-				vals.a1 = 0;
-				vals.a2 = 0;
-				vals.a3 = 0;
+				sysret! (vals, 0, 0, 0);
 			},
-			Err(_) => {
-				vals.a1 = 0;
-				vals.a2 = 0;
-				vals.a3 = Realloc::Unknown as usize;
-			}
+			Err(_) => sysret! (vals, 0, 0, Realloc::Unknown as usize),
 		}
 	}
 	else
@@ -143,12 +105,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => {
-				vals.a1 = 0;
-				vals.a2 = 0;
-				vals.a3 = Realloc::InvlPointer as usize;
-				return;
-			}
+			None => sysret! (vals, 0, 0, Realloc::InvlPointer as usize),
 		};
 
 		unimplemented! ();
