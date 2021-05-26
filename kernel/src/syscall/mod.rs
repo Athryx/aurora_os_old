@@ -3,7 +3,7 @@ use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LS
 use crate::sched::sys::{thread_new, thread_block};
 use crate::mem::sys::realloc;
 
-pub mod consts;
+pub use sys_consts::SysErr;
 
 extern "C"
 {

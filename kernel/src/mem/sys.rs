@@ -1,6 +1,6 @@
 use crate::uses::*;
 use crate::sysret;
-use crate::syscall::{SyscallVals, consts};
+use crate::syscall::{SyscallVals, SysErr};
 use super::{PAGE_SIZE, VirtRange};
 use super::phys_alloc::zm;
 use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageMappingFlags};
@@ -11,18 +11,6 @@ const WRITE: u32 = 1 << 1;
 const EXEC: u32 = 1 << 2;
 
 const REALLOC_EXACT: usize = 1 << 4;
-
-// TODO: use only 1 enum for all syscall error values
-#[repr(usize)]
-enum Realloc
-{
-	Ok = 0,
-	OutOfMem = 1,
-	AllocAtInvlAddr = 2,
-	InvlPointer = 3,
-	InvlVirtAddr = 4,
-	Unknown = 5,
-}
 
 // FIXME: this doesn't return the right error codes yet
 // FIXME: this doesn't obey REALLOC_EXACT
@@ -35,7 +23,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 	let at_vaddr = match VirtAddr::try_new (at_addr as u64)
 	{
 		Ok(addr) => addr,
-		Err(_) => sysret! (vals, 0, 0, Realloc::InvlVirtAddr as usize),
+		Err(_) => sysret! (vals, 0, 0, SysErr::InvlVirtAddr.num ()),
 	};
 
 	let flags = PageMappingFlags::from_bits_truncate (options as usize)
@@ -46,13 +34,13 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		// allocate memory
 		if size == 0
 		{
-			sysret! (vals, 0, 0, Realloc::Ok as usize);
+			sysret! (vals, 0, 0, SysErr::Ok.num ());
 		}
 
 		let layout_element = match VirtLayoutElement::new (size, flags)
 		{
 			Some(elem) => elem,
-			None => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
+			None => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 		};
 
 		let vec = vec![layout_element];
@@ -66,7 +54,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 				match proc_c ().addr_space.map (layout)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
-					Err(_) => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -78,7 +66,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 				match proc_c ().addr_space.map_at (layout, virt_zone)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
-					Err(_) => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -91,7 +79,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => sysret! (vals, 0, 0, Realloc::InvlPointer as usize),
+			None => sysret! (vals, 0, 0, SysErr::InvlPointer.num ()),
 		};
 
 		match unsafe { mapper.unmap (virt_zone) }
@@ -100,7 +88,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 				unsafe { layout.dealloc () };
 				sysret! (vals, 0, 0, 0);
 			},
-			Err(_) => sysret! (vals, 0, 0, Realloc::Unknown as usize),
+			Err(_) => sysret! (vals, 0, 0, SysErr::Unknown.num ()),
 		}
 	}
 	else
@@ -111,7 +99,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => sysret! (vals, 0, 0, Realloc::InvlPointer as usize),
+			None => sysret! (vals, 0, 0, SysErr::InvlPointer.num ()),
 		};
 
 		// closure type annotation needed, compiler complains for some reason if I don't have it
@@ -154,7 +142,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 				match proc_c ().addr_space.remap (virt_zone, realloc_func)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
-					Err(_) => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -165,7 +153,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 				match proc_c ().addr_space.remap_at (virt_zone, at_vaddr, realloc_func)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
-					Err(_) => sysret! (vals, 0, 0, Realloc::OutOfMem as usize),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}

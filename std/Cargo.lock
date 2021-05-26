@@ -59,6 +59,7 @@ dependencies = [
  "concat-idents",
  "lazy_static",
  "spin",
+ "sys_consts",
  "volatile",
 ]
 
@@ -71,6 +72,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
+]
+
+[[package]]
+name = "sys_consts"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "lazy_static",
 ]
 
 [[package]]
