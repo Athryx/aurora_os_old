@@ -143,6 +143,9 @@ On x86, a page will always be readable, even if read bit is set to 0,
 unless wrtie and exec are also set to 0, in which case realloc will just reserve
 the virtual memory, and not actually allocate anything
 
+read, write, and exec flags only affect the initial allocation of a memory zone
+if memory is resized, the flags in the original allocation are used, and the read, write, and exec flags are ignored
+
 bit 4 (realloc_exact):
 0: returned memory could be longer then specified {len}
 1: returned memory is exactly as long as {len}
@@ -251,7 +254,7 @@ return value:
 Please wait, the meeting host will let you in soon.
 1ST Adv. Eng./ Sr. Engineering I.S./ Arch. Design I.S.
 
-21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, | a5: usize, | a6: usize, | a7: usize, | a8: usize) -> usize
+21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> usize
 send a message to another process
 
 options:

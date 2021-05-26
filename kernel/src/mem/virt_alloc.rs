@@ -328,6 +328,7 @@ pub struct VirtLayoutElement
 	// guarunteed to be page aligned
 	map_size: usize,
 	flags: PageTableFlags,
+	mapping_flags: PageMappingFlags,
 }
 
 impl VirtLayoutElement
@@ -365,6 +366,7 @@ impl VirtLayoutElement
 			phys_data,
 			map_size,
 			flags: PageTableFlags::from_mapping_flags (flags),
+			mapping_flags: flags,
 		})
 	}
 
@@ -385,6 +387,7 @@ impl VirtLayoutElement
 				mem.len ()
 			},
 			flags: PageTableFlags::from_mapping_flags (flags),
+			mapping_flags: flags,
 		}
 	}
 
@@ -543,19 +546,36 @@ impl VirtLayout
 		self.data.iter ().fold (0, |n, a| n + a.size ())
 	}
 
-	fn clean_slice (&self) -> &[VirtLayoutElement]
+	pub fn clean_slice (&self) -> &[VirtLayoutElement]
 	{
 		&self.data[..self.dirty_index]
 	}
 
-	fn dirty_slice (&self) -> &[VirtLayoutElement]
+	pub fn dirty_slice (&self) -> &[VirtLayoutElement]
 	{
 		&self.data[self.dirty_index..]
 	}
 
-	fn old_clean_size (&self) -> usize
+	pub fn clean_size (&self) -> usize
 	{
 		self.clean_size
+	}
+
+	// retuns none if virtlayout is completely empty (including dirty memory)
+	pub fn flags (&self) -> Option<PageMappingFlags>
+	{
+		if let Some(elem) = self.data.get (0)
+		{
+			Some(elem.mapping_flags)
+		}
+		else if let Some(elem) = self.dealloc_que.get (0)
+		{
+			Some(elem.mapping_flags)
+		}
+		else
+		{
+			None
+		}
 	}
 
 	// must only be called once
@@ -699,7 +719,7 @@ impl PageMappingIterator
 	{
 		let mut zones = Vec::new ();
 
-		let mut vaddr = virt_zone.addr () + phys_zone.old_clean_size ();
+		let mut vaddr = virt_zone.addr () + phys_zone.clean_size ();
 
 		// unmap first
 		for a in &phys_zone.dealloc_que
