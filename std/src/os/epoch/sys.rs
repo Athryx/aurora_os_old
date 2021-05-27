@@ -1,5 +1,6 @@
 //! Epoch kernel system calls
-use sys_consts::{SysErr, thread, syscalls::*, options::*};
+use sys_consts::{thread, syscalls::*};
+pub use sys_consts::{SysErr, options::*};
 use crate::syscall;
 
 const PAGE_SIZE: usize = 4096;
@@ -64,7 +65,7 @@ pub fn thread_block (state: ThreadState)
 	}
 }
 
-pub unsafe fn realloc<'a> (mem: usize, size: usize, at_addr: usize, options: ReallocOptions) -> Result<(usize, usize), SysErr>
+pub unsafe fn realloc (mem: usize, size: usize, at_addr: usize, options: ReallocOptions) -> Result<(usize, usize), SysErr>
 {
 	let (mem, len, err) = syscall! (REALLOC, options.bits (), mem, size / PAGE_SIZE, at_addr);
 

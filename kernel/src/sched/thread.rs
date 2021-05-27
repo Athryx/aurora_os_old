@@ -40,7 +40,7 @@ impl Stack
 	fn user_new (size: usize, mapper: &VirtMapper<FAllocerType>) -> Result<Self, Err>
 	{
 		let elem_vec = vec![
-			VirtLayoutElement::new (size, PageMappingFlags::NONE)?,
+			VirtLayoutElement::new (PAGE_SIZE, PageMappingFlags::NONE)?,
 			VirtLayoutElement::new (size, PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::USER)?,
 		];
 

@@ -5,6 +5,8 @@ SUBDIRS="initfs kernel"
 
 cd $(dirname $0)
 
+./include_initfs.sh
+
 for SUBDIR in $SUBDIRS
 do
 	if ! $SUBDIR/build.sh $1

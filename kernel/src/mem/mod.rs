@@ -135,6 +135,16 @@ impl PhysRange
 		}
 	}
 
+	// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
+	pub fn new_aligned (addr: PhysAddr, size: usize) -> Self
+	{
+		let addr2 = (addr + size).align_up (PageSize::K4 as u64);
+		PhysRange {
+			addr: addr.align_down (PageSize::K4 as u64),
+			size: (addr2 - addr) as usize,
+		}
+	}
+
 	pub fn new_unaligned (addr: PhysAddr, size: usize) -> Self
 	{
 		PhysRange {
@@ -153,7 +163,7 @@ impl PhysRange
 
 	pub fn aligned (&self) -> PhysRange
 	{
-		Self::new (self.addr, self.size)
+		Self::new_aligned (self.addr, self.size)
 	}
 
 	pub fn addr (&self) -> PhysAddr
@@ -353,6 +363,16 @@ impl VirtRange
 		}
 	}
 
+	// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
+	pub fn new_aligned (addr: VirtAddr, size: usize) -> Self
+	{
+		let addr2 = (addr + size).align_up (PageSize::K4 as u64);
+		VirtRange {
+			addr: addr.align_down (PageSize::K4 as u64),
+			size: (addr2 - addr) as usize,
+		}
+	}
+
 	pub fn new_unaligned (addr: VirtAddr, size: usize) -> Self
 	{
 		VirtRange {
@@ -371,7 +391,7 @@ impl VirtRange
 
 	pub fn aligned (&self) -> VirtRange
 	{
-		Self::new (self.addr, self.size)
+		Self::new_aligned (self.addr, self.size)
 	}
 
 	pub fn addr (&self) -> VirtAddr
