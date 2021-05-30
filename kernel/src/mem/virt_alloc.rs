@@ -823,7 +823,7 @@ impl Iterator for PageMappingIterator
 
 		// to make borrow checker happy
 		let zlen = self.zones.len ();
-		let pmit = &mut self.zones[self.pindex];
+		let mut pmit = &mut self.zones[self.pindex];
 
 		let size = loop
 		{
@@ -841,6 +841,8 @@ impl Iterator for PageMappingIterator
 				{
 					return None;
 				}
+
+				pmit = &mut self.zones[self.pindex];
 			}
 		};
 
