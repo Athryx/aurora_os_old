@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::mem::phys_alloc::zm;
-use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType};
+use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, IMutex};
 use super::{ThreadList, tlist, proc_list};
@@ -152,7 +152,7 @@ impl Process
 			let v_elem = VirtLayoutElement::from_mem (mem, section.virt_range.size (), flags);
 			let vec = vec![v_elem];
 
-			let layout = VirtLayout::from (vec);
+			let layout = VirtLayout::from (vec, AllocType::Protected);
 
 			unsafe
 			{

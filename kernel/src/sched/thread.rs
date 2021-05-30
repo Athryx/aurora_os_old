@@ -7,7 +7,7 @@ use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::mem::phys_alloc::{zm, Allocation};
-use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags};
+use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard};
@@ -44,7 +44,7 @@ impl Stack
 			VirtLayoutElement::new (size, PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::USER)?,
 		];
 
-		let vlayout = VirtLayout::from (elem_vec);
+		let vlayout = VirtLayout::from (elem_vec, AllocType::Protected);
 
 		let vrange = unsafe { mapper.map (vlayout)? };
 
@@ -68,7 +68,7 @@ impl Stack
 	{
 		match self
 		{
-			Self::User(vrange) => mapper.unmap (*vrange).unwrap ().dealloc (),
+			Self::User(vrange) => mapper.unmap (*vrange, AllocType::Protected).unwrap ().dealloc (),
 			Self::Kernel(allocation) => zm.dealloc (*allocation),
 			_ => ()
 		}

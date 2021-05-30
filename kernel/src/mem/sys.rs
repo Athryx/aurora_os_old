@@ -3,7 +3,7 @@ use crate::sysret;
 use crate::syscall::{SyscallVals, SysErr};
 use super::{PAGE_SIZE, VirtRange};
 use super::phys_alloc::zm;
-use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageMappingFlags};
+use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageMappingFlags, AllocType};
 use crate::sched::proc_c;
 
 const READ: u32 = 1;
@@ -13,7 +13,7 @@ const EXEC: u32 = 1 << 2;
 const REALLOC_EXACT: usize = 1 << 4;
 
 // FIXME: this doesn't return the right error codes yet
-// FIXME: this doesn't obey REALLOC_EXACT
+// FIXME: this doesn't obey REALLOC_EXACT when decreasing size of virtual memory
 pub extern "C" fn realloc (vals: &mut SyscallVals)
 {
 	let options = vals.options;
@@ -45,7 +45,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 
 		let vec = vec![layout_element];
 
-		let layout = VirtLayout::from (vec);
+		let layout = VirtLayout::from (vec, AllocType::VirtMem);
 
 		if at_addr == 0
 		{
@@ -82,7 +82,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			None => sysret! (vals, 0, 0, SysErr::InvlPointer.num ()),
 		};
 
-		match unsafe { mapper.unmap (virt_zone) }
+		match unsafe { mapper.unmap (virt_zone, AllocType::VirtMem) }
 		{
 			Ok(layout) => {
 				unsafe { layout.dealloc () };
@@ -139,7 +139,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		{
 			unsafe
 			{
-				match proc_c ().addr_space.remap (virt_zone, realloc_func)
+				match proc_c ().addr_space.remap (virt_zone, AllocType::VirtMem, realloc_func)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
 					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
@@ -150,7 +150,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		{
 			unsafe
 			{
-				match proc_c ().addr_space.remap_at (virt_zone, at_vaddr, realloc_func)
+				match proc_c ().addr_space.remap_at (virt_zone, at_vaddr, AllocType::VirtMem, realloc_func)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
 					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),

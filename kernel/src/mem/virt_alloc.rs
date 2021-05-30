@@ -475,6 +475,15 @@ impl VirtLayoutElement
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllocType
+{
+	VirtMem,
+	PhysMap,
+	Shared,
+	Protected,
+}
+
 #[derive(Debug, Clone)]
 pub struct VirtLayout
 {
@@ -482,32 +491,35 @@ pub struct VirtLayout
 	dealloc_que: Vec<VirtLayoutElement>,
 	dirty_index: usize,
 	clean_size: usize,
+	atype: AllocType,
 }
 
 impl VirtLayout
 {
-	pub fn new () -> Self
+	pub fn new (atype: AllocType) -> Self
 	{
 		VirtLayout {
 			data: Vec::new (),
 			dealloc_que: Vec::new (),
 			dirty_index: 0,
 			clean_size: 0,
+			atype,
 		}
 	}
 
-	pub fn from (vec: Vec<VirtLayoutElement>) -> Self
+	pub fn from (vec: Vec<VirtLayoutElement>, atype: AllocType) -> Self
 	{
 		VirtLayout {
 			data: vec,
 			dealloc_que: Vec::new (),
 			dirty_index: 0,
 			clean_size: 0,
+			atype,
 		}
 	}
 
 	// TODO: probably not necesarry
-	pub fn try_from (vec: Vec<VirtLayoutElement>) -> Option<Self>
+	pub fn try_from (vec: Vec<VirtLayoutElement>, atype: AllocType) -> Option<Self>
 	{
 		if vec.is_empty ()
 		{
@@ -520,9 +532,20 @@ impl VirtLayout
 				dealloc_que: Vec::new (),
 				dirty_index: 0,
 				clean_size: 0,
+				atype,
 			})
 		}
 	}
+
+	pub fn alloc_type (&self) -> AllocType
+	{
+		self.atype
+	}
+
+	/*pub fn set_alloc_type (&mut self, atype: AllocType)
+	{
+		self.atype = atype;
+	}*/
 
 	pub fn push (&mut self, elem: VirtLayoutElement)
 	{
@@ -842,6 +865,8 @@ pub struct VirtMapper<T: FrameAllocator + 'static>
 {
 	virt_map: Mutex<BTreeMap<VirtRange, VirtLayout>>,
 	cr3: Mutex<PageTablePointer>,
+	// in order to avoid race condition
+	cr3_addr: usize,
 	frame_allocer: &'static T,
 }
 
@@ -859,6 +884,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		VirtMapper {
 			virt_map: Mutex::new (BTreeMap::new ()),
 			cr3: Mutex::new (pml4_table),
+			cr3_addr: pml4_table.0,
 			frame_allocer,
 		}
 	}
@@ -870,12 +896,12 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 	pub unsafe fn load (&self)
 	{
-		set_cr3 (self.cr3.lock ().0);
+		set_cr3 (self.cr3_addr);
 	}
 
 	pub fn is_loaded (&self) -> bool
 	{
-		self.cr3.lock ().0 == get_cr3 ()
+		self.cr3_addr == get_cr3 ()
 	}
 
 	pub fn get_mapped_range (&self, addr: VirtAddr) -> Option<VirtRange>
@@ -1059,7 +1085,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		Ok(virt_zone)
 	}
 
-	pub unsafe fn remap<F> (&self, virt_zone: VirtRange, alloc_func: F) -> Result<VirtRange, Err>
+	pub unsafe fn remap<F> (&self, virt_zone: VirtRange, atype: AllocType, alloc_func: F) -> Result<VirtRange, Err>
 		where F: FnOnce(&mut VirtLayout) -> Result<(), Err>
 	{
 		let virt_zone = virt_zone.aligned ();
@@ -1068,6 +1094,11 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		let virt_layout = btree.get_mut (&virt_zone)
 			.ok_or_else (|| Err::new ("invalid virt zone passed to remap"))?;
+
+		if virt_layout.alloc_type () != atype
+		{
+			return Err(Err::new ("memory type does not match passed atype"));
+		}
 
 		alloc_func (virt_layout)?;
 
@@ -1123,7 +1154,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 	}
 
-	pub unsafe fn remap_at<F> (&self, virt_zone: VirtRange, target_addr: VirtAddr, alloc_func: F) -> Result<VirtRange, Err>
+	pub unsafe fn remap_at<F> (&self, virt_zone: VirtRange, target_addr: VirtAddr, atype: AllocType, alloc_func: F) -> Result<VirtRange, Err>
 		where F: FnOnce(&mut VirtLayout) -> Result<(), Err>
 	{
 		let virt_zone = virt_zone.aligned ();
@@ -1133,6 +1164,11 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		let virt_layout = btree.get_mut (&virt_zone)
 			.ok_or_else (|| Err::new ("invalid virt zone passed to remap"))?;
+
+		if virt_layout.alloc_type () != atype
+		{
+			return Err(Err::new ("memory type does not match passed atype"));
+		}
 
 		alloc_func (virt_layout)?;
 
@@ -1184,9 +1220,19 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 	}
 
-	pub unsafe fn unmap (&self, virt_zone: VirtRange) -> Result<VirtLayout, Err>
+	pub unsafe fn unmap (&self, virt_zone: VirtRange, atype: AllocType) -> Result<VirtLayout, Err>
 	{
-		let mut phys_zones = self.virt_map.lock ().remove (&virt_zone)?;
+		let mut btree = self.virt_map.lock ();
+
+		let virt_layout = btree.get_mut (&virt_zone)
+			.ok_or_else (|| Err::new ("invalid virt zone passed to remap"))?;
+
+		if virt_layout.alloc_type () != atype
+		{
+			return Err(Err::new ("memory type does not match passed atype"));
+		}
+
+		let mut phys_zones = btree.remove (&virt_zone)?;
 
 		let iter = PageMappingIterator::new_unmapper (&phys_zones, &virt_zone);
 		self.map_internal (iter);
