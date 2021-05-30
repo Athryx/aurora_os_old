@@ -17,6 +17,8 @@ pub use thread::{Thread, ThreadLNode, ThreadState};
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
+// use UnsafeCell to make all operations on ThreadLNode take an immuable refernce
+// the current implementation with &mut is probably considered undefined behavior, but it still sort of works
 
 // TODO: the scheduler uses a bad choice of data structures, i'll implement better ones later
 // running list should be not list and cpu local
@@ -27,7 +29,7 @@ pub use thread::{Thread, ThreadLNode, ThreadState};
 
 // FIXME: there are a few possible race conditions with smp and (planned) process exit syscall
 
-// FIXME: there is a current race condition that only happens very rarely
+// FIXME: there is a current race condition that occurs when using proc_c () function
 
 pub mod sys;
 mod process;
@@ -335,9 +337,13 @@ impl Registers
 	}
 }
 
+// NOTE: this is actually an unsafe function
+// this is marked safe because i'm too lazy to put current calls in an unsafe block, and it will be made safe soon anyway
+// safety: can't call multiple times to get aliasing mutable references
+// the running time field may generate incorrect values, because this is changed by the scheduler
 pub fn thread_c<'a> () -> &'a mut ThreadLNode
 {
-	// This is safe to do (only not in interrupt) because thread that called it is guarenteed
+	// This is (sort of) safe to do (only not in interrupt) because thread that called it is guarenteed
 	// to have state restored back to same as before if it is interrupted
 	unsafe
 	{

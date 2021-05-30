@@ -1,0 +1,7 @@
+make realloc, thred_new, and thread_block return the correct error code
+
+restructure project crates
+make util crate, which will be non-std utillity functions with no depencies
+keep sys_consts crate
+move syscall functions to seperate sys crate, which will depend on util and sys_consts
+std will reexport sys crate to current module path of std::os::epoch::sys
