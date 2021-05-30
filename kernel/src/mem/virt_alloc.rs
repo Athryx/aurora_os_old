@@ -280,7 +280,7 @@ impl PageTable
 	unsafe fn remove<T: FrameAllocator> (&mut self, index: usize, allocer: &T) -> bool
 	{
 		let n = self.0[index].0;
-		if !self.present (index)
+		if self.present (index)
 		{
 			self.0[index] = PageTablePointer(n & !PageTableFlags::PRESENT.bits ());
 			self.inc_count (-1);
@@ -906,7 +906,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 	pub fn get_mapped_range (&self, addr: VirtAddr) -> Option<VirtRange>
 	{
-		let virt_zone = VirtRange::new (addr, usize::MAX);
+		let virt_zone = VirtRange::new_unaligned (addr, usize::MAX);
 
 		let btree = self.virt_map.lock ();
 		let (zone, _) = btree.range (..virt_zone).next_back ()?;
@@ -1292,9 +1292,9 @@ impl<T: FrameAllocator> VirtMapper<T>
 						tables[a] = Some(tables[a - 1].as_mut ().unwrap ().get (nums[a - 1]));
 					}
 		
-					for a in (depth - 1)..=0
+					for a in (0..depth).rev ()
 					{
-						if !tables[a].as_mut ().unwrap ().remove (nums[a + 1], self.frame_allocer)
+						if !tables[a].as_mut ().unwrap ().remove (nums[a], self.frame_allocer)
 						{
 							break;
 						}
