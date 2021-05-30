@@ -1,7 +1,10 @@
 //! Epoch kernel system calls
+#![no_std]
+
+#![feature(asm)]
+
 use sys_consts::{thread, syscalls::*};
 pub use sys_consts::{SysErr, options::*};
-use crate::syscall;
 
 const PAGE_SIZE: usize = 4096;
 // filler for syscall macro to get right amount of return values
