@@ -8,6 +8,7 @@ pub use core::cell::RefCell;
 pub use alloc::format;
 pub use crate::util::misc::*;
 pub use crate::util::{Err, Error};
+pub use sys_consts::SysErr;
 // probably should remove this from uses
 pub use crate::arch::x64::CPUPrivLevel;
 pub use crate::{print, println, eprint, eprintln, rprint, rprintln, init_array};

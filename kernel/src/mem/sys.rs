@@ -4,6 +4,7 @@ use crate::syscall::{SyscallVals, SysErr};
 use super::{PAGE_SIZE, VirtRange};
 use super::phys_alloc::zm;
 use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageMappingFlags, AllocType};
+use super::error::MemErr;
 use crate::sched::proc_c;
 
 const READ: u32 = 1;
@@ -79,7 +80,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => sysret! (vals, 0, 0, SysErr::InvlPointer.num ()),
+			None => sysret! (vals, 0, 0, SysErr::InvlPtr.num ()),
 		};
 
 		match unsafe { mapper.unmap (virt_zone, AllocType::VirtMem) }
@@ -99,7 +100,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => sysret! (vals, 0, 0, SysErr::InvlPointer.num ()),
+			None => sysret! (vals, 0, 0, SysErr::InvlPtr.num ()),
 		};
 
 		// closure type annotation needed, compiler complains for some reason if I don't have it
@@ -115,7 +116,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			if size > psize
 			{
 				let elem = VirtLayoutElement::new (size - psize, new_flags)
-					.ok_or_else (|| Err::new ("out of memory"))?;
+					.ok_or_else (|| MemErr::OutOfMem ("out of memory"))?;
 				phys_zones.push (elem);
 			}
 			else if size < psize

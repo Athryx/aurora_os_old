@@ -6,6 +6,7 @@ use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
 use super::phys_alloc::{Allocation, ZoneManager, zm};
+use super::error::MemErr;
 use super::*;
 
 const PAGE_ADDR_BITMASK: usize = 0x000ffffffffff000;
@@ -299,7 +300,7 @@ impl PageTable
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum VirtLayoutElementType
+enum VirtLayoutElementType
 {
 	Mem(PhysRange),
 	// will translate this to physical address
@@ -309,7 +310,7 @@ pub enum VirtLayoutElementType
 
 impl VirtLayoutElementType
 {
-	pub fn size (&self) -> usize
+	fn size (&self) -> usize
 	{
 		match self
 		{
@@ -714,7 +715,7 @@ impl Pmit
 		Some(min (self.phys_zone.get_take_size ()?, self.virt_zone.get_take_size ()?))
 	}
 
-	pub fn take (&mut self, size: PageSize) -> Option<(PhysFrame, VirtFrame)>
+	fn take (&mut self, size: PageSize) -> Option<(PhysFrame, VirtFrame)>
 	{
 		let take_size = self.get_take_size ()?;
 		if size > take_size
@@ -1022,20 +1023,20 @@ impl<T: FrameAllocator> VirtMapper<T>
 		Some((prev_size, next_size))
 	}
 
-	pub unsafe fn map (&self, mut phys_zones: VirtLayout) -> Result<VirtRange, Err>
+	pub unsafe fn map (&self, mut phys_zones: VirtLayout) -> Result<VirtRange, MemErr>
 	{
 		// TODO: choose better zones based off alignment so more big pages cna be used saving tlb cache space
 		let size = phys_zones.size ();
 
 		if size == 0
 		{
-			return Err(Err::new ("tryed to map page of size zero"));
+			return Err(MemErr::InvlVirtMem ("tryed to map page of size zero"));
 		}
 
 		let mut btree = self.virt_map.lock ();
 
 		let virt_zone = Self::find_range (&mut btree, size)
-			.ok_or_else (|| Err::new ("not enough space in virtual memory space for allocation"))?;
+			.ok_or_else (|| MemErr::InvlVirtMem ("not enough space in virtual memory space for allocation"))?;
 
 		let iter = PageMappingIterator::new (&phys_zones, &virt_zone);
 		self.map_internal (iter);
@@ -1046,18 +1047,18 @@ impl<T: FrameAllocator> VirtMapper<T>
 		Ok(virt_zone)
 	}
 
-	pub unsafe fn map_at (&self, mut phys_zones: VirtLayout, virt_zone: VirtRange) -> Result<VirtRange, Err>
+	pub unsafe fn map_at (&self, mut phys_zones: VirtLayout, virt_zone: VirtRange) -> Result<VirtRange, MemErr>
 	{
 		let virt_zone = virt_zone.aligned ();
 
 		if phys_zones.size () != virt_zone.size ()
 		{
-			return Err(Err::new ("phys_zones and virt_zone size did not match"));
+			return Err(MemErr::InvlArgs ("phys_zones and virt_zone size did not match"));
 		}
 
 		if phys_zones.size () == 0
 		{
-			return Err(Err::new ("tryed to map page of size zero"));
+			return Err(MemErr::InvlArgs ("tryed to map page of size zero"));
 		}
 
 		// free_space already checks these, this is just for more accurate error message
@@ -1075,7 +1076,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		if Self::free_space (&mut btree, virt_zone, None).is_none ()
 		{
-			return Err(Err::new ("invalid virt zone passed to map_at"));
+			return Err(MemErr::InvlVirtMem ("invalid virt zone passed to map_at"));
 		}
 
 		let iter = PageMappingIterator::new (&phys_zones, &virt_zone);
@@ -1087,19 +1088,19 @@ impl<T: FrameAllocator> VirtMapper<T>
 		Ok(virt_zone)
 	}
 
-	pub unsafe fn remap<F> (&self, virt_zone: VirtRange, atype: AllocType, alloc_func: F) -> Result<VirtRange, Err>
-		where F: FnOnce(&mut VirtLayout) -> Result<(), Err>
+	pub unsafe fn remap<F> (&self, virt_zone: VirtRange, atype: AllocType, alloc_func: F) -> Result<VirtRange, MemErr>
+		where F: FnOnce(&mut VirtLayout) -> Result<(), MemErr>
 	{
 		let virt_zone = virt_zone.aligned ();
 
 		let mut btree = self.virt_map.lock ();
 
 		let virt_layout = btree.get_mut (&virt_zone)
-			.ok_or_else (|| Err::new ("invalid virt zone passed to remap"))?;
+			.ok_or_else (|| MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
 
 		if virt_layout.alloc_type () != atype
 		{
-			return Err(Err::new ("memory type does not match passed atype"));
+			return Err(MemErr::InvlMemType ("memory type does not match passed atype"));
 		}
 
 		alloc_func (virt_layout)?;
@@ -1137,7 +1138,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 					// make borrow checker happy
 					let virt_layout = btree.get_mut (&virt_zone).unwrap ();
 					virt_layout.revert ();
-					Err::new ("not enough space in virtual memory space for allocation")
+					MemErr::InvlVirtMem ("not enough space in virtual memory space for allocation")
 				})?;
 
 			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
@@ -1156,8 +1157,8 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 	}
 
-	pub unsafe fn remap_at<F> (&self, virt_zone: VirtRange, target_addr: VirtAddr, atype: AllocType, alloc_func: F) -> Result<VirtRange, Err>
-		where F: FnOnce(&mut VirtLayout) -> Result<(), Err>
+	pub unsafe fn remap_at<F> (&self, virt_zone: VirtRange, target_addr: VirtAddr, atype: AllocType, alloc_func: F) -> Result<VirtRange, MemErr>
+		where F: FnOnce(&mut VirtLayout) -> Result<(), MemErr>
 	{
 		let virt_zone = virt_zone.aligned ();
 		let target_addr = target_addr.align_down (PAGE_SIZE as u64);
@@ -1165,11 +1166,11 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let mut btree = self.virt_map.lock ();
 
 		let virt_layout = btree.get_mut (&virt_zone)
-			.ok_or_else (|| Err::new ("invalid virt zone passed to remap"))?;
+			.ok_or_else (|| MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
 
 		if virt_layout.alloc_type () != atype
 		{
-			return Err(Err::new ("memory type does not match passed atype"));
+			return Err(MemErr::InvlMemType ("memory type does not match passed atype"));
 		}
 
 		alloc_func (virt_layout)?;
@@ -1218,20 +1219,20 @@ impl<T: FrameAllocator> VirtMapper<T>
 			// make borrow checker happy
 			let virt_layout = btree.get_mut (&virt_zone).unwrap ();
 			virt_layout.revert ();
-			Err(Err::new ("could not remap virt zone to target virt zone"))
+			Err(MemErr::InvlVirtMem ("could not remap virt zone to target virt zone"))
 		}
 	}
 
-	pub unsafe fn unmap (&self, virt_zone: VirtRange, atype: AllocType) -> Result<VirtLayout, Err>
+	pub unsafe fn unmap (&self, virt_zone: VirtRange, atype: AllocType) -> Result<VirtLayout, MemErr>
 	{
 		let mut btree = self.virt_map.lock ();
 
 		let virt_layout = btree.get_mut (&virt_zone)
-			.ok_or_else (|| Err::new ("invalid virt zone passed to remap"))?;
+			.ok_or_else (|| MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
 
 		if virt_layout.alloc_type () != atype
 		{
-			return Err(Err::new ("memory type does not match passed atype"));
+			return Err(MemErr::InvlMemType ("memory type does not match passed atype"));
 		}
 
 		let mut phys_zones = btree.remove (&virt_zone)?;

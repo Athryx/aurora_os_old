@@ -1,4 +1,5 @@
 use core::option::NoneError;
+use sys_consts::SysErr;
 
 pub trait Error
 {
@@ -33,5 +34,13 @@ impl From<NoneError> for Err
 	fn from (_: NoneError) -> Self
 	{
 		Self::new ("none error")
+	}
+}
+
+impl Error for SysErr
+{
+	fn get_error (&self) -> &str
+	{
+		self.as_str ()
 	}
 }

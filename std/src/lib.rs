@@ -3,6 +3,7 @@
 #![feature(lang_items)]
 #![feature(asm)]
 
+pub mod ext;
 pub mod os;
 
 mod uses;

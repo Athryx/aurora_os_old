@@ -1,4 +1,5 @@
 use crate::syscall::SyscallVals;
+use crate::sysret;
 use super::*;
 
 pub extern "C" fn thread_new (vals: &mut SyscallVals)
@@ -8,12 +9,10 @@ pub extern "C" fn thread_new (vals: &mut SyscallVals)
 	match proc_c ().new_thread (unsafe { core::mem::transmute (rip) }, None)
 	{
 		Ok(tid) => {
-			vals.a1 = tid;
-			vals.a2 = 0;
+			sysret! (vals, tid, 0);
 		},
 		Err(_) => {
-			vals.a1 = 0;
-			vals.a2 = 1;
+			sysret! (vals, 0, 1);
 		}
 	}
 }

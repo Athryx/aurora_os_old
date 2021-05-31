@@ -9,6 +9,7 @@ use crate::mb2::BootInfo;
 pub mod phys_alloc;
 pub mod virt_alloc;
 pub mod kernel_heap;
+pub mod error;
 pub mod sys;
 
 pub const PAGE_SIZE: usize = 4096;
