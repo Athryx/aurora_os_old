@@ -11,7 +11,7 @@ use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
-use crate::util::{ListNode, IMutex, IMutexGuard, MemCell};
+use crate::util::{ListNode, IMutex, IMutexGuard, MemCell, UniqueMut, UniquePtr};
 use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal};
 use super::{Registers, ThreadList, int_sched, tlist};
@@ -277,7 +277,7 @@ unsafe impl Sync for Thread {}
 
 // TODO: should probably merge into one type with Thread
 // all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
-pub struct ThreadLNode
+pub struct TNode
 {
 	pub thread: Weak<Thread>,
 	// TODO: find a better solution
@@ -288,7 +288,7 @@ pub struct ThreadLNode
 	next: AtomicPtr<Self>,
 }
 
-impl ThreadLNode
+impl TNode
 {
 	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
 
@@ -296,7 +296,7 @@ impl ThreadLNode
 	{
 		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ThreadLNode");
 		let ptr = mem.as_ptr () as *mut Self;
-		let out = ThreadLNode {
+		let out = TNode {
 			thread,
 			state: ThreadState::Ready,
 			run_time: AtomicU64::new (0),
@@ -326,54 +326,81 @@ impl ThreadLNode
 		self.state
 	}
 
-	pub fn set_state (&self, state: ThreadState)
+	pub fn set_state (&mut self, state: ThreadState)
 	{
 		self.state = state;
 	}
 
 	// returns false if failed to remove
-	pub fn remove_from_current (&self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Option<MemCell<Self>>
+	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemCell<TNode>, T>
+		where T: UniquePtr<Self> + 'a
 	{
-		let state = self.state;
+		let state = ptr.state;
 		if !state.is_proc_local ()
 		{
 			match gtlist
 			{
-				Some(list) => {
-					Some(list[state].remove_node (self))
-				},
-				None => None,
+				Some(list) => Ok(list[state].remove_node (ptr)),
+				None => Err(ptr),
 			}
 		}
-		else if self.is_alive ()
+		else if ptr.is_alive ()
 		{
 			match proctlist
 			{
-				Some(list) => {
-					Some(list[state].remove_node (self))
-				},
-				None => None,
+				Some(list) => Ok(list[state].remove_node (ptr)),
+				None => Err(ptr),
 			}
 		}
 		else
 		{
-			None
+			Err(ptr)
+		}
+	}
+
+	// returns None if failed to insert into list
+	// inserts into current state list
+	pub fn insert_into<'a> (cell: MemCell<Self>, gtlist: Option<&'a mut ThreadList>, proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, TNode>, MemCell<TNode>>
+	{
+		let state = cell.borrow ().state;
+		if !state.is_proc_local ()
+		{
+			match gtlist
+			{
+				Some(list) => Ok(list[state].push (cell)),
+				None => Err(cell),
+			}
+		}
+		else if cell.borrow ().is_alive ()
+		{
+			match proctlist
+			{
+				Some(list) => Ok(list[state].push (cell)),
+				None => Err(cell),
+			}
+		}
+		else
+		{
+			Err(cell)
 		}
 	}
 
 	// moves ThreadLNode from old thread state data structure to specified new thread state data structure and return true
 	// will set state variable accordingly
 	// if the thread has already been destroyed via process exiting, this will return false
-	pub fn move_to (&mut self, state: ThreadState, mut gtlist: Option<&mut ThreadList>, mut proctlist: Option<&mut ThreadListProcLocal>) -> bool
+	pub fn move_to<'a, 'b, T> (ptr: T, state: ThreadState, mut gtlist: Option<&'a mut ThreadList>, mut proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, TNode>, T>
+		where T: UniquePtr<Self> + Clone + 'b
 	{
-		if let Some(cell) = self.remove_from_current (gtlist.as_deref_mut (), proctlist.as_deref_mut ())
+		let ptr2 = ptr.clone ();
+		match Self::remove_from_current (ptr, gtlist.as_deref_mut (), proctlist.as_deref_mut ())
 		{
-			self.state = state;
-			cell.insert_into (gtlist, proctlist)
-		}
-		else
-		{
-			return false;
+			Ok(cell) => {
+				cell.borrow_mut ().state = state;
+				// TODO: figure out if we need to handle None case of this specially
+				Self::insert_into (cell, gtlist, proctlist)
+					.or_else (|_| unsafe { Err(ptr2) })
+			},
+			Err(ptr) => Err(ptr),
 		}
 	}
 
@@ -436,59 +463,11 @@ impl ThreadLNode
 	}
 }
 
-impl MemCell<ThreadLNode>
-{
-	// returns false if failed to insert into list
-	// inserts into currnet state
-	pub fn insert_into<'a> (self, gtlist: Option<&'a mut ThreadList>, proctlist: Option<&'a mut ThreadListProcLocal>) -> Option<&'a mut ThreadLNode>
-	{
-		let state = self.borrow ().state;
-		if !state.is_proc_local ()
-		{
-			match gtlist
-			{
-				Some(list) => {
-					let ptr = self.ptr_mut ();
-					list[state].push (self);
-
-					// faster than searching list for refernce
-					unsafe
-					{
-						Some(ptr.as_mut ().unwrap ())
-					}
-				},
-				None => None,
-			}
-		}
-		else if self.borrow ().is_alive ()
-		{
-			match proctlist
-			{
-				Some(list) => {
-					let ptr = self.ptr_mut ();
-					list[state].push (self);
-
-					// faster than searching list for refernce
-					unsafe
-					{
-						Some(ptr.as_mut ().unwrap ())
-					}
-				},
-				None => None,
-			}
-		}
-		else
-		{
-			None
-		}
-	}
-}
-
-impl fmt::Debug for ThreadLNode
+impl fmt::Debug for TNode
 {
 	fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
 	{
-		f.debug_struct ("ThreadLNode")
+		f.debug_struct ("TNode")
 			.field ("thread", &self.thread ())
 			.field ("state", &self.state)
 			.field ("run_time", &self.run_time)
@@ -498,4 +477,4 @@ impl fmt::Debug for ThreadLNode
 	}
 }
 
-crate::impl_list_node! (ThreadLNode, prev, next);
+crate::impl_list_node! (TNode, prev, next);

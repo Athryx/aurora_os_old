@@ -10,12 +10,12 @@ use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, IMutex};
 use super::{ThreadList, tlist, proc_list};
 use super::elf::{ElfParser, Section};
-use super::thread::{Thread, ThreadLNode, ThreadState};
+use super::thread::{Thread, TNode, ThreadState};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
-pub struct ThreadListProcLocal([LinkedList<ThreadLNode>; 2]);
+pub struct ThreadListProcLocal([LinkedList<TNode>; 2]);
 
 impl ThreadListProcLocal
 {
@@ -27,7 +27,7 @@ impl ThreadListProcLocal
 		])
 	}
 
-	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<ThreadLNode>>
+	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<TNode>>
 	{
 		match state
 		{
@@ -37,7 +37,7 @@ impl ThreadListProcLocal
 		}
 	}
 
-	pub fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<ThreadLNode>>
+	pub fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<TNode>>
 	{
 		match state
 		{
@@ -50,7 +50,7 @@ impl ThreadListProcLocal
 
 impl Index<ThreadState> for ThreadListProcLocal
 {
-	type Output = LinkedList<ThreadLNode>;
+	type Output = LinkedList<TNode>;
 
 	fn index (&self, state: ThreadState) -> &Self::Output
 	{
@@ -224,7 +224,7 @@ impl Process
 
 			if tid == join_tid
 			{
-				tpointer.move_to (ThreadState::Ready, Some(&mut thread_list), Some(&mut list));
+				TNode::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), Some(&mut list));
 			}
 		}
 
@@ -242,8 +242,8 @@ impl Process
 		let tweak = Arc::downgrade (&thread);
 		if self.insert_thread (thread)
 		{
-			let tnode = ThreadLNode::new (tweak);
-			tnode.set_state (ThreadState::Ready);
+			let tnode = TNode::new (tweak);
+			tnode.borrow_mut ().set_state (ThreadState::Ready);
 			tlist.lock ()[ThreadState::Ready].push (tnode);
 			Ok(tid)
 		}
@@ -278,7 +278,7 @@ impl Drop for Process
 
 			unsafe
 			{
-				tpointer.dealloc ();
+				tpointer.borrow_mut ().dealloc ();
 			}
 		}
 		loop
@@ -296,7 +296,7 @@ impl Drop for Process
 
 			unsafe
 			{
-				tpointer.dealloc ();
+				tpointer.borrow_mut ().dealloc ();
 			}
 		}
 	}

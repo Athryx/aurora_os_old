@@ -155,7 +155,7 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 
 	syscall::init ();
 
-	//XXX sched::init ()?;
+	sched::init ()?;
 
 	Ok(())
 }
@@ -174,11 +174,9 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	sti_safe ();
 
-
-	//XXX Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
+	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
 	//test ();
-	test_thread_1 ();
 
 	loop {
 		hlt ();
@@ -196,13 +194,13 @@ fn test ()
 		eprintln! ("num {}", num);
 		num += 1;
 		eprintln! ("num + 1 {}", num);
-		//XXX thread_c ().block (ThreadState::Destroy);
+		thread_c ().block (ThreadState::Destroy);
 	};
 	unsafe
 	{
-		//XXX join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
+		join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
 	}
-	//XXX proc_c ().new_thread (test_thread_2, Some("join_test_thread".to_string ())).unwrap ();
+	proc_c ().new_thread (test_thread_2, Some("join_test_thread".to_string ())).unwrap ();
 	/*unsafe
 	{
 		proc_c ().new_thread (core::mem::transmute (&test_closure), Some("closure_test_thread".to_string ())).unwrap ();
@@ -216,9 +214,9 @@ fn test_thread_2 ()
 	{
 		hlt ();
 	}
-	//XXX thread_c ().block (ThreadState::Join(unsafe { join_tid }));
+	thread_c ().block (ThreadState::Join(unsafe { join_tid }));
 	eprintln! ("finished joining");
-	//XXX thread_c ().block (ThreadState::Destroy);
+	thread_c ().block (ThreadState::Destroy);
 }
 
 const order_size: usize = 0x100;
@@ -284,5 +282,5 @@ fn test_thread_1 ()
 	{
 		hlt ();
 	}
-	//XXX thread_c ().block (ThreadState::Destroy);
+	thread_c ().block (ThreadState::Destroy);
 }

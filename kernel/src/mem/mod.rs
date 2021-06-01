@@ -10,7 +10,7 @@ pub mod phys_alloc;
 pub mod virt_alloc;
 pub mod kernel_heap;
 pub mod error;
-// XXX pub mod sys;
+pub mod sys;
 
 pub const PAGE_SIZE: usize = 4096;
 pub const MAX_VIRT_ADDR: usize = 1 << 47;
@@ -349,7 +349,7 @@ impl VirtFrame
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtRange
 {
-	// XXX: this field must be first because it is the first one compared
+	// NOTE: this field must be first because it is the first one compared
 	addr: VirtAddr,
 	size: usize,
 }

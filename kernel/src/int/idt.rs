@@ -1,7 +1,6 @@
 use concat_idents::concat_idents;
 use crate::uses::*;
-//XXX: use crate::sched::{Registers, thread_res_c};
-use crate::sched::Registers;
+use crate::sched::{Registers, thread_res_c};
 use crate::gdt;
 use crate::kdata;
 use crate::arch::x64::{cli_inc, sti_inc};
@@ -256,7 +255,7 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		regs.call_save_rsp = data.call_save_rsp;
 	}
 
-	// XXX *thread_res_c ().regs.lock () = *regs;
+	*thread_res_c ().regs.lock () = *regs;
 
 	let mut out = None;
 

@@ -6,18 +6,18 @@ use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::int::idt::{Handler, IRQ_TIMER, INT_SCHED};
-use crate::util::{LinkedList, IMutex};
+use crate::util::{LinkedList, IMutex, UniqueRef, UniqueMut, UniquePtr};
 use crate::arch::x64::{cli_safe, sti_safe, sti_inc, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
-//pub use process::Process;
-//pub use thread::{Thread, ThreadLNode, ThreadState};
+pub use process::Process;
+pub use thread::{Thread, TNode, ThreadState};
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
-// use UnsafeCell to make all operations on ThreadLNode take an immuable refernce
+// use UnsafeCell to make all operations on TNode take an immuable refernce
 // the current implementation with &mut is probably considered undefined behavior, but it still sort of works
 
 // TODO: the scheduler uses a bad choice of data structures, i'll implement better ones later
@@ -31,7 +31,7 @@ use crate::gdt::tss;
 
 // FIXME: there is a current race condition that occurs when using proc_c () function
 
-/*pub mod sys;
+pub mod sys;
 mod process;
 mod thread;
 mod elf;
@@ -69,7 +69,7 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 		let sleep_nsec = tpointer.state ().sleep_nsec ().unwrap ();
 		if nsec >= sleep_nsec
 		{
-			tpointer.move_to (ThreadState::Ready, Some(&mut thread_list), None);
+			TNode::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
 		}
 	}
 
@@ -119,14 +119,15 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 {
 	let mut thread_list = tlist.lock ();
 
-	let tpointer = loop
+	let tcell = loop
 	{
 		match thread_list[ThreadState::Ready].pop_front ()
 		{
 			Some(t) => {
-				if !t.is_alive ()
+				if !t.borrow ().is_alive ()
 				{
-					t.move_to (ThreadState::Destroy, Some(&mut thread_list), None);
+					t.borrow_mut ().set_state (ThreadState::Destroy);
+					TNode::insert_into (t, Some(&mut thread_list), None).unwrap ();
 				}
 				else
 				{
@@ -136,8 +137,10 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 			None => return None,
 		}
 	};
+	let mut tpointer = tcell.borrow_mut ();
 
-	let old_thread = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
+	let old_thread_cell = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
+	let mut old_thread = old_thread_cell.borrow_mut ();
 
 	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::Relaxed);
 	old_thread.inc_time (nsec_current - nsec_last);
@@ -150,15 +153,28 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	{
 		old_thread.set_state (ThreadState::Ready);
 	}
-	old_thread.insert_into (Some(&mut thread_list), Some(&mut tlproc_list));
+	drop (old_thread);
+	// if process was dropped, move to destroy list
+	let old_is_alive = match TNode::insert_into (old_thread_cell, Some(&mut thread_list), Some(&mut tlproc_list))
+	{
+		Ok(_) => true,
+		Err(tcell) => {
+			tcell.borrow_mut ().set_state (ThreadState::Destroy);
+			TNode::insert_into (tcell, Some(&mut thread_list), None).unwrap ();
+			false
+		}
+	};
 
 	// TODO: add premptive multithreading here
 	tpointer.set_state (ThreadState::Running);
-	tpointer.insert_into (Some(&mut thread_list), None);
-	rprintln! ("switching to:\n{:#x?}", tpointer);
+	drop (tpointer);
+	let tpointer = TNode::insert_into (tcell, Some(&mut thread_list), None).expect ("could not set running thread");
+
+	rprintln! ("switching to:\n{:#x?}", *tpointer);
+
 	let new_process = tpointer.thread ().unwrap ().process ();
 
-	if !old_thread.is_alive () || old_process.pid () != new_process.pid ()
+	if !old_is_alive || old_process.pid () != new_process.pid ()
 	{
 		unsafe { new_process.addr_space.load (); }
 	}
@@ -197,13 +213,13 @@ fn thread_cleaner ()
 		loop
 		{
 			let mut thread_list = tlist.lock ();
-			let tpointer = match thread_list[ThreadState::Destroy].pop_front ()
+			let tcell = match thread_list[ThreadState::Destroy].pop_front ()
 			{
 				Some(thread) => thread,
 				None => break,
 			};
 
-			rprintln! ("Deallocing thread pointer:\n{:#x?}", tpointer);
+			rprintln! ("Deallocing thread pointer:\n{:#x?}", tcell);
 
 			// TODO: this is probably slow
 			// avoid race condition with dealloc
@@ -211,7 +227,7 @@ fn thread_cleaner ()
 
 			unsafe
 			{
-				tpointer.dealloc ();
+				tcell.borrow_mut ().dealloc ();
 			}
 		}
 		rprintln! ("end thread_cleaner loop");
@@ -220,7 +236,7 @@ fn thread_cleaner ()
 }
 
 #[derive(Debug)]
-pub struct ThreadList([LinkedList<ThreadLNode>; 4]);
+pub struct ThreadList([LinkedList<TNode>; 4]);
 
 impl ThreadList
 {
@@ -234,7 +250,7 @@ impl ThreadList
 		])
 	}
 
-	fn get (&self, state: ThreadState) -> Option<&LinkedList<ThreadLNode>>
+	fn get (&self, state: ThreadState) -> Option<&LinkedList<TNode>>
 	{
 		match state
 		{
@@ -246,7 +262,7 @@ impl ThreadList
 		}
 	}
 
-	fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<ThreadLNode>>
+	fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<TNode>>
 	{
 		match state
 		{
@@ -261,7 +277,7 @@ impl ThreadList
 
 impl Index<ThreadState> for ThreadList
 {
-	type Output = LinkedList<ThreadLNode>;
+	type Output = LinkedList<TNode>;
 
 	fn index (&self, state: ThreadState) -> &Self::Output
 	{
@@ -275,7 +291,7 @@ impl IndexMut<ThreadState> for ThreadList
 	{
 		self.get_mut (state).expect ("attempted to index ThreadState with invalid state")
 	}
-}*/
+}
 
 // for assembly code to know structure
 #[repr(C, packed)]
@@ -341,19 +357,19 @@ impl Registers
 // this is marked safe because i'm too lazy to put current calls in an unsafe block, and it will be made safe soon anyway
 // safety: can't call multiple times to get aliasing mutable references
 // the running time field may generate incorrect values, because this is changed by the scheduler
-/*pub fn thread_c<'a> () -> &'a mut ThreadLNode
+pub fn thread_c<'a> () -> UniqueMut<'a, TNode>
 {
 	// This is (sort of) safe to do (only not in interrupt) because thread that called it is guarenteed
 	// to have state restored back to same as before if it is interrupted
 	unsafe
 	{
-		unbound_mut (&mut tlist.lock ()[ThreadState::Running][0])
+		tlist.lock ()[ThreadState::Running].gm (0).unbound ()
 	}
 }
 
 pub fn thread_res_c () -> Arc<Thread>
 {
-	tlist.lock ()[ThreadState::Running][0].thread ().unwrap ()
+	tlist.lock ()[ThreadState::Running].g (0).thread ().unwrap ()
 }
 
 // FIXME: this locks too many locks, potential smp race condition
@@ -374,8 +390,8 @@ pub fn init () -> Result<(), Err>
 
 	// rip will be set on first context switch
 	let idle_thread = Thread::from_stack (Arc::downgrade (&kernel_proc), kernel_proc.next_tid (), "idle_thread".to_string (), 0, *INIT_STACK)?;
-	let tpointer = ThreadLNode::new (Arc::downgrade (&idle_thread));
-	tpointer.set_state (ThreadState::Running);
+	let tpointer = TNode::new (Arc::downgrade (&idle_thread));
+	tpointer.borrow_mut ().set_state (ThreadState::Running);
 	tlist.lock ()[ThreadState::Running].push (tpointer);
 
 	kernel_proc.insert_thread (idle_thread);
@@ -385,4 +401,4 @@ pub fn init () -> Result<(), Err>
 	Handler::Last(int_handler).register (INT_SCHED)?;
 
 	Ok(())
-}*/
+}

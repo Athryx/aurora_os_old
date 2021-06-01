@@ -1,6 +1,7 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicIsize, Ordering};
 use core::ops::{Deref, DerefMut};
+use core::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy)]
 pub struct BorrowError;
@@ -174,7 +175,8 @@ pub trait UniqueMutPtr<T>: UniquePtr<T> + DerefMut<Target = T>
 #[derive(Debug)]
 pub struct UniqueRef<'a, T>
 {
-	data: &'a T,
+	data: *const T,
+	marker: PhantomData<&'a T>,
 }
 
 impl<T> UniqueRef<'_, T>
@@ -183,13 +185,15 @@ impl<T> UniqueRef<'_, T>
 	{
 		UniqueRef {
 			data: other,
+			marker: PhantomData,
 		}
 	}
 
 	pub unsafe fn from_ptr<'a> (ptr: *const T) -> UniqueRef<'a, T>
 	{
 		UniqueRef {
-			data: ptr.as_ref ().unwrap (),
+			data: ptr,
+			marker: PhantomData,
 		}
 	}
 
@@ -205,7 +209,10 @@ impl<T> Deref for UniqueRef<'_, T>
 
 	fn deref (&self) -> &Self::Target
 	{
-		self.data
+		unsafe
+		{
+			self.data.as_ref ().unwrap ()
+		}
 	}
 }
 
@@ -217,10 +224,23 @@ impl<T> UniquePtr<T> for UniqueRef<'_, T>
 	}
 }
 
+// cloning is unsafe
+impl<T> Clone for UniqueRef<'_, T>
+{
+	fn clone (&self) -> Self
+	{
+		UniqueRef {
+			data: self.data,
+			marker: PhantomData,
+		}
+	}
+}
+
 #[derive(Debug)]
 pub struct UniqueMut<'a, T>
 {
-	data: &'a mut T,
+	data: *mut T,
+	marker: PhantomData<&'a mut T>
 }
 
 impl<T> UniqueMut<'_, T>
@@ -229,13 +249,15 @@ impl<T> UniqueMut<'_, T>
 	{
 		UniqueMut {
 			data: other,
+			marker: PhantomData,
 		}
 	}
 
 	pub unsafe fn from_ptr<'a> (ptr: *mut T) -> UniqueMut<'a, T>
 	{
 		UniqueMut {
-			data: ptr.as_mut ().unwrap (),
+			data: ptr,
+			marker: PhantomData,
 		}
 	}
 
@@ -251,7 +273,10 @@ impl<T> Deref for UniqueMut<'_, T>
 
 	fn deref (&self) -> &Self::Target
 	{
-		self.data
+		unsafe
+		{
+			self.data.as_ref ().unwrap ()
+		}
 	}
 }
 
@@ -259,7 +284,10 @@ impl<T> DerefMut for UniqueMut<'_, T>
 {
 	fn deref_mut (&mut self) -> &mut Self::Target
 	{
-		self.data
+		unsafe
+		{
+			self.data.as_mut ().unwrap ()
+		}
 	}
 }
 
@@ -276,5 +304,17 @@ impl<T> UniqueMutPtr<T> for UniqueMut<'_, T>
 	fn ptr_mut (&self) -> *mut T
 	{
 		self.data as *const T as *mut T
+	}
+}
+
+// cloning is unsafe
+impl<T> Clone for UniqueMut<'_, T>
+{
+	fn clone (&self) -> Self
+	{
+		UniqueMut {
+			data: self.data,
+			marker: PhantomData,
+		}
 	}
 }
