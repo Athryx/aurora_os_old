@@ -10,7 +10,7 @@ pub mod phys_alloc;
 pub mod virt_alloc;
 pub mod kernel_heap;
 pub mod error;
-pub mod sys;
+// XXX pub mod sys;
 
 pub const PAGE_SIZE: usize = 4096;
 pub const MAX_VIRT_ADDR: usize = 1 << 47;

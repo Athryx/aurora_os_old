@@ -2,7 +2,7 @@ use spin::{Mutex};
 use core::cmp::{min, max};
 use core::sync::atomic::{Ordering, AtomicUsize};
 use crate::uses::*;
-use crate::util::{LinkedList, Node};
+use crate::util::{LinkedList, Node, MemCell, UniqueRef};
 use crate::mb2::{BootInfo, MemoryRegionType};
 use super::PAGE_SIZE;
 use super::PhysRange;
@@ -206,14 +206,17 @@ impl BuddyAllocator
 
 		if self.olist[order].len () != 0 || self.split_order (order + 1)
 		{
-			let node = self.olist[order].pop_front ().unwrap ();
-			node.set_size (node.size ().wrapping_shr (1));
+			let node_cell = self.olist[order].pop_front ().unwrap ();
+			let mut node = node_cell.borrow_mut ();
+			node.size = node.size.wrapping_shr (1);
 
-			let addr = node.addr () ^ node.size ();
-			let node2 = unsafe { Node::new (addr, node.size ()) };
+			let addr = node.addr () ^ node.size;
+			let node2 = unsafe { Node::new (addr, node.size) };
 
 			self.olist[order - 1].push_front (node2);
-			self.olist[order - 1].push_front (node);
+
+			drop (node);
+			self.olist[order - 1].push_front (node_cell);
 
 			return true;
 		}
@@ -221,32 +224,41 @@ impl BuddyAllocator
 		false
 	}
 
-	fn insert_node (&mut self, mut node: &mut Node)
+	fn insert_node (&mut self, mut node_cell: MemCell<Node>)
 	{
-		let mut order = self.get_order (node.size ());
+		let mut order = self.get_order (node_cell.borrow ().size);
 
 		loop
 		{
-			let addr2 = node.addr () ^ node.size ();
-			if addr2 < node.addr () || addr2 > self.start || addr2 + node.size () > self.meta_start as usize || self.is_alloced (addr2)
+			let node = node_cell.borrow_mut ();
+
+			let addr2 = node.addr () ^ node.size;
+			if addr2 < node.addr () || addr2 > self.start || addr2 + node.size > self.meta_start as usize || self.is_alloced (addr2)
 			{
 				break;
 			}
-			let node2 = unsafe { (addr2 as *mut Node).as_mut ().unwrap () };
+			let node2 = unsafe { UniqueRef::new ((addr2 as *const Node).as_ref ().unwrap ()) };
 
-			if node.size () != node2.size ()
+			if node.size != node2.size
 			{
 				break;
 			}
 
-			self.olist[order].remove_node (node2);
+			let node2 = self.olist[order].remove_node (node2);
 
-			if addr2 < node.addr ()
+			// make borrow checker happy
+			let mut node = if addr2 < node.addr ()
 			{
-				node = node2;
+				drop (node);
+				node_cell = node2;
+				node_cell.borrow_mut ()
 			}
+			else
+			{
+				node
+			};
 
-			node.set_size (node.size () << 1);
+			node.size <<= 1;
 			order += 1;
 
 			if order == self.max_order
@@ -255,7 +267,7 @@ impl BuddyAllocator
 			}
 		}
 
-		self.olist[order].push_front (node);
+		self.olist[order].push_front (node_cell);
 	}
 
 	fn order_expand_cap (&self, mem: Allocation) -> usize
@@ -318,11 +330,12 @@ impl BuddyAllocator
 		}
 
 		// list is guarunteed to contain a node
-		let node = self.olist[order].pop_front ().unwrap ();
-		let out = Allocation::new (node.addr (), node.size ());
+		let node_cell = self.olist[order].pop_front ().unwrap ();
+		let node = node_cell.borrow ();
+		let out = Allocation::new (node.addr (), node.size);
 
 		self.set_is_alloced (node.addr (), true);
-		self.free_space -= node.size ();
+		self.free_space -= node.size;
 
 		Some(out)
 	}
@@ -398,7 +411,7 @@ impl BuddyAllocator
 				{
 					let size2 = self.get_order_size (order);
 					let addr2 = addr ^ size2;
-					let node = (addr2 as *mut Node).as_mut ().unwrap ();
+					let node = UniqueRef::new ((addr2 as *const Node).as_ref ().unwrap ());
 					self.olist[order].remove_node (node);
 				}
 
@@ -434,7 +447,7 @@ impl BuddyAllocator
 		self.set_is_alloced (addr, false);
 
 		let node = Node::new (addr, mem.len ());
-		self.free_space += node.size ();
+		self.free_space += node.borrow ().size;
 
 		self.insert_node (node);
 	}

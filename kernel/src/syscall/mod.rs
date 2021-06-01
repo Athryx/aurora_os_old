@@ -1,7 +1,7 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{thread_new, thread_block};
-use crate::mem::sys::realloc;
+// XXX use crate::sched::sys::{thread_new, thread_block};
+// XXX use crate::mem::sys::realloc;
 
 pub use sys_consts::SysErr;
 
@@ -16,8 +16,12 @@ pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 static syscalls: [SyscallFunc; 16] = [
 	sys_hi,
 	sys_hi,
-	thread_new,
-	thread_block,
+	// XXX del these 3
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	// XXX thread_new,
+	// XXX thread_block,
 	sys_hi,
 	sys_hi,
 	sys_hi,
@@ -25,7 +29,7 @@ static syscalls: [SyscallFunc; 16] = [
 	sys_hi,
 	sys_hi,
 	sys_hi,
-	realloc,
+	// XXX realloc,
 	sys_hi,
 	sys_hi,
 	sys_hi,

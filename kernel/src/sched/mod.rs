@@ -12,8 +12,8 @@ use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
-pub use process::Process;
-pub use thread::{Thread, ThreadLNode, ThreadState};
+//pub use process::Process;
+//pub use thread::{Thread, ThreadLNode, ThreadState};
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
@@ -31,7 +31,7 @@ pub use thread::{Thread, ThreadLNode, ThreadState};
 
 // FIXME: there is a current race condition that occurs when using proc_c () function
 
-pub mod sys;
+/*pub mod sys;
 mod process;
 mod thread;
 mod elf;
@@ -275,7 +275,7 @@ impl IndexMut<ThreadState> for ThreadList
 	{
 		self.get_mut (state).expect ("attempted to index ThreadState with invalid state")
 	}
-}
+}*/
 
 // for assembly code to know structure
 #[repr(C, packed)]
@@ -341,7 +341,7 @@ impl Registers
 // this is marked safe because i'm too lazy to put current calls in an unsafe block, and it will be made safe soon anyway
 // safety: can't call multiple times to get aliasing mutable references
 // the running time field may generate incorrect values, because this is changed by the scheduler
-pub fn thread_c<'a> () -> &'a mut ThreadLNode
+/*pub fn thread_c<'a> () -> &'a mut ThreadLNode
 {
 	// This is (sort of) safe to do (only not in interrupt) because thread that called it is guarenteed
 	// to have state restored back to same as before if it is interrupted
@@ -385,4 +385,4 @@ pub fn init () -> Result<(), Err>
 	Handler::Last(int_handler).register (INT_SCHED)?;
 
 	Ok(())
-}
+}*/

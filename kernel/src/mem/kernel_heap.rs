@@ -1,5 +1,5 @@
 use crate::uses::*;
-use crate::util::{LinkedList};
+use crate::util::{LinkedList, MemCell, UniqueRef, UniqueMut, UniquePtr};
 use crate::impl_list_node;
 use spin::Mutex;
 use core::mem;
@@ -9,6 +9,8 @@ use core::cell::{Cell, RefCell};
 use core::cmp::max;
 use super::PAGE_SIZE;
 use super::phys_alloc::{zm, Allocation};
+
+// TODO: I don't need all this interior mutability and shared references now that I am using MemCell
 
 const INITIAL_HEAP_SIZE: usize = PAGE_SIZE * 8;
 const HEAP_INC_SIZE: usize = PAGE_SIZE * 4;
@@ -48,7 +50,7 @@ struct Node
 
 impl Node
 {
-	unsafe fn new<'a> (addr: usize, size: usize) -> &'a Self
+	unsafe fn new<'a> (addr: usize, size: usize) -> MemCell<Self>
 	{
 		let ptr = addr as *mut Node;
 
@@ -59,7 +61,7 @@ impl Node
 		};
 		ptr.write (out);
 
-		ptr.as_ref ().unwrap ()
+		MemCell::new (ptr)
 	}
 
 	unsafe fn resize (&self, size: usize, align: usize) -> ResizeResult
@@ -123,33 +125,33 @@ struct HeapZone
 	next: AtomicPtr<HeapZone>,
 	mem: Allocation,
 	free_space: Cell<usize>,
-	list: RefCell<LinkedList<Node>>,
+	list: LinkedList<Node>,
 }
 
 impl HeapZone
 {
 	// size is aligned up to page size
-	unsafe fn new<'a> (size: usize) -> Option<&'a mut Self>
+	unsafe fn new<'a> (size: usize) -> Option<MemCell<Self>>
 	{
 		let size = align_up (size, PAGE_SIZE);
 		let mem = zm.alloc (size)?;
 		let size = mem.len ();
 		let ptr = mem.as_usize () as *mut HeapZone;
 
-		let out = HeapZone {
+		let mut out = HeapZone {
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 			mem,
 			free_space: Cell::new (size - INITIAL_CHUNK_SIZE),
-			list: RefCell::new (LinkedList::new ()),
+			list: LinkedList::new (),
 		};
 
 		let node = Node::new (mem.as_usize () + INITIAL_CHUNK_SIZE, size - INITIAL_CHUNK_SIZE);
-		out.list.borrow_mut ().push (node);
+		out.list.push (node);
 
 		ptr.write (out);
 
-		Some(ptr.as_mut ().unwrap ())
+		Some(MemCell::new (ptr))
 	}
 
 	fn free_space (&self) -> usize
@@ -172,7 +174,7 @@ impl HeapZone
 		zm.dealloc (self.mem)
 	}
 
-	unsafe fn alloc (&self, layout: Layout) -> *mut u8
+	unsafe fn alloc (&mut self, layout: Layout) -> *mut u8
 	{
 		let size = layout.size ();
 		let align = layout.align ();
@@ -187,7 +189,7 @@ impl HeapZone
 		// node that may need to be removed
 		let mut rnode = None;
 
-		for free_zone in self.list.borrow ().iter ()
+		for free_zone in self.list.iter ()
 		{
 			let old_size = free_zone.size ();
 			if old_size >= size
@@ -201,7 +203,7 @@ impl HeapZone
 						break;
 					}
 					ResizeResult::Remove(addr) => {
-						rnode = Some(free_zone as *const Node);
+						rnode = Some(free_zone.ptr ());
 						self.free_space.set (self.free_space () - old_size);
 						out = addr;
 						break;
@@ -214,7 +216,7 @@ impl HeapZone
 		if let Some(node) = rnode
 		{
 			// FIXME: find a way to fix ownership issue without doing this
-			self.list.borrow_mut ().remove_node (node.as_ref ().unwrap ());
+			self.list.remove_node (UniqueRef::new (node.as_ref ().unwrap ()));
 		}
 
 		out as *mut u8
@@ -222,54 +224,62 @@ impl HeapZone
 
 	// does not chack if ptr is in this zone
 	// ptr should be chuk_size aligned
-	unsafe fn dealloc (&self, ptr: *mut u8, layout: Layout)
+	unsafe fn dealloc (&mut self, ptr: *mut u8, layout: Layout)
 	{
 		let addr = ptr as usize;
 		let size = align_up (layout.size (), max (CHUNK_SIZE, layout.align ()));
 
-		let mut cnode = Node::new (addr, size);
+		let cnode_cell = Node::new (addr, size);
+		let cnode = cnode_cell.borrow ();
 		let (pnode, nnode) = self.get_prev_next_node (addr);
 
-		if let Some(pnode) = pnode
+		// TODO: make less ugly
+		let pnode = pnode.map (|ptr| ptr.unbound ());
+		let nnode = nnode.map (|ptr| ptr.unbound ());
+
+		let cnode = if let Some(pnode) = pnode
 		{
-			if pnode.merge (cnode)
+			if pnode.merge (&cnode)
 			{
 				// cnode was never in list, no need to remove
-				cnode = pnode;
+				UniqueMut::from_ptr (pnode.ptr () as *mut _)
 			}
 			else
 			{
-				self.list.borrow_mut ().insert_after (cnode, pnode);
+				drop (cnode);
+				self.list.insert_after (cnode_cell, pnode)
 			}
 		}
 		else
 		{
-			self.list.borrow_mut ().push_front (cnode);
-		}
+			drop (cnode);
+			self.list.push_front (cnode_cell)
+		};
 
 		if let Some(nnode) = nnode
 		{
-			if cnode.merge (unbound (nnode))
+			if cnode.merge (&nnode)
 			{
-				self.list.borrow_mut ().remove_node (nnode);
+				self.list.remove_node (nnode);
 			}
 		}
 
 		self.free_space.set (self.free_space () + size);
 	}
 
-	fn get_prev_next_node<'a, 'b> (&'a self, addr:usize) -> (Option<&'b Node>, Option<&'b Node>)
+	// TODO: make less dangerous
+	fn get_prev_next_node (&self, addr: usize) -> (Option<UniqueRef<Node>>, Option<UniqueRef<Node>>)
 	{
 		let mut pnode = None;
 		let mut nnode = None;
-		for region in self.list.borrow ().iter ()
+		for region in self.list.iter ()
 		{
 			if region.addr () > addr
 			{
-				nnode = Some(unsafe { unbound (region) });
+				nnode = Some(region);
 				break;
 			}
-			pnode = Some(unsafe { unbound (region) });
+			pnode = Some(region);
 		}
 
 		(pnode, nnode)
@@ -302,7 +312,7 @@ impl LinkedListAllocator
 		let size = layout.size ();
 		let align = layout.align ();
 
-		for z in self.list.iter ()
+		for mut z in self.list.iter_mut ()
 		{
 			if z.free_space () >= size
 			{
@@ -326,7 +336,7 @@ impl LinkedListAllocator
 			None => return null_mut (),
 		};
 
-		self.list.push (zone);
+		let mut zone = self.list.push (zone);
 
 		// shouldn't fail now
 		zone.alloc (layout)
@@ -338,7 +348,7 @@ impl LinkedListAllocator
 		assert! (align_of (addr) >= CHUNK_SIZE);
 		let size = layout.size ();
 
-		for z in self.list.iter ()
+		for mut z in self.list.iter_mut ()
 		{
 			if z.contains (addr, size)
 			{

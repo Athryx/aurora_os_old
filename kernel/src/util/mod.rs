@@ -11,6 +11,9 @@ pub use error::{Error, Err};
 mod imutex;
 pub use imutex::{IMutex, IMutexGuard};
 
+pub mod cell;
+pub use cell::{MemCell, UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
+
 // code from some reddit post
 #[macro_export]
 macro_rules! init_array (
