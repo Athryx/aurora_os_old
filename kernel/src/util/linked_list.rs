@@ -1,14 +1,17 @@
-use core::ops::{Index, IndexMut};
+//use core::ops::{Index, IndexMut};
+use core::ops::Index;
 use core::fmt::{self, Formatter, Debug};
+use core::sync::atomic::AtomicPtr;
+use core::cell::Cell;
 use crate::uses::*;
 
 // I think these need to return raw pointers because using up mut refs would violate ownership rules
 pub unsafe trait ListNode
 {
-	fn next_ptr (&self) -> *mut Self;
-	fn set_next (&mut self, next: *mut Self);
-	fn prev_ptr (&self) -> *mut Self;
-	fn set_prev (&mut self, prev: *mut Self);
+	fn next_ptr (&self) -> *const Self;
+	fn set_next (&self, next: *const Self);
+	fn prev_ptr (&self) -> *const Self;
+	fn set_prev (&self, prev: *const Self);
 }
 
 #[macro_export]
@@ -22,46 +25,67 @@ macro_rules! impl_list_node
 				self as *const _ as usize
 			}
 
-			pub unsafe fn prev<'a, 'b> (&'a self) -> Option<&'b Self>
-			{
-				self.$prev.as_ref ()
-			}
-
-			pub unsafe fn prev_mut<'a, 'b> (&'a self) -> Option<&'b mut Self>
-			{
-				self.$prev.as_mut ()
-			}
-
-			pub unsafe fn next<'a, 'b> (&'a self) -> Option<&'b Self>
-			{
-				self.$next.as_ref ()
-			}
-
-			pub unsafe fn next_mut<'a, 'b> (&'a self) -> Option<&'b mut Self>
-			{
-				self.$next.as_mut ()
-			}
-		}
-		unsafe impl $crate::util::ListNode for $ty
-		{
+			// so I don't have to bring trait into scope every time
 			fn next_ptr (&self) -> *mut Self
 			{
-				self.$next
+				self.$next.load (core::sync::atomic::Ordering::Acquire)
 			}
 		
-			fn set_next (&mut self, next: *mut Self)
+			fn set_next (&self, next: *mut Self)
 			{
-				self.$next = next;
+				self.$next.store (next, core::sync::atomic::Ordering::Release);
 			}
 		
 			fn prev_ptr (&self) -> *mut Self
 			{
-				self.$prev
+				self.$prev.load (core::sync::atomic::Ordering::Acquire)
 			}
 		
-			fn set_prev (&mut self, prev: *mut Self)
+			fn set_prev (&self, prev: *mut Self)
 			{
-				self.$prev = prev;
+				self.$prev.store (prev, core::sync::atomic::Ordering::Release);
+			}
+
+			pub unsafe fn prev<'a, 'b> (&'a self) -> Option<&'b Self>
+			{
+				self.prev_ptr ().as_ref ()
+			}
+
+			pub unsafe fn prev_mut<'a, 'b> (&'a self) -> Option<&'b mut Self>
+			{
+				self.prev_ptr ().as_mut ()
+			}
+
+			pub unsafe fn next<'a, 'b> (&'a self) -> Option<&'b Self>
+			{
+				self.next_ptr ().as_ref ()
+			}
+
+			pub unsafe fn next_mut<'a, 'b> (&'a self) -> Option<&'b mut Self>
+			{
+				self.next_ptr ().as_mut ()
+			}
+		}
+		unsafe impl $crate::util::ListNode for $ty
+		{
+			fn next_ptr (&self) -> *const Self
+			{
+				self.$next.load (core::sync::atomic::Ordering::Acquire) as *const _
+			}
+		
+			fn set_next (&self, next: *const Self)
+			{
+				self.$next.store (next as *mut _, core::sync::atomic::Ordering::Release);
+			}
+		
+			fn prev_ptr (&self) -> *const Self
+			{
+				self.$prev.load (core::sync::atomic::Ordering::Acquire) as *const _
+			}
+		
+			fn set_prev (&self, prev: *const Self)
+			{
+				self.$prev.store (prev as *mut _, core::sync::atomic::Ordering::Release);
 			}
 		}
 	}
@@ -71,9 +95,9 @@ macro_rules! impl_list_node
 #[derive(Debug)]
 pub struct Node
 {
-	next: *mut Node,
-	prev: *mut Node,
-	pub size: usize,
+	next: AtomicPtr<Node>,
+	prev: AtomicPtr<Node>,
+	size: Cell<usize>,
 }
 
 impl Node
@@ -83,13 +107,23 @@ impl Node
 		let ptr = addr as *mut Node;
 
 		let out = Node {
-			prev: null_mut (),
-			next: null_mut (),
-			size,
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
+			size: Cell::new (size),
 		};
 		ptr.write (out);
 
 		ptr.as_mut ().unwrap ()
+	}
+
+	pub fn size (&self) -> usize
+	{
+		self.size.get ()
+	}
+
+	pub fn set_size (&self, size: usize)
+	{
+		self.size.set (size);
 	}
 }
 
@@ -100,8 +134,8 @@ impl_list_node! (Node, prev, next);
 // this linked list doesn't require memory allocation, and it doesn't own any of its values
 pub struct LinkedList<T: ListNode>
 {
-	start: *mut T,
-	end: *mut T,
+	start: *const T,
+	end: *const T,
 	len: usize,
 }
 
@@ -122,7 +156,7 @@ impl<T: ListNode> LinkedList<T>
 	}
 
 	// NOTE: first node prev and last store null
-	pub fn push (&mut self, val: &mut T)
+	pub fn push (&mut self, val: &T)
 	{
 		if self.len == 0
 		{
@@ -134,7 +168,7 @@ impl<T: ListNode> LinkedList<T>
 		{
 			unsafe
 			{
-				self.end.as_mut ().unwrap ().set_next (val);
+				self.end.as_ref ().unwrap ().set_next (val);
 			}
 			val.set_prev (self.end);
 			val.set_next (null_mut ());
@@ -143,7 +177,7 @@ impl<T: ListNode> LinkedList<T>
 		self.len += 1;
 	}
 
-	pub fn pop<'a, 'b> (&'a mut self) -> Option<&'b mut T>
+	pub fn pop<'a, 'b> (&'a mut self) -> Option<&'b T>
 	{
 		if self.len == 0
 		{
@@ -153,11 +187,11 @@ impl<T: ListNode> LinkedList<T>
 		let out;
 		unsafe
 		{
-			out = self.end.as_mut ().unwrap ();
+			out = self.end.as_ref ().unwrap ();
 			if self.len > 1
 			{
 				self.end = out.prev_ptr ();
-				self.end.as_mut ().unwrap ().set_next (null_mut ());
+				self.end.as_ref ().unwrap ().set_next (null_mut ());
 			}
 		}
 
@@ -165,7 +199,7 @@ impl<T: ListNode> LinkedList<T>
 		Some(out)
 	}
 
-	pub fn push_front (&mut self, val: &mut T)
+	pub fn push_front (&mut self, val: &T)
 	{
 		if self.len == 0
 		{
@@ -177,7 +211,7 @@ impl<T: ListNode> LinkedList<T>
 		{
 			unsafe
 			{
-				self.start.as_mut ().unwrap ().set_prev (val);
+				self.start.as_ref ().unwrap ().set_prev (val);
 			}
 			val.set_next (self.start);
 			val.set_prev (null_mut ());
@@ -186,7 +220,7 @@ impl<T: ListNode> LinkedList<T>
 		self.len += 1;
 	}
 
-	pub fn pop_front<'a, 'b> (&'a mut self) -> Option<&'b mut T>
+	pub fn pop_front<'a, 'b> (&'a mut self) -> Option<&'b T>
 	{
 		if self.len == 0
 		{
@@ -196,11 +230,11 @@ impl<T: ListNode> LinkedList<T>
 		let out;
 		unsafe
 		{
-			out = self.start.as_mut ().unwrap ();
+			out = self.start.as_ref ().unwrap ();
 			if self.len > 1
 			{
 				self.start = out.next_ptr ();
-				self.start.as_mut ().unwrap ().set_prev (null_mut ());
+				self.start.as_ref ().unwrap ().set_prev (null_mut ());
 			}
 		}
 
@@ -208,7 +242,7 @@ impl<T: ListNode> LinkedList<T>
 		Some(out)
 	}
 
-	pub fn insert (&mut self, index: usize, val: &mut T)
+	pub fn insert (&mut self, index: usize, val: &T)
 	{
 		if index > self.len
 		{
@@ -227,12 +261,12 @@ impl<T: ListNode> LinkedList<T>
 			return;
 		}
 
-		let node = unsafe { unbound_mut (self.get_node_mut (index)) };
+		let node = unsafe { unbound (self.get_node (index)) };
 
 		self.insert_before (val, node);
 	}
 
-	pub fn remove<'a, 'b> (&'a mut self, index: usize) -> Option<&'b mut T>
+	pub fn remove<'a, 'b> (&'a mut self, index: usize) -> Option<&'b T>
 	{
 		if index >= self.len
 		{
@@ -250,55 +284,55 @@ impl<T: ListNode> LinkedList<T>
 		}
 
 		// so that node has a different lifetime than self
-		let node = unsafe { (self.get_node_mut (index) as *mut T).as_mut ().unwrap () };
+		let node = unsafe { (self.get_node (index) as *const T).as_ref ().unwrap () };
 
 		self.remove_node (node);
 
 		Some(node)
 	}
 
-	pub fn insert_before (&mut self, new_node: &mut T, node: &mut T)
+	pub fn insert_before (&mut self, new_node: &T, node: &T)
 	{
 		assert! (self.len != 0);
 		self.len += 1;
 
-		if let Some(prev_node) = unsafe { node.prev_ptr ().as_mut () }
+		if let Some(prev_node) = unsafe { node.prev_ptr ().as_ref () }
 		{
-			new_node.set_prev (prev_node as *mut _);
-			prev_node.set_next (new_node as *mut _);
+			new_node.set_prev (prev_node as *const _);
+			prev_node.set_next (new_node as *const _);
 		}
 		else
 		{
-			self.start = new_node as *mut _;
+			self.start = new_node as *const _;
 			new_node.set_prev (null_mut ());
 		}
 
-		node.set_prev (new_node as *mut _);
-		new_node.set_next (node as *mut _);
+		node.set_prev (new_node as *const _);
+		new_node.set_next (node as *const _);
 	}
 
-	pub fn insert_after (&mut self, new_node: &mut T, node: &mut T)
+	pub fn insert_after (&mut self, new_node: &T, node: &T)
 	{
 		assert! (self.len != 0);
 		self.len += 1;
 
-		if let Some(next_node) = unsafe { node.next_ptr ().as_mut () }
+		if let Some(next_node) = unsafe { node.next_ptr ().as_ref () }
 		{
-			new_node.set_next (next_node as *mut _);
-			next_node.set_prev (new_node as *mut _);
+			new_node.set_next (next_node as *const _);
+			next_node.set_prev (new_node as *const _);
 		}
 		else
 		{
-			self.end = new_node as *mut _;
+			self.end = new_node as *const _;
 			new_node.set_next (null_mut ());
 		}
 
-		node.set_next (new_node as *mut _);
-		new_node.set_prev (node as *mut _);
+		node.set_next (new_node as *const _);
+		new_node.set_prev (node as *const _);
 	}
 
 	// must pass in node that is in this list
-	pub fn remove_node (&mut self, node: &mut T)
+	pub fn remove_node (&mut self, node: &T)
 	{
 		let prev = node.prev_ptr ();
 		let next = node.next_ptr ();
@@ -309,7 +343,7 @@ impl<T: ListNode> LinkedList<T>
 		}
 		else
 		{
-			unsafe { prev.as_mut ().unwrap ().set_next (next); }
+			unsafe { prev.as_ref ().unwrap ().set_next (next); }
 		}
 
 		if next.is_null ()
@@ -318,34 +352,34 @@ impl<T: ListNode> LinkedList<T>
 		}
 		else
 		{
-			unsafe { next.as_mut ().unwrap ().set_prev (prev); }
+			unsafe { next.as_ref ().unwrap ().set_prev (prev); }
 		}
 
 		self.len -= 1;
 	}
 
-	pub fn update_node (&mut self, old: &mut T, new: &mut T)
+	pub fn update_node (&mut self, old: &T, new: &T)
 	{
-		if let Some(prev_node) = unsafe { old.prev_ptr ().as_mut () }
+		if let Some(prev_node) = unsafe { old.prev_ptr ().as_ref () }
 		{
-			prev_node.set_next (new as *mut _);
-			new.set_prev (prev_node as *mut _);
+			prev_node.set_next (new as *const _);
+			new.set_prev (prev_node as *const _);
 		}
 		else
 		{
-			self.start = new as *mut _;
+			self.start = new as *const _;
 			new.set_prev (null_mut ());
 		}
 
-		if let Some(next_node) = unsafe { old.next_ptr ().as_mut () }
+		if let Some(next_node) = unsafe { old.next_ptr ().as_ref () }
 		{
-			next_node.set_prev (new as *mut _);
-			new.set_next (next_node as *mut _);
+			next_node.set_prev (new as *const _);
+			new.set_next (next_node as *const _);
 		}
 		else
 		{
-			self.end = new as *mut _;
-			new.set_next (null_mut ());
+			self.end = new as *const _;
+			new.set_next (null ());
 		}
 	}
 
@@ -354,10 +388,10 @@ impl<T: ListNode> LinkedList<T>
 		if index >= self.len { None } else { Some(self.get_node (index)) }
 	}
 
-	pub fn get_mut (&mut self, index: usize) -> Option<&mut T>
+	/*pub fn get_mut (&mut self, index: usize) -> Option<&mut T>
 	{
 		if index >= self.len { None } else { Some(self.get_node_mut (index)) }
-	}
+	}*/
 
 	pub fn iter (&self) -> Iter<'_, T>
 	{
@@ -369,7 +403,7 @@ impl<T: ListNode> LinkedList<T>
 		}
 	}
 
-	pub fn iter_mut (&mut self) -> IterMut<'_, T>
+	/*pub fn iter_mut (&mut self) -> IterMut<'_, T>
 	{
 		IterMut {
 			start: self.start,
@@ -377,7 +411,7 @@ impl<T: ListNode> LinkedList<T>
 			len: self.len,
 			marker: PhantomData,
 		}
-	}
+	}*/
 
 	// maybe unsafe
 	// must call with valid index
@@ -419,7 +453,7 @@ impl<T: ListNode> LinkedList<T>
 
 	// maybe unsafe
 	// must call with valid index
-	fn get_node_mut (&mut self, index: usize) -> &mut T
+	/*fn get_node_mut (&mut self, index: usize) -> &mut T
 	{
 		if index >= self.len
 		{
@@ -453,7 +487,7 @@ impl<T: ListNode> LinkedList<T>
 		}
 
 		node
-	}
+	}*/
 }
 
 impl<T: ListNode> Index<usize> for LinkedList<T>
@@ -466,13 +500,13 @@ impl<T: ListNode> Index<usize> for LinkedList<T>
 	}
 }
 
-impl<T: ListNode> IndexMut<usize> for LinkedList<T>
+/*impl<T: ListNode> IndexMut<usize> for LinkedList<T>
 {
 	fn index_mut (&mut self, index: usize) -> &mut Self::Output
 	{
 		self.get_mut (index).expect ("ListNode: invalid index")
 	}
-}
+}*/
 
 impl<'a, T: ListNode> IntoIterator for &'a LinkedList<T>
 {
@@ -485,7 +519,7 @@ impl<'a, T: ListNode> IntoIterator for &'a LinkedList<T>
 	}
 }
 
-impl<'a, T: ListNode> IntoIterator for &'a mut LinkedList<T>
+/*impl<'a, T: ListNode> IntoIterator for &'a mut LinkedList<T>
 {
 	type Item = &'a mut T;
 	type IntoIter = IterMut<'a, T>;
@@ -494,7 +528,7 @@ impl<'a, T: ListNode> IntoIterator for &'a mut LinkedList<T>
 	{
 		self.iter_mut ()
 	}
-}
+}*/
 
 impl<T: ListNode + Debug> Debug for LinkedList<T>
 {
@@ -510,8 +544,8 @@ unsafe impl<T: ListNode> Send for LinkedList<T> {}
 // NOTE: it is safe to deallocate nodes returned from Iter and IterMut
 pub struct Iter<'a, T: ListNode>
 {
-	start: *mut T,
-	end: *mut T,
+	start: *const T,
+	end: *const T,
 	len: usize,
 	marker: PhantomData<&'a T>,
 }
@@ -567,7 +601,7 @@ impl<'a, T: ListNode> DoubleEndedIterator for Iter<'a, T>
 impl<T: ListNode> ExactSizeIterator for Iter<'_, T> {}
 impl<T: ListNode> core::iter::FusedIterator for Iter<'_, T> {}
 
-pub struct IterMut<'a, T: ListNode>
+/*pub struct IterMut<'a, T: ListNode>
 {
 	start: *mut T,
 	end: *mut T,
@@ -624,4 +658,4 @@ impl<'a, T: ListNode> DoubleEndedIterator for IterMut<'a, T>
 }
 
 impl<T: ListNode> ExactSizeIterator for IterMut<'_, T> {}
-impl<T: ListNode> core::iter::FusedIterator for IterMut<'_, T> {}
+impl<T: ListNode> core::iter::FusedIterator for IterMut<'_, T> {}*/

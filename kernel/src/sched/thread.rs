@@ -2,6 +2,7 @@ use spin::Mutex;
 use ptr::NonNull;
 use core::time::Duration;
 use core::fmt;
+use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
@@ -279,27 +280,28 @@ unsafe impl Sync for Thread {}
 pub struct ThreadLNode
 {
 	pub thread: Weak<Thread>,
-	state: ThreadState,
-	pub run_time: u64,
+	// TODO: find a better solution
+	state: IMutex<ThreadState>,
+	run_time: AtomicU64,
 
-	prev: *mut Self,
-	next: *mut Self,
+	prev: AtomicPtr<Self>,
+	next: AtomicPtr<Self>,
 }
 
 impl ThreadLNode
 {
 	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
 
-	pub fn new<'a> (thread: Weak<Thread>) -> &'a mut Self
+	pub fn new<'a> (thread: Weak<Thread>) -> &'a Self
 	{
 		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ThreadLNode");
 		let ptr = mem.as_ptr () as *mut Self;
 		let out = ThreadLNode {
 			thread,
-			state: ThreadState::Ready,
-			run_time: 0,
-			prev: null_mut (),
-			next: null_mut (),
+			state: IMutex::new (ThreadState::Ready),
+			run_time: AtomicU64::new (0),
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
 		};
 
 		unsafe
@@ -321,23 +323,24 @@ impl ThreadLNode
 
 	pub fn state (&self) -> ThreadState
 	{
-		self.state
+		*self.state.lock ()
 	}
 
-	pub fn set_state (&mut self, state: ThreadState)
+	pub fn set_state (&self, state: ThreadState)
 	{
-		self.state = state;
+		*self.state.lock () = state;
 	}
 
 	// returns false if failed to remove
-	pub fn remove_from_current (&mut self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> bool
+	pub fn remove_from_current (&self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
-		if !self.state.is_proc_local ()
+		let state = *self.state.lock ();
+		if !state.is_proc_local ()
 		{
 			match gtlist
 			{
 				Some(list) => {
-					list[self.state].remove_node (self);
+					list[state].remove_node (self);
 					true
 				},
 				None => false,
@@ -348,7 +351,7 @@ impl ThreadLNode
 			match proctlist
 			{
 				Some(list) => {
-					list[self.state].remove_node (self);
+					list[state].remove_node (self);
 					true
 				},
 				None => false,
@@ -362,14 +365,15 @@ impl ThreadLNode
 
 	// returns false if failed to insert into list
 	// inserts into currnet state
-	pub fn insert_into (&mut self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> bool
+	pub fn insert_into (&self, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
-		if !self.state.is_proc_local ()
+		let state = *self.state.lock ();
+		if !state.is_proc_local ()
 		{
 			match gtlist
 			{
 				Some(list) => {
-					list[self.state].push (self);
+					list[state].push (self);
 					true
 				},
 				None => false,
@@ -380,7 +384,7 @@ impl ThreadLNode
 			match proctlist
 			{
 				Some(list) => {
-					list[self.state].push (self);
+					list[state].push (self);
 					true
 				},
 				None => false,
@@ -395,17 +399,17 @@ impl ThreadLNode
 	// moves ThreadLNode from old thread state data structure to specified new thread state data structure and return true
 	// will set state variable accordingly
 	// if the thread has already been destroyed via process exiting, this will return false
-	pub fn move_to (&mut self, state: ThreadState, mut gtlist: Option<&mut ThreadList>, mut proctlist: Option<&mut ThreadListProcLocal>) -> bool
+	pub fn move_to (&self, state: ThreadState, mut gtlist: Option<&mut ThreadList>, mut proctlist: Option<&mut ThreadListProcLocal>) -> bool
 	{
 		if !self.remove_from_current (gtlist.as_deref_mut (), proctlist.as_deref_mut ())
 		{
 			return false;
 		}
-		self.state = state;
+		*self.state.lock () = state;
 		self.insert_into (gtlist, proctlist)
 	}
 
-	pub fn block (&mut self, state: ThreadState)
+	pub fn block (&self, state: ThreadState)
 	{
 		// do nothing if new state is stil running
 		if let ThreadState::Running = state
@@ -413,19 +417,29 @@ impl ThreadLNode
 			return;
 		}
 
-		self.state = state;
+		*self.state.lock () = state;
 
 		int_sched ();
 	}
 
-	pub fn sleep (&mut self, duration: Duration)
+	pub fn sleep (&self, duration: Duration)
 	{
 		self.sleep_until (timer.nsec () + duration.as_nanos () as u64);
 	}
 
-	pub fn sleep_until (&mut self, nsec: u64)
+	pub fn sleep_until (&self, nsec: u64)
 	{
 		self.block (ThreadState::Sleep(nsec));
+	}
+
+	pub fn run_time (&self) -> u64
+	{
+		self.run_time.load (Ordering::Acquire)
+	}
+
+	pub fn inc_time (&self, nsec: u64)
+	{
+		self.run_time.fetch_add (nsec, Ordering::AcqRel);
 	}
 
 	// TODO: figure out if it is safe to drop data pointed to by self

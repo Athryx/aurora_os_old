@@ -4,6 +4,8 @@ use crate::impl_list_node;
 use spin::Mutex;
 use core::mem;
 use core::alloc::{GlobalAlloc, Layout};
+use core::sync::atomic::AtomicPtr;
+use core::cell::{Cell, RefCell};
 use core::cmp::max;
 use super::PAGE_SIZE;
 use super::phys_alloc::{zm, Allocation};
@@ -39,35 +41,36 @@ enum ResizeResult
 #[derive(Debug)]
 struct Node
 {
-	prev: *mut Node,
-	next: *mut Node,
-	size: usize,
+	prev: AtomicPtr<Node>,
+	next: AtomicPtr<Node>,
+	size: Cell<usize>,
 }
 
 impl Node
 {
-	unsafe fn new<'a> (addr: usize, size: usize) -> &'a mut Self
+	unsafe fn new<'a> (addr: usize, size: usize) -> &'a Self
 	{
 		let ptr = addr as *mut Node;
 
 		let out = Node {
-			prev: null_mut (),
-			next: null_mut (),
-			size,
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
+			size: Cell::new (size),
 		};
 		ptr.write (out);
 
-		ptr.as_mut ().unwrap ()
+		ptr.as_ref ().unwrap ()
 	}
 
-	unsafe fn resize (&mut self, size: usize, align: usize) -> ResizeResult
+	unsafe fn resize (&self, size: usize, align: usize) -> ResizeResult
 	{
-		if size > self.size
+		let self_size = self.size ();
+		if size > self_size
 		{
 			return ResizeResult::NoCapacity;
 		}
 
-		let naddr = align_down (self.addr () + (self.size - size), max (align, CHUNK_SIZE));
+		let naddr = align_down (self.addr () + (self_size - size), max (align, CHUNK_SIZE));
 		// alignment might make it less
 		if naddr < self.addr ()
 		{
@@ -77,7 +80,7 @@ impl Node
 		let nsize = naddr - self.addr ();
 		if nsize >= CHUNK_SIZE
 		{
-			self.size = nsize;
+			self.set_size (nsize);
 			ResizeResult::Shrink(naddr)
 		}
 		else
@@ -87,11 +90,12 @@ impl Node
 		// shouldn't need to check for case where allocation only partly covers node, since this should be impossible
 	}
 
-	fn merge<'a> (&'a mut self, node: &'a mut Node) -> bool
+	fn merge<'a> (&'a self, node: &'a Node) -> bool
 	{
-		if self.addr () + self.size == node.addr ()
+		if self.addr () + self.size () == node.addr ()
 		{
-			self.size += node.size;
+			self.size.set (self.size () + node.size ());
+			//self.size.fetch_add (node.size (), Ordering::SeqCst);
 			true
 		}
 		else
@@ -99,17 +103,27 @@ impl Node
 			false
 		}
 	}
+
+	fn size (&self) -> usize
+	{
+		self.size.get ()
+	}
+
+	fn set_size (&self, size: usize)
+	{
+		self.size.set (size);
+	}
 }
 
 impl_list_node! (Node, prev, next);
 
 struct HeapZone
 {
-	prev: *mut HeapZone,
-	next: *mut HeapZone,
+	prev: AtomicPtr<HeapZone>,
+	next: AtomicPtr<HeapZone>,
 	mem: Allocation,
-	free_space: usize,
-	list: LinkedList<Node>,
+	free_space: Cell<usize>,
+	list: RefCell<LinkedList<Node>>,
 }
 
 impl HeapZone
@@ -122,25 +136,30 @@ impl HeapZone
 		let size = mem.len ();
 		let ptr = mem.as_usize () as *mut HeapZone;
 
-		let mut out = HeapZone {
-			prev: null_mut (),
-			next: null_mut (),
+		let out = HeapZone {
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
 			mem,
-			free_space: size - INITIAL_CHUNK_SIZE,
-			list: LinkedList::new (),
+			free_space: Cell::new (size - INITIAL_CHUNK_SIZE),
+			list: RefCell::new (LinkedList::new ()),
 		};
 
 		let node = Node::new (mem.as_usize () + INITIAL_CHUNK_SIZE, size - INITIAL_CHUNK_SIZE);
-		out.list.push (node);
+		out.list.borrow_mut ().push (node);
 
 		ptr.write (out);
 
 		Some(ptr.as_mut ().unwrap ())
 	}
 
+	fn free_space (&self) -> usize
+	{
+		self.free_space.get ()
+	}
+
 	fn empty (&self) -> bool
 	{
-		self.free_space == 0
+		self.free_space () == 0
 	}
 
 	fn contains (&self, addr: usize, size: usize) -> bool
@@ -153,12 +172,12 @@ impl HeapZone
 		zm.dealloc (self.mem)
 	}
 
-	unsafe fn alloc (&mut self, layout: Layout) -> *mut u8
+	unsafe fn alloc (&self, layout: Layout) -> *mut u8
 	{
 		let size = layout.size ();
 		let align = layout.align ();
 
-		if size > self.free_space
+		if size > self.free_space ()
 		{
 			return null_mut ();
 		}
@@ -168,21 +187,22 @@ impl HeapZone
 		// node that may need to be removed
 		let mut rnode = None;
 
-		for free_zone in self.list.iter_mut ()
+		for free_zone in self.list.borrow ().iter ()
 		{
-			if free_zone.size >= size
+			let old_size = free_zone.size ();
+			if old_size >= size
 			{
-				let old_size = free_zone.size;
 				match free_zone.resize (size, align)
 				{
 					ResizeResult::Shrink(addr) => {
-						self.free_space -= old_size - free_zone.size;
+						let free_space = self.free_space ();
+						self.free_space.set (free_space - old_size + free_zone.size ());
 						out = addr;
 						break;
 					}
 					ResizeResult::Remove(addr) => {
-						rnode = Some(free_zone as *mut Node);
-						self.free_space -= old_size;
+						rnode = Some(free_zone as *const Node);
+						self.free_space.set (self.free_space () - old_size);
 						out = addr;
 						break;
 					},
@@ -194,7 +214,7 @@ impl HeapZone
 		if let Some(node) = rnode
 		{
 			// FIXME: find a way to fix ownership issue without doing this
-			self.list.remove_node (node.as_mut ().unwrap ());
+			self.list.borrow_mut ().remove_node (node.as_ref ().unwrap ());
 		}
 
 		out as *mut u8
@@ -202,7 +222,7 @@ impl HeapZone
 
 	// does not chack if ptr is in this zone
 	// ptr should be chuk_size aligned
-	unsafe fn dealloc (&mut self, ptr: *mut u8, layout: Layout)
+	unsafe fn dealloc (&self, ptr: *mut u8, layout: Layout)
 	{
 		let addr = ptr as usize;
 		let size = align_up (layout.size (), max (CHUNK_SIZE, layout.align ()));
@@ -219,37 +239,37 @@ impl HeapZone
 			}
 			else
 			{
-				self.list.insert_after (cnode, pnode);
+				self.list.borrow_mut ().insert_after (cnode, pnode);
 			}
 		}
 		else
 		{
-			self.list.push_front (cnode);
+			self.list.borrow_mut ().push_front (cnode);
 		}
 
 		if let Some(nnode) = nnode
 		{
-			if cnode.merge (unbound_mut (nnode))
+			if cnode.merge (unbound (nnode))
 			{
-				self.list.remove_node (nnode);
+				self.list.borrow_mut ().remove_node (nnode);
 			}
 		}
 
-		self.free_space += size;
+		self.free_space.set (self.free_space () + size);
 	}
 
-	fn get_prev_next_node<'a, 'b> (&'a mut self, addr:usize) -> (Option<&'b mut Node>, Option<&'b mut Node>)
+	fn get_prev_next_node<'a, 'b> (&'a self, addr:usize) -> (Option<&'b Node>, Option<&'b Node>)
 	{
 		let mut pnode = None;
 		let mut nnode = None;
-		for region in unsafe { unbound_mut (self) }.list.iter_mut ()
+		for region in self.list.borrow ().iter ()
 		{
 			if region.addr () > addr
 			{
-				nnode = Some(region);
+				nnode = Some(unsafe { unbound (region) });
 				break;
 			}
-			pnode = Some(region);
+			pnode = Some(unsafe { unbound (region) });
 		}
 
 		(pnode, nnode)
@@ -282,9 +302,9 @@ impl LinkedListAllocator
 		let size = layout.size ();
 		let align = layout.align ();
 
-		for z in self.list.iter_mut ()
+		for z in self.list.iter ()
 		{
-			if z.free_space >= size
+			if z.free_space () >= size
 			{
 				let ptr = z.alloc (layout);
 				if ptr.is_null ()
@@ -318,7 +338,7 @@ impl LinkedListAllocator
 		assert! (align_of (addr) >= CHUNK_SIZE);
 		let size = layout.size ();
 
-		for z in self.list.iter_mut ()
+		for z in self.list.iter ()
 		{
 			if z.contains (addr, size)
 			{

@@ -207,10 +207,10 @@ impl BuddyAllocator
 		if self.olist[order].len () != 0 || self.split_order (order + 1)
 		{
 			let node = self.olist[order].pop_front ().unwrap ();
-			node.size = node.size.wrapping_shr (1);
+			node.set_size (node.size ().wrapping_shr (1));
 
-			let addr = node.addr () ^ node.size;
-			let node2 = unsafe { Node::new (addr, node.size) };
+			let addr = node.addr () ^ node.size ();
+			let node2 = unsafe { Node::new (addr, node.size ()) };
 
 			self.olist[order - 1].push_front (node2);
 			self.olist[order - 1].push_front (node);
@@ -223,18 +223,18 @@ impl BuddyAllocator
 
 	fn insert_node (&mut self, mut node: &mut Node)
 	{
-		let mut order = self.get_order (node.size);
+		let mut order = self.get_order (node.size ());
 
 		loop
 		{
-			let addr2 = node.addr () ^ node.size;
-			if addr2 < node.addr () || addr2 > self.start || addr2 + node.size > self.meta_start as usize || self.is_alloced (addr2)
+			let addr2 = node.addr () ^ node.size ();
+			if addr2 < node.addr () || addr2 > self.start || addr2 + node.size () > self.meta_start as usize || self.is_alloced (addr2)
 			{
 				break;
 			}
 			let node2 = unsafe { (addr2 as *mut Node).as_mut ().unwrap () };
 
-			if node.size != node2.size
+			if node.size () != node2.size ()
 			{
 				break;
 			}
@@ -246,7 +246,7 @@ impl BuddyAllocator
 				node = node2;
 			}
 
-			node.size <<= 1;
+			node.set_size (node.size () << 1);
 			order += 1;
 
 			if order == self.max_order
@@ -319,10 +319,10 @@ impl BuddyAllocator
 
 		// list is guarunteed to contain a node
 		let node = self.olist[order].pop_front ().unwrap ();
-		let out = Allocation::new (node.addr (), node.size);
+		let out = Allocation::new (node.addr (), node.size ());
 
 		self.set_is_alloced (node.addr (), true);
-		self.free_space -= node.size;
+		self.free_space -= node.size ();
 
 		Some(out)
 	}
@@ -434,7 +434,7 @@ impl BuddyAllocator
 		self.set_is_alloced (addr, false);
 
 		let node = Node::new (addr, mem.len ());
-		self.free_space += node.size;
+		self.free_space += node.size ();
 
 		self.insert_node (node);
 	}

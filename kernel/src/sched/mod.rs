@@ -64,7 +64,7 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 	let time_list = &mut thread_list[ThreadState::Sleep(0)];
 
 	// FIXME: ugly
-	for tpointer in unsafe { unbound_mut (time_list).iter_mut () }
+	for tpointer in unsafe { unbound_mut (time_list).iter () }
 	{
 		let sleep_nsec = tpointer.state ().sleep_nsec ().unwrap ();
 		if nsec >= sleep_nsec
@@ -140,7 +140,7 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	let old_thread = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
 
 	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::Relaxed);
-	old_thread.run_time += nsec_current - nsec_last;
+	old_thread.inc_time (nsec_current - nsec_last);
 
 	// FIXME: smp race condition
 	let old_process = old_thread.thread ().unwrap ().process ();

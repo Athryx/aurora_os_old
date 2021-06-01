@@ -218,7 +218,7 @@ impl Process
 		let mut list = self.tlproc.lock ();
 
 		// FIXME: ugly
-		for tpointer in unsafe { unbound_mut (&mut list[ThreadState::Join(0)]).iter_mut () }
+		for tpointer in unsafe { unbound_mut (&mut list[ThreadState::Join(0)]).iter () }
 		{
 			let join_tid = tpointer.state ().join_tid ().unwrap ();
 
