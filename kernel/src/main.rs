@@ -47,29 +47,9 @@ use mem::*;
 use mem::phys_alloc::zm;
 use alloc::boxed::Box;
 use alloc::collections::*;
+use util::AtomicU128;
 use alloc::vec;
 use upriv::{PrivLevel, IOPRIV_UID};
-
-// XXX:
-/*
-error[E0432]: unresolved import `crate::sched::thread_res_c`
- --> src/int/idt.rs:3:31
-  |
-3 | use crate::sched::{Registers, thread_res_c};
-  |                               ^^^^^^^^^^^^ no `thread_res_c` in `sched`
-
-error[E0432]: unresolved import `crate::sched::proc_c`
- --> src/mem/sys.rs:8:5
-  |
-8 | use crate::sched::proc_c;
-  |     ^^^^^^^^^^^^^^^^^^^^ no `proc_c` in `sched`
-
-error[E0432]: unresolved import `crate::sched::sys`
- --> src/syscall/mod.rs:3:19
-  |
-3 | use crate::sched::sys::{thread_new, thread_block};
-  |                   ^^^ could not find `sys` in `sched`
-*/
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !
@@ -171,6 +151,13 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 	init (&boot_info).expect ("kernel init failed");
 
 	println! ("epoch v0.0.1");
+
+	let atom = AtomicU128::new (0);
+	for a in 0..20420
+	{
+		atom.store (a);
+		assert_eq! (atom.load (), a);
+	}
 
 	sti_safe ();
 

@@ -19,6 +19,9 @@ done
 if [[ $1 = debug ]]
 then
 	qemu-system-x86_64 -m 5120 -debugcon stdio -s -S $ISO_FILE & $TERM -e "$HOME/.cargo/bin/rust-gdb" "-x" "debug.gdb"
+elif [[ $1 = release ]] && [[ $2 = debug ]]
+then
+	qemu-system-x86_64 -m 5120 -debugcon stdio -s -S $ISO_FILE & $TERM -e "$HOME/.cargo/bin/rust-gdb" "-x" "debug-release.gdb"
 elif [[ $1 = bochs ]]
 then
 	$TERM -e bochs -f bochsrc

@@ -14,6 +14,9 @@ pub use imutex::{IMutex, IMutexGuard};
 pub mod cell;
 pub use cell::{MemCell, UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 
+mod atomic;
+pub use atomic::AtomicU128;
+
 // code from some reddit post
 #[macro_export]
 macro_rules! init_array (

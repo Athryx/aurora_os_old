@@ -17,8 +17,6 @@ pub use thread::{Thread, TNode, ThreadState};
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
-// use UnsafeCell to make all operations on TNode take an immuable refernce
-// the current implementation with &mut is probably considered undefined behavior, but it still sort of works
 
 // TODO: the scheduler uses a bad choice of data structures, i'll implement better ones later
 // running list should be not list and cpu local
@@ -353,20 +351,17 @@ impl Registers
 	}
 }
 
-// NOTE: this is actually an unsafe function
-// this is marked safe because i'm too lazy to put current calls in an unsafe block, and it will be made safe soon anyway
-// safety: can't call multiple times to get aliasing mutable references
-// the running time field may generate incorrect values, because this is changed by the scheduler
-pub fn thread_c<'a> () -> UniqueMut<'a, TNode>
+pub fn thread_c<'a> () -> UniqueRef<'a, TNode>
 {
-	// This is (sort of) safe to do (only not in interrupt) because thread that called it is guarenteed
+	// This is (sort of) safe to do (only not in timer interrupt) because thread that called it is guarenteed
 	// to have state restored back to same as before if it is interrupted
 	unsafe
 	{
-		tlist.lock ()[ThreadState::Running].gm (0).unbound ()
+		tlist.lock ()[ThreadState::Running].g (0).unbound ()
 	}
 }
 
+// FIXME: potential smp race condition if process is dropped
 pub fn thread_res_c () -> Arc<Thread>
 {
 	tlist.lock ()[ThreadState::Running].g (0).thread ().unwrap ()
@@ -380,6 +375,8 @@ pub fn proc_c () -> Arc<Process>
 
 pub fn init () -> Result<(), Err>
 {
+	assert! (core::mem::size_of::<ThreadState> () <= 16, "ThreadState is to big to fit in an AtomicU128");
+
 	// allow execute disable in pages
 	let efer_msr = rdmsr (EFER_MSR);
 	wrmsr (EFER_MSR, efer_msr | EFER_EXEC_DISABLE);

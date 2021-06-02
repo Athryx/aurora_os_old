@@ -20,6 +20,7 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+debug = true
 
 [package.metadata.cargo-sysroot]
 target = "x86_64-os.json"

@@ -3,6 +3,7 @@ use ptr::NonNull;
 use core::time::Duration;
 use core::fmt;
 use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use core::mem::transmute;
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
@@ -11,7 +12,7 @@ use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
-use crate::util::{ListNode, IMutex, IMutexGuard, MemCell, UniqueMut, UniquePtr};
+use crate::util::{ListNode, IMutex, IMutexGuard, MemCell, UniqueMut, UniquePtr, AtomicU128};
 use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal};
 use super::{Registers, ThreadList, int_sched, tlist};
@@ -117,6 +118,27 @@ pub enum ThreadState
 
 impl ThreadState
 {
+	pub fn from_u128 (num: u128) -> Self
+	{
+		/*let n = num as u64;
+		let id = num.wrapping_shr (64) as u64;
+
+		match id
+		{
+			0 => Self::Running,
+			1 => Self::Ready,
+			2 => Self::Destroy,
+			3 => Self::Sleep(n),
+			4 => Self::Join(n as usize),
+			5 => Self::FutexBlock(n as usize),
+			_ => panic! ("invalid num passed to ThreadState::from_u128"),
+		}*/
+		unsafe
+		{
+			transmute::<u128, Self> (num)
+		}
+	}
+
 	// is the data structure for storing this thread local to the process
 	pub fn is_proc_local (&self) -> bool
 	{
@@ -147,6 +169,26 @@ impl ThreadState
 		{
 			Self::FutexBlock(addr) => Some(*addr),
 			_ => None,
+		}
+	}
+
+	pub fn as_u128 (&self) -> u128
+	{
+		/*let (id, num) = match self
+		{
+			Self::Running => (0, 0),
+			Self::Ready => (1, 0),
+			Self::Destroy => (2, 0),
+			Self::Sleep(nsec) => (3, *nsec),
+			Self::Join(tid) => (4, *tid as u64),
+			Self::FutexBlock(addr) => (5, *addr as u64),
+		};
+
+		((id as u128) << 64) | (num as u128)*/
+
+		unsafe
+		{
+			transmute::<Self, u128> (*self)
 		}
 	}
 }
@@ -281,7 +323,7 @@ pub struct TNode
 {
 	pub thread: Weak<Thread>,
 	// TODO: find a better solution
-	state: ThreadState,
+	state: AtomicU128,
 	run_time: AtomicU64,
 
 	prev: AtomicPtr<Self>,
@@ -298,7 +340,7 @@ impl TNode
 		let ptr = mem.as_ptr () as *mut Self;
 		let out = TNode {
 			thread,
-			state: ThreadState::Ready,
+			state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
 			run_time: AtomicU64::new (0),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
@@ -323,19 +365,19 @@ impl TNode
 
 	pub fn state (&self) -> ThreadState
 	{
-		self.state
+		ThreadState::from_u128 (self.state.load ())
 	}
 
-	pub fn set_state (&mut self, state: ThreadState)
+	pub fn set_state (&self, state: ThreadState)
 	{
-		self.state = state;
+		self.state.store (state.as_u128 ())
 	}
 
 	// returns false if failed to remove
 	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemCell<TNode>, T>
 		where T: UniquePtr<Self> + 'a
 	{
-		let state = ptr.state;
+		let state = ptr.state ();
 		if !state.is_proc_local ()
 		{
 			match gtlist
@@ -362,7 +404,7 @@ impl TNode
 	// inserts into current state list
 	pub fn insert_into<'a> (cell: MemCell<Self>, gtlist: Option<&'a mut ThreadList>, proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, TNode>, MemCell<TNode>>
 	{
-		let state = cell.borrow ().state;
+		let state = cell.borrow ().state ();
 		if !state.is_proc_local ()
 		{
 			match gtlist
@@ -395,16 +437,16 @@ impl TNode
 		match Self::remove_from_current (ptr, gtlist.as_deref_mut (), proctlist.as_deref_mut ())
 		{
 			Ok(cell) => {
-				cell.borrow_mut ().state = state;
+				cell.borrow_mut ().set_state (state);
 				// TODO: figure out if we need to handle None case of this specially
 				Self::insert_into (cell, gtlist, proctlist)
-					.or_else (|_| unsafe { Err(ptr2) })
+					.or_else (|_| Err(ptr2))
 			},
 			Err(ptr) => Err(ptr),
 		}
 	}
 
-	pub fn block (&mut self, state: ThreadState)
+	pub fn block (&self, state: ThreadState)
 	{
 		// do nothing if new state is stil running
 		if let ThreadState::Running = state
@@ -412,17 +454,17 @@ impl TNode
 			return;
 		}
 
-		self.state = state;
+		self.set_state (state);
 
 		int_sched ();
 	}
 
-	pub fn sleep (&mut self, duration: Duration)
+	pub fn sleep (&self, duration: Duration)
 	{
 		self.sleep_until (timer.nsec () + duration.as_nanos () as u64);
 	}
 
-	pub fn sleep_until (&mut self, nsec: u64)
+	pub fn sleep_until (&self, nsec: u64)
 	{
 		self.block (ThreadState::Sleep(nsec));
 	}
