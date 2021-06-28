@@ -1,4 +1,5 @@
 use crate::uses::*;
+use core::fmt::{self, Formatter, Display};
 use crate::util::{MemCell, UniqueRef, UniqueMut};
 
 pub enum ParentType<'a, T>
@@ -22,7 +23,7 @@ pub unsafe trait TreeNode: Sized
 	fn set_right (&self, right: *const Self);
 
 	fn key (&self) -> &Self::Key;
-	fn set_key (&self, key: Self::Key);
+	fn set_key (&mut self, key: Self::Key);
 
 	fn balance (&self) -> i8;
 	fn set_balance (&self, balance: i8);
@@ -40,7 +41,7 @@ pub unsafe trait TreeNode: Sized
 	// sets the left child, and sets the left child's parent if applicable
 	fn set_rightp (&self, right: *const Self)
 	{
-		self.set_left (right);
+		self.set_right (right);
 		unsafe
 		{
 			right.as_ref ().map (|node| node.set_parent (self.as_ptr ()));
@@ -100,7 +101,7 @@ pub unsafe trait TreeNode: Sized
 		match parent
 		{
 			ParentType::LeftOf(node) =>	node.set_left (other.as_ptr ()),
-			ParentType::RightOf(node) => node.set_left (other.as_ptr ()),
+			ParentType::RightOf(node) => node.set_right (other.as_ptr ()),
 			ParentType::Root => out = Some(other.as_ptr () as *const _),
 		}
 
@@ -109,7 +110,7 @@ pub unsafe trait TreeNode: Sized
 		match parent
 		{
 			ParentType::LeftOf(node) =>	node.set_left (self.as_ptr ()),
-			ParentType::RightOf(node) => node.set_left (self.as_ptr ()),
+			ParentType::RightOf(node) => node.set_right (self.as_ptr ()),
 			ParentType::Root => out = Some(self.as_ptr () as *const _),
 		}
 
@@ -184,8 +185,11 @@ pub unsafe trait TreeNode: Sized
 		let left_pointer = self.left ();
 		let left_child = unsafe { left_pointer.as_ref ().unwrap () };
 
+		// to stop parent of right child referencing self
+		let parent = self.parent ();
 		self.set_leftp (left_child.right ());
 		left_child.set_rightp (self.as_ptr ());
+		left_child.set_parent (parent);
 
 		// parent adjust
 		let balance_adjust = if left_child.balance () < 0
@@ -218,8 +222,11 @@ pub unsafe trait TreeNode: Sized
 		let right_pointer = self.right ();
 		let right_child = unsafe { right_pointer.as_ref ().unwrap () };
 
+		// to stop parent of right child referencing self
+		let parent = self.parent ();
 		self.set_rightp (right_child.left ());
 		right_child.set_leftp (self.as_ptr ());
+		right_child.set_parent (parent);
 
 		// parent adjust
 		let balance_adjust = if right_child.balance () > 0
@@ -281,7 +288,7 @@ pub unsafe trait TreeNode: Sized
 macro_rules! impl_tree_node
 {
 	($k:ty, $v:ty, $parent:ident, $left:ident, $right:ident, $key:ident, $balance:ident) => {
-		impl $crate::util::TreeNode for $v
+		unsafe impl $crate::util::TreeNode for $v
 		{
 			type Key = $k;
 
@@ -317,7 +324,7 @@ macro_rules! impl_tree_node
 
 			fn key (&self) -> &Self::Key
 			{
-				&self.$key;
+				&self.$key
 			}
 
 			fn set_key (&mut self, key: Self::Key)
@@ -349,29 +356,12 @@ enum SearchResult<T>
 	Root,
 }
 
-/*enum RebalanceOp<'a, T>
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BalMode
 {
-	GrewLeft(&'a T),
-	GrewRight(&'a T),
+	Add,
+	Del,
 }
-
-impl<T> RebalanceOp<'_, T>
-{
-	fn temp ()
-	{
-		match op
-		{
-			RebalanceOp::GrewLeft(n) => {
-				node = n;
-				bf_change = -1;
-			},
-			RebalanceOp::GrewRight(n) => {
-				node = n;
-				bf_change = 1;
-			},
-		}
-	}
-}*/
 
 // A non allocating avl tree
 pub struct AvlTree<K: Ord, V: TreeNode<Key = K>>
@@ -380,20 +370,25 @@ pub struct AvlTree<K: Ord, V: TreeNode<Key = K>>
 	len: usize,
 }
 
-impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
+impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
 {
 	pub fn new () -> Self
 	{
 		AvlTree {
-			root: null_mut (),
+			root: null (),
 			len: 0,
 		}
+	}
+
+	pub fn len (&self) -> usize
+	{
+		self.len
 	}
 
 	// tries to insert value into the tree, if it is already occupied, it returns error with value
 	pub fn insert (&mut self, key: K, value: MemCell<V>) -> Result<UniqueMut<V>, MemCell<V>>
 	{
-		let v = value.borrow_mut ();
+		let mut v = value.borrow_mut ();
 
 		v.set_left (null_mut ());
 		v.set_right (null_mut ());
@@ -412,7 +407,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 
 				v.set_key (key);
 
-				self.rebalance (node, -1);
+				self.rebalance (node, -1, BalMode::Add);
 			},
 			SearchResult::RightOf(ptr) => {
 				let node = unsafe { ptr.as_mut ().unwrap () };
@@ -421,7 +416,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 
 				v.set_key (key);
 
-				self.rebalance (node, 1);
+				self.rebalance (node, 1, BalMode::Add);
 			},
 			SearchResult::Root => {
 				v.set_parent (null ());
@@ -490,15 +485,19 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 			ParentType::LeftOf(parent) => {
 				parent.set_leftp (child);
 
-				self.rebalance (parent, 1);
+				self.rebalance (parent, 1, BalMode::Del);
 			},
 			ParentType::RightOf(parent) => {
 				parent.set_rightp (child);
 
-				self.rebalance (parent, -1);
+				self.rebalance (parent, -1, BalMode::Del);
 			},
 			ParentType::Root => {
 				self.root = child;
+				unsafe
+				{
+					child.as_ref ().map (|node| node.set_parent (null ()));
+				}
 			},
 		}
 
@@ -560,7 +559,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 		}
 	}
 
-	fn rebalance (&mut self, mut node: &V, mut bf_change: i8)
+	fn rebalance (&mut self, mut node: &V, mut bf_change: i8, bal_mode: BalMode)
 	{
 		loop
 		{
@@ -569,23 +568,57 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 
 			node.inc_balance (bf_change);
 			let ptr = node.rebalance ();
+			node = unsafe { ptr.as_ref ().unwrap () };
 			let new_bf = node.balance ();
+
+			// FIXME: ugly
+			// true if the subtree has grown 1 in height
+			let hchange = if bal_mode == BalMode::Add &&
+				old_bf == 0 && new_bf.abs () == 1
+			{
+				1
+			}
+			else if bal_mode == BalMode::Del &&
+				old_bf.abs () == 1 && new_bf == 0
+			{
+				-1
+			}
+			else
+			{
+				0
+			};
 
 			node = match parent
 			{
 				ParentType::LeftOf(node) => {
 					node.set_left (ptr);
-					if old_bf == 0 && new_bf == -1
+					if hchange == 1
 					{
 						bf_change = -1;
+					}
+					else if hchange == -1
+					{
+						bf_change = 1;
+					}
+					else
+					{
+						return;
 					}
 					node
 				},
 				ParentType::RightOf(node) => {
 					node.set_right (ptr);
-					if old_bf == 0 && new_bf == 1
+					if hchange == 1
 					{
 						bf_change = 1;
+					}
+					else if hchange == -1
+					{
+						bf_change = -1;
+					}
+					else
+					{
+						return;
 					}
 					node
 				},
@@ -594,6 +627,59 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 					return;
 				},
 			};
+		}
+	}
+}
+
+impl<K: Ord, V: TreeNode<Key = K> + Display> Display for AvlTree<K, V>
+{
+	fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result
+	{
+		unsafe
+		{
+			self.root.as_ref ().map (|node| self.print_recurse (f, node, 0));
+		}
+
+		Ok(())
+	}
+}
+
+impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
+{
+	fn print_recurse (&self, f: &mut Formatter<'_>, node: &V, depth: usize)
+	{
+		unsafe
+		{
+			let flag = node.child_count () == 1;
+			match node.right ().as_ref ()
+			{
+				Some(node) => self.print_recurse (f, node, depth + 1),
+				None => if flag {
+					Self::print_ident (f, depth + 1);
+					write! (f, "========\n").unwrap ();
+				},
+			}
+
+			Self::print_ident (f, depth);
+			Display::fmt (node, f).unwrap ();
+			write! (f, "\n");
+
+			match node.left ().as_ref ()
+			{
+				Some(node) => self.print_recurse (f, node, depth + 1),
+				None => if flag {
+					Self::print_ident (f, depth + 1);
+					write! (f, "========\n").unwrap ();
+				},
+			}
+		}
+	}
+
+	fn print_ident (f: &mut Formatter<'_>, depth: usize)
+	{
+		for _ in 0..depth
+		{
+				write! (f, "\t");
 		}
 	}
 }

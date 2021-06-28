@@ -44,6 +44,7 @@ use sched::*;
 use int::*;
 use int::idt::Handler;
 use util::misc;
+use util::AvlTree;
 use mem::*;
 use mem::phys_alloc::zm;
 use alloc::boxed::Box;
@@ -164,12 +165,55 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
-	//test ();
+	test ();
 
 	loop {
 		hlt ();
 	}
 }
+
+use core::cell::Cell;
+use core::fmt::{self, Formatter, Display};
+use util::MemCell;
+use util::TreeNode;
+
+#[derive(Debug)]
+struct TreeTest
+{
+	key: usize,
+	val: usize,
+	left: Cell<*const Self>,
+	right: Cell<*const Self>,
+	parent: Cell<*const Self>,
+	bf: Cell<i8>,
+}
+
+impl TreeTest
+{
+	fn new () -> MemCell<Self>
+	{
+		let out = Box::new (TreeTest {
+			key: 0,
+			val: 0,
+			left: Cell::new (null ()),
+			right: Cell::new (null ()),
+			parent: Cell::new (null ()),
+			bf: Cell::new (0),
+		});
+		MemCell::new (Box::leak (out) as *mut _)
+	}
+}
+
+impl Display for TreeTest
+{
+	fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result
+	{
+		write! (f, "{}:{}", self.key, self.bf.get ());
+		Ok(())
+	}
+}
+
+impl_tree_node! (usize, TreeTest, parent, left, right, key, bf);
 
 // just for test
 static mut join_tid: usize = 0;
@@ -184,6 +228,43 @@ fn test ()
 		eprintln! ("num + 1 {}", num);
 		thread_c ().block (ThreadState::Destroy);
 	};
+
+	cli ();
+
+	let mut tree = AvlTree::new ();
+	tree.insert (0, TreeTest::new ()).unwrap ();
+	eprintln! ("{}", tree);
+	tree.insert (5, TreeTest::new ()).unwrap ();
+	eprintln! ("{}", tree);
+	tree.insert (10, TreeTest::new ()).unwrap ();
+	eprintln! ("{}", tree);
+	tree.insert (999, TreeTest::new ()).unwrap ();
+	eprintln! ("{}", tree);
+	tree.insert (555, TreeTest::new ()).unwrap ();
+	eprintln! ("{}", tree);
+
+	eprintln! ("{:?}", *tree.get (&0).unwrap ());
+	eprintln! ("{:?}", *tree.get (&5).unwrap ());
+	eprintln! ("{:?}", *tree.get (&10).unwrap ());
+	eprintln! ("{:?}", *tree.get (&555).unwrap ());
+	eprintln! ("{:?}", *tree.get (&999).unwrap ());
+
+	tree.remove (&5).unwrap ();
+	eprintln! ("{}", tree);
+	tree.remove (&555).unwrap ();
+	eprintln! ("{}", tree);
+	tree.remove (&0).unwrap ();
+	eprintln! ("{}", tree);
+	tree.remove (&10).unwrap ();
+	eprintln! ("{}", tree);
+	tree.remove (&999).unwrap ();
+	eprintln! ("{}", tree);
+
+	loop
+	{
+		cli ();
+		hlt ();
+	}
 	unsafe
 	{
 		join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
