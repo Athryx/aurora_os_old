@@ -1,6 +1,4 @@
 make thred_new return the correct error code
 
-make threading more safe
-
 minor todo:
 clean up kernel_heap

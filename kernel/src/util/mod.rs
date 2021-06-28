@@ -5,6 +5,9 @@ pub mod misc;
 mod linked_list;
 pub use linked_list::{LinkedList, ListNode, Node};
 
+mod tree;
+pub use tree::{TreeNode, AvlTree};
+
 mod error;
 pub use error::{Error, Err};
 

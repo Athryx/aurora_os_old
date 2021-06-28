@@ -15,24 +15,28 @@ use super::thread::{Thread, TNode, ThreadState};
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
-pub struct ThreadListProcLocal([LinkedList<TNode>; 2]);
+pub struct ThreadListProcLocal
+{
+	join: LinkedList<TNode>,
+	futex: BTreeMap<usize, LinkedList<TNode>>,
+}
 
 impl ThreadListProcLocal
 {
 	const fn new () -> Self
 	{
-		ThreadListProcLocal([
-			LinkedList::new (),
-			LinkedList::new (),
-		])
+		ThreadListProcLocal {
+			join: LinkedList::new (),
+			futex: BTreeMap::new (),
+		}
 	}
 
 	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<TNode>>
 	{
 		match state
 		{
-			ThreadState::Join(_) => Some(&self.0[0]),
-			ThreadState::FutexBlock(_) => Some(&self.0[1]),
+			ThreadState::Join(_) => Some(&self.join),
+			ThreadState::FutexBlock(addr) => self.futex.get (&addr),
 			_ => None
 		}
 	}
@@ -41,10 +45,15 @@ impl ThreadListProcLocal
 	{
 		match state
 		{
-			ThreadState::Join(_) => Some(&mut self.0[0]),
-			ThreadState::FutexBlock(_) => Some(&mut self.0[1]),
+			ThreadState::Join(_) => Some(&mut self.join),
+			ThreadState::FutexBlock(addr) => self.futex.get_mut (&addr),
 			_ => None
 		}
+	}
+
+	pub fn ensure_futex_addr (&mut self, addr: usize)
+	{
+		let _ = self.futex.try_insert (addr, LinkedList::new ());
 	}
 }
 
@@ -57,7 +66,6 @@ impl Index<ThreadState> for ThreadListProcLocal
 		self.get (state).expect ("attempted to index ThreadState with invalid state")
 	}
 }
-
 
 impl IndexMut<ThreadState> for ThreadListProcLocal
 {
@@ -224,7 +232,7 @@ impl Process
 
 			if tid == join_tid
 			{
-				TNode::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), Some(&mut list));
+				TNode::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), Some(&mut list)).unwrap ();
 			}
 		}
 

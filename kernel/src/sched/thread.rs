@@ -448,10 +448,16 @@ impl TNode
 
 	pub fn block (&self, state: ThreadState)
 	{
-		// do nothing if new state is stil running
-		if let ThreadState::Running = state
+
+		match state
 		{
-			return;
+			// do nothing if new state is stil running
+			ThreadState::Running => return,
+			ThreadState::FutexBlock(addr) => {
+				// race condition
+				self.thread ().unwrap ().process ().tlproc.lock ().ensure_futex_addr (addr);
+			}
+			_ => (),
 		}
 
 		self.set_state (state);

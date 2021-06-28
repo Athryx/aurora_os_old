@@ -13,6 +13,7 @@
 #![feature(allocator_api)]
 #![feature(map_first_last)]
 #![feature(stmt_expr_attributes)]
+#![feature(map_try_insert)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]

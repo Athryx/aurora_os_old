@@ -135,10 +135,10 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 			None => return None,
 		}
 	};
-	let mut tpointer = tcell.borrow_mut ();
+	let tpointer = tcell.borrow_mut ();
 
 	let old_thread_cell = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
-	let mut old_thread = old_thread_cell.borrow_mut ();
+	let old_thread = old_thread_cell.borrow_mut ();
 
 	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::Relaxed);
 	old_thread.inc_time (nsec_current - nsec_last);

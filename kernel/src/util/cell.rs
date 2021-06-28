@@ -7,14 +7,14 @@ use core::marker::PhantomData;
 pub struct BorrowError;
 
 #[derive(Debug)]
-pub struct MemCell<T>
+pub struct MemCell<T: ?Sized>
 {
 	data: *mut T,
 	// positive is reader count, negative is writer count
 	rw: AtomicIsize,
 }
 
-impl<T> MemCell<T>
+impl<T: ?Sized> MemCell<T>
 {
 	pub fn new (val: *mut T) -> Self
 	{
@@ -59,13 +59,13 @@ unsafe impl<T> Send for MemCell<T> {}
 unsafe impl<T> Sync for MemCell<T> {}
 
 #[derive(Debug)]
-pub struct Reader<'a, T>
+pub struct Reader<'a, T: ?Sized>
 {
 	data: *const T,
 	cell: &'a MemCell<T>,
 }
 
-impl<T> Reader<'_, T>
+impl<T: ?Sized> Reader<'_, T>
 {
 	fn new (cell: &MemCell<T>) -> Result<Reader<T>, BorrowError>
 	{
@@ -89,7 +89,7 @@ impl<T> Reader<'_, T>
 	}
 }
 
-impl<T> Deref for Reader<'_, T>
+impl<T: ?Sized> Deref for Reader<'_, T>
 {
 	type Target = T;
 
@@ -102,7 +102,7 @@ impl<T> Deref for Reader<'_, T>
 	}
 }
 
-impl<T> Drop for Reader<'_, T>
+impl<T: ?Sized> Drop for Reader<'_, T>
 {
 	fn drop (&mut self)
 	{
@@ -111,13 +111,13 @@ impl<T> Drop for Reader<'_, T>
 }
 
 #[derive(Debug)]
-pub struct Writer<'a, T>
+pub struct Writer<'a, T: ?Sized>
 {
 	data: *mut T,
 	cell: &'a MemCell<T>,
 }
 
-impl<T> Writer<'_, T>
+impl<T: ?Sized> Writer<'_, T>
 {
 	fn new (cell: &MemCell<T>) -> Result<Writer<T>, BorrowError>
 	{
@@ -130,7 +130,7 @@ impl<T> Writer<'_, T>
 	}
 }
 
-impl<T> Deref for Writer<'_, T>
+impl<T: ?Sized> Deref for Writer<'_, T>
 {
 	type Target = T;
 
@@ -143,7 +143,7 @@ impl<T> Deref for Writer<'_, T>
 	}
 }
 
-impl<T> DerefMut for Writer<'_, T>
+impl<T: ?Sized> DerefMut for Writer<'_, T>
 {
 	fn deref_mut (&mut self) -> &mut Self::Target
 	{
@@ -154,7 +154,7 @@ impl<T> DerefMut for Writer<'_, T>
 	}
 }
 
-impl<T> Drop for Writer<'_, T>
+impl<T: ?Sized> Drop for Writer<'_, T>
 {
 	fn drop (&mut self)
 	{
@@ -162,24 +162,24 @@ impl<T> Drop for Writer<'_, T>
 	}
 }
 
-pub trait UniquePtr<T>: Deref<Target = T>
+pub trait UniquePtr<T: ?Sized>: Deref<Target = T>
 {
 	fn ptr (&self) -> *const T;
 }
 
-pub trait UniqueMutPtr<T>: UniquePtr<T> + DerefMut<Target = T>
+pub trait UniqueMutPtr<T: ?Sized>: UniquePtr<T> + DerefMut<Target = T>
 {
 	fn ptr_mut (&self) -> *mut T;
 }
 
 #[derive(Debug)]
-pub struct UniqueRef<'a, T>
+pub struct UniqueRef<'a, T: ?Sized>
 {
 	data: *const T,
 	marker: PhantomData<&'a T>,
 }
 
-impl<T> UniqueRef<'_, T>
+impl<T: ?Sized> UniqueRef<'_, T>
 {
 	pub fn new (other: &T) -> UniqueRef<T>
 	{
@@ -203,7 +203,7 @@ impl<T> UniqueRef<'_, T>
 	}
 }
 
-impl<T> Deref for UniqueRef<'_, T>
+impl<T: ?Sized> Deref for UniqueRef<'_, T>
 {
 	type Target = T;
 
@@ -216,7 +216,7 @@ impl<T> Deref for UniqueRef<'_, T>
 	}
 }
 
-impl<T> UniquePtr<T> for UniqueRef<'_, T>
+impl<T: ?Sized> UniquePtr<T> for UniqueRef<'_, T>
 {
 	fn ptr (&self) -> *const T
 	{
@@ -225,7 +225,7 @@ impl<T> UniquePtr<T> for UniqueRef<'_, T>
 }
 
 // cloning is unsafe
-impl<T> Clone for UniqueRef<'_, T>
+impl<T: ?Sized> Clone for UniqueRef<'_, T>
 {
 	fn clone (&self) -> Self
 	{
@@ -237,13 +237,13 @@ impl<T> Clone for UniqueRef<'_, T>
 }
 
 #[derive(Debug)]
-pub struct UniqueMut<'a, T>
+pub struct UniqueMut<'a, T: ?Sized>
 {
 	data: *mut T,
 	marker: PhantomData<&'a mut T>
 }
 
-impl<T> UniqueMut<'_, T>
+impl<T: ?Sized> UniqueMut<'_, T>
 {
 	pub fn new (other: &mut T) -> UniqueMut<T>
 	{
@@ -267,7 +267,7 @@ impl<T> UniqueMut<'_, T>
 	}
 }
 
-impl<T> Deref for UniqueMut<'_, T>
+impl<T: ?Sized> Deref for UniqueMut<'_, T>
 {
 	type Target = T;
 
@@ -280,7 +280,7 @@ impl<T> Deref for UniqueMut<'_, T>
 	}
 }
 
-impl<T> DerefMut for UniqueMut<'_, T>
+impl<T: ?Sized> DerefMut for UniqueMut<'_, T>
 {
 	fn deref_mut (&mut self) -> &mut Self::Target
 	{
@@ -291,7 +291,7 @@ impl<T> DerefMut for UniqueMut<'_, T>
 	}
 }
 
-impl<T> UniquePtr<T> for UniqueMut<'_, T>
+impl<T: ?Sized> UniquePtr<T> for UniqueMut<'_, T>
 {
 	fn ptr (&self) -> *const T
 	{
@@ -299,7 +299,7 @@ impl<T> UniquePtr<T> for UniqueMut<'_, T>
 	}
 }
 
-impl<T> UniqueMutPtr<T> for UniqueMut<'_, T>
+impl<T: ?Sized> UniqueMutPtr<T> for UniqueMut<'_, T>
 {
 	fn ptr_mut (&self) -> *mut T
 	{

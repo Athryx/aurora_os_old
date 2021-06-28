@@ -125,7 +125,7 @@ impl Debug for AtomicU128
 {
 	fn fmt (&self, f: &mut Formatter) -> Result<(), Error>
 	{
-		write! (f, "{}", self.load ());
+		write! (f, "{}", self.load ()).unwrap ();
 		Ok(())
 	}
 }
@@ -134,7 +134,7 @@ impl Display for AtomicU128
 {
 	fn fmt (&self, f: &mut Formatter) -> Result<(), Error>
 	{
-		write! (f, "{}", self.load ());
+		write! (f, "{}", self.load ()).unwrap ();
 		Ok(())
 	}
 }
