@@ -14,6 +14,9 @@ pub use error::{Error, Err};
 mod imutex;
 pub use imutex::{IMutex, IMutexGuard};
 
+mod futex;
+pub use futex::{Futex, FutexGaurd};
+
 pub mod cell;
 pub use cell::{MemCell, UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 
