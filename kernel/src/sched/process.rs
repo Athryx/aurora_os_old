@@ -1,13 +1,16 @@
 use spin::Mutex;
+use core::cell::Cell;
 use core::ops::{Index, IndexMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::ptr::NonNull;
+use alloc::alloc::{Global, Allocator, Layout};
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::uses::*;
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
-use crate::util::{LinkedList, IMutex};
+use crate::util::{LinkedList, AvlTree, IMutex, MemCell, UniqueRef, UniqueMut};
 use super::{ThreadList, tlist, proc_list};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, TNode, ThreadState};
@@ -15,10 +18,57 @@ use super::thread::{Thread, TNode, ThreadState};
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
+pub struct FutexTreeNode
+{
+	addr: usize,
+	list: LinkedList<TNode>,
+	parent: Cell<*const Self>,
+	left: Cell<*const Self>,
+	right: Cell<*const Self>,
+	bf: Cell<i8>,
+}
+
+impl FutexTreeNode
+{
+	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
+
+	pub fn new () -> MemCell<Self>
+	{
+		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for FutexTreeNode");
+		let ptr = mem.as_ptr () as *mut Self;
+		let out = FutexTreeNode {
+			addr: 0,
+			list: LinkedList::new (),
+			parent: Cell::new (null ()),
+			left: Cell::new (null ()),
+			right: Cell::new (null ()),
+			bf: Cell::new (0),
+		};
+
+		unsafe
+		{
+			ptr::write (ptr, out);
+			MemCell::new (ptr)
+		}
+	}
+
+	// Safety: MemCell must point to a valid FutexTreeNode
+	pub unsafe fn dealloc (this: MemCell<Self>)
+	{
+		let ptr = NonNull::new (this.ptr_mut ()).unwrap ().cast ();
+		Global.deallocate (ptr, Self::LAYOUT);
+	}
+}
+
+unsafe impl Send for FutexTreeNode {}
+
+crate::impl_tree_node! (usize, FutexTreeNode, parent, left, right, addr, bf);
+
+#[derive(Debug)]
 pub struct ThreadListProcLocal
 {
 	join: LinkedList<TNode>,
-	futex: BTreeMap<usize, LinkedList<TNode>>,
+	futex: AvlTree<usize, FutexTreeNode>,
 }
 
 impl ThreadListProcLocal
@@ -27,16 +77,18 @@ impl ThreadListProcLocal
 	{
 		ThreadListProcLocal {
 			join: LinkedList::new (),
-			futex: BTreeMap::new (),
+			futex: AvlTree::new (),
 		}
 	}
 
+	// returns None if futex addres is not present
 	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<TNode>>
 	{
 		match state
 		{
 			ThreadState::Join(_) => Some(&self.join),
-			ThreadState::FutexBlock(addr) => self.futex.get (&addr),
+			// TODO: find out is unbound is unneeded
+			ThreadState::FutexBlock(addr) => unsafe { Some(unbound (&self.futex.get (&addr)?.list)) },
 			_ => None
 		}
 	}
@@ -46,14 +98,18 @@ impl ThreadListProcLocal
 		match state
 		{
 			ThreadState::Join(_) => Some(&mut self.join),
-			ThreadState::FutexBlock(addr) => self.futex.get_mut (&addr),
+			ThreadState::FutexBlock(addr) => unsafe { Some(unbound_mut (&mut self.futex.get_mut (&addr)?.list)) },
 			_ => None
 		}
 	}
 
-	pub fn ensure_futex_addr (&mut self, addr: usize)
+	pub fn ensure_futex_addr (&mut self, addr: usize, node: MemCell<FutexTreeNode>) -> Option<MemCell<FutexTreeNode>>
 	{
-		let _ = self.futex.try_insert (addr, LinkedList::new ());
+		match self.futex.insert (addr, node)
+		{
+			Ok(_) => None,
+			Err(memcell) => Some(memcell),
+		}
 	}
 }
 
@@ -259,6 +315,50 @@ impl Process
 		{
 			Err(Err::new ("could not insert thread into process thread list"))
 		}
+	}
+
+	// TODO: make a way to deallocate old FutexTreeNodes
+	pub fn ensure_futex_addr (&self, addr: usize)
+	{
+		if self.tlproc.lock ().get (ThreadState::FutexBlock(addr)).is_none ()
+		{
+			let tree_node = FutexTreeNode::new ();
+			if let Some(tree_node) = self.tlproc.lock ().ensure_futex_addr (addr, tree_node)
+			{
+				unsafe
+				{
+					FutexTreeNode::dealloc (tree_node);
+				}
+			}
+		}
+	}
+
+	// returns how many threads were moved
+	pub fn futex_move (&self, addr: usize, state: ThreadState, count: usize) -> usize
+	{
+		match state
+		{
+			ThreadState::FutexBlock(addr) => self.ensure_futex_addr (addr),
+			ThreadState::Running => panic! ("cannot move thread blocked on futex directly to running thread"),
+			_ => (),
+		}
+
+		let mut thread_list = tlist.lock ();
+		let mut list = self.tlproc.lock ();
+
+		for i in 0..count
+		{
+			match list[ThreadState::FutexBlock(addr)].pop_front ()
+			{
+				Some(tpointer) => {
+					tpointer.borrow ().set_state (state);
+					TNode::insert_into (tpointer, Some(&mut thread_list), Some(&mut list)).unwrap ();
+				},
+				None => return i,
+			}
+		}
+
+		count
 	}
 }
 

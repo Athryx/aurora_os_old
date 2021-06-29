@@ -31,3 +31,24 @@ pub extern "C" fn thread_block (vals: &mut SyscallVals)
 		_ => (),
 	}
 }
+
+pub extern "C" fn futex_block (vals: &mut SyscallVals)
+{
+	let addr = vals.a1;
+	thread_c ().block (ThreadState::FutexBlock(addr));
+}
+
+pub extern "C" fn futex_unblock (vals: &mut SyscallVals)
+{
+	let addr = vals.a1;
+	let n = vals.a2;
+	vals.a1 = proc_c ().futex_move (addr, ThreadState::Running, n);
+}
+
+pub extern "C" fn futex_move (vals: &mut SyscallVals)
+{
+	let addr_old = vals.a1;
+	let addr_new = vals.a2;
+	let n = vals.a3;
+	vals.a1 = proc_c ().futex_move (addr_old, ThreadState::FutexBlock(addr_new), n);
+}

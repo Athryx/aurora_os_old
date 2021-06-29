@@ -14,7 +14,7 @@ use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, MemCell, UniqueMut, UniquePtr, AtomicU128};
 use crate::time::timer;
-use super::process::{Process, ThreadListProcLocal};
+use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
 use super::{Registers, ThreadList, int_sched, tlist};
 
 const USER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
@@ -448,14 +448,16 @@ impl TNode
 
 	pub fn block (&self, state: ThreadState)
 	{
-
 		match state
 		{
 			// do nothing if new state is stil running
 			ThreadState::Running => return,
 			ThreadState::FutexBlock(addr) => {
-				// race condition
-				self.thread ().unwrap ().process ().tlproc.lock ().ensure_futex_addr (addr);
+				// if the thread is not alive because process died, thread will eventually be destroyed in int_sched called bellow
+				if let Some(thread) = self.thread ()
+				{
+					thread.process ().ensure_futex_addr (addr);
+				}
 			}
 			_ => (),
 		}

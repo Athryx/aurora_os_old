@@ -521,24 +521,6 @@ impl<T: ListNode> LinkedList<T>
 	}
 }
 
-/*impl<T: ListNode> Index<usize> for LinkedList<T>
-{
-	type Output = T;
-
-	fn index (&self, index: usize) -> &Self::Output
-	{
-		self.get (index).expect ("ListNode: invalid index")
-	}
-}
-
-impl<T: ListNode> IndexMut<usize> for LinkedList<T>
-{
-	fn index_mut (&mut self, index: usize) -> &mut Self::Output
-	{
-		self.get_mut (index).expect ("ListNode: invalid index")
-	}
-}*/
-
 impl<'a, T: ListNode> IntoIterator for &'a LinkedList<T>
 {
 	type Item = UniqueRef<'a, T>;

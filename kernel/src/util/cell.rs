@@ -1,6 +1,8 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicIsize, Ordering};
 use core::ops::{Deref, DerefMut};
+use core::borrow::{Borrow, BorrowMut};
+use core::convert::{AsRef, AsMut};
 use core::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy)]
@@ -216,6 +218,22 @@ impl<T: ?Sized> Deref for UniqueRef<'_, T>
 	}
 }
 
+impl<T: ?Sized> Borrow<T> for UniqueRef<'_, T>
+{
+	fn borrow (&self) -> &T
+	{
+		self
+	}
+}
+
+impl<T: ?Sized> AsRef<T> for UniqueRef<'_, T>
+{
+	fn as_ref (&self) -> &T
+	{
+		self
+	}
+}
+
 impl<T: ?Sized> UniquePtr<T> for UniqueRef<'_, T>
 {
 	fn ptr (&self) -> *const T
@@ -288,6 +306,38 @@ impl<T: ?Sized> DerefMut for UniqueMut<'_, T>
 		{
 			self.data.as_mut ().unwrap ()
 		}
+	}
+}
+
+impl<T: ?Sized> Borrow<T> for UniqueMut<'_, T>
+{
+	fn borrow (&self) -> &T
+	{
+		self
+	}
+}
+
+impl<T: ?Sized> BorrowMut<T> for UniqueMut<'_, T>
+{
+	fn borrow_mut (&mut self) -> &mut T
+	{
+		self
+	}
+}
+
+impl<T: ?Sized> AsRef<T> for UniqueMut<'_, T>
+{
+	fn as_ref (&self) -> &T
+	{
+		self
+	}
+}
+
+impl<T: ?Sized> AsMut<T> for UniqueMut<'_, T>
+{
+	fn as_mut (&mut self) -> &mut T
+	{
+		self
 	}
 }
 

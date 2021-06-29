@@ -1,6 +1,6 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{thread_new, thread_block};
+use crate::sched::sys::{thread_new, thread_block, futex_block, futex_unblock, futex_move};
 use crate::mem::sys::realloc;
 
 pub use sys_consts::SysErr;
@@ -20,9 +20,9 @@ static syscalls: [SyscallFunc; 16] = [
 	thread_block,
 	sys_hi,
 	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
+	futex_block,
+	futex_unblock,
+	futex_move,
 	sys_hi,
 	sys_hi,
 	realloc,

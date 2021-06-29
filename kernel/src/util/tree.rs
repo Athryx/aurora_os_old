@@ -364,15 +364,16 @@ enum BalMode
 }
 
 // A non allocating avl tree
+#[derive(Debug)]
 pub struct AvlTree<K: Ord, V: TreeNode<Key = K>>
 {
 	root: *const V,
 	len: usize,
 }
 
-impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
+impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 {
-	pub fn new () -> Self
+	pub const fn new () -> Self
 	{
 		AvlTree {
 			root: null (),
@@ -683,3 +684,6 @@ impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
 		}
 	}
 }
+
+// Not sure if this is actully true, because I don't really understand this send/sync differences, but it is required to make it compile
+unsafe impl<K: Ord, V: TreeNode<Key = K> + Send> Send for AvlTree<K, V> {}
