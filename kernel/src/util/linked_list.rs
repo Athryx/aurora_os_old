@@ -111,7 +111,7 @@ impl Node
 		let out = Node {
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
-			size: size,
+			size,
 		};
 		ptr.write (out);
 

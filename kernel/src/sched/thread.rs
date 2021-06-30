@@ -334,7 +334,7 @@ impl TNode
 {
 	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
 
-	pub fn new<'a> (thread: Weak<Thread>) -> MemCell<Self>
+	pub fn new (thread: Weak<Thread>) -> MemCell<Self>
 	{
 		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ThreadLNode");
 		let ptr = mem.as_ptr () as *mut Self;
@@ -440,7 +440,7 @@ impl TNode
 				cell.borrow_mut ().set_state (state);
 				// TODO: figure out if we need to handle None case of this specially
 				Self::insert_into (cell, gtlist, proctlist)
-					.or_else (|_| Err(ptr2))
+					.map_err (|_| ptr2)
 			},
 			Err(ptr) => Err(ptr),
 		}

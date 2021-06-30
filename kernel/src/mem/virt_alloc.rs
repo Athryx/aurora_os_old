@@ -592,13 +592,9 @@ impl VirtLayout
 		{
 			Some(elem.mapping_flags)
 		}
-		else if let Some(elem) = self.dealloc_que.get (0)
-		{
-			Some(elem.mapping_flags)
-		}
 		else
 		{
-			None
+			self.dealloc_que.get (0).map (|elem| elem.mapping_flags)
 		}
 	}
 

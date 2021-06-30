@@ -52,7 +52,6 @@ use alloc::collections::*;
 use util::AtomicU128;
 use alloc::vec;
 use upriv::{PrivLevel, IOPRIV_UID};
-use time::timer;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !

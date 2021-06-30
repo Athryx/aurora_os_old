@@ -34,7 +34,10 @@ pub unsafe trait TreeNode: Sized
 		self.set_left (left);
 		unsafe
 		{
-			left.as_ref ().map (|node| node.set_parent (self.as_ptr ()));
+			if let Some(node) = left.as_ref ()
+			{
+				node.set_parent (self.as_ptr ());
+			}
 		}
 	}
 
@@ -44,7 +47,10 @@ pub unsafe trait TreeNode: Sized
 		self.set_right (right);
 		unsafe
 		{
-			right.as_ref ().map (|node| node.set_parent (self.as_ptr ()));
+			if let Some(node) = right.as_ref ()
+			{
+				node.set_parent (self.as_ptr ());
+			}
 		}
 	}
 
@@ -257,7 +263,7 @@ pub unsafe trait TreeNode: Sized
 	{
 		if self.is_balanced ()
 		{
-			return self.as_ptr ();
+			self.as_ptr ()
 		}
 		else if self.balance () < -1
 		{
@@ -457,11 +463,15 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 						child = unsafe { child.right_ref () };
 					}
 
-					node.swap (child).map (|ptr| self.root = ptr);
+					if let Some(ptr) = node.swap (child)
+					{
+						self.root = ptr;
+					}
+
 					self.remove_edge_node (node)
 				}
 			},
-			_ => return None,
+			_ => None,
 		}
 	}
 
@@ -497,7 +507,10 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 				self.root = child;
 				unsafe
 				{
-					child.as_ref ().map (|node| node.set_parent (null ()));
+					if let Some(node) = child.as_ref ()
+					{
+						node.set_parent (null ());
+					}
 				}
 			},
 		}
@@ -638,7 +651,10 @@ impl<K: Ord, V: TreeNode<Key = K> + Display> Display for AvlTree<K, V>
 	{
 		unsafe
 		{
-			self.root.as_ref ().map (|node| self.print_recurse (f, node, 0));
+			if let Some(node) = self.root.as_ref ()
+			{
+				self.print_recurse (f, node, 0);
+			}
 		}
 
 		Ok(())
@@ -657,20 +673,20 @@ impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
 				Some(node) => self.print_recurse (f, node, depth + 1),
 				None => if flag {
 					Self::print_ident (f, depth + 1);
-					write! (f, "========\n").unwrap ();
+					writeln! (f, "========").unwrap ();
 				},
 			}
 
 			Self::print_ident (f, depth);
 			Display::fmt (node, f).unwrap ();
-			write! (f, "\n").unwrap ();
+			writeln! (f).unwrap ();
 
 			match node.left ().as_ref ()
 			{
 				Some(node) => self.print_recurse (f, node, depth + 1),
 				None => if flag {
 					Self::print_ident (f, depth + 1);
-					write! (f, "========\n").unwrap ();
+					writeln! (f, "========").unwrap ();
 				},
 			}
 		}

@@ -83,7 +83,7 @@ impl<T: ?Sized> Reader<'_, T>
 		};
 
 		// TODO: figre out if seqcst is needed
-		cell.rw.fetch_update (Ordering::SeqCst, Ordering::SeqCst, closure).or_else (|_| Err(BorrowError))?;
+		cell.rw.fetch_update (Ordering::SeqCst, Ordering::SeqCst, closure).map_err (|_| BorrowError)?;
 		Ok(Reader {
 			data: cell.data,
 			cell,
@@ -124,7 +124,7 @@ impl<T: ?Sized> Writer<'_, T>
 	fn new (cell: &MemCell<T>) -> Result<Writer<T>, BorrowError>
 	{
 		// TODO: figre out if this is correct ordering
-		cell.rw.compare_exchange (0, -1, Ordering::SeqCst, Ordering::SeqCst).or_else (|_| Err(BorrowError))?;
+		cell.rw.compare_exchange (0, -1, Ordering::SeqCst, Ordering::SeqCst).map_err (|_| BorrowError)?;
 		Ok(Writer {
 			data: cell.data,
 			cell,
