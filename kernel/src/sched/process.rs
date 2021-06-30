@@ -10,10 +10,11 @@ use crate::uses::*;
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
-use crate::util::{LinkedList, AvlTree, IMutex, MemCell, UniqueRef, UniqueMut};
+use crate::util::{LinkedList, AvlTree, IMutex, MemCell, Futex};
 use super::{ThreadList, tlist, proc_list};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, TNode, ThreadState};
+use super::domain::DomainMap;
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
@@ -143,6 +144,8 @@ pub struct Process
 	next_tid: AtomicUsize,
 	threads: Mutex<BTreeMap<usize, Arc<Thread>>>,
 
+	domains: Futex<DomainMap>,
+
 	pub tlproc: IMutex<ThreadListProcLocal>,
 
 	pub addr_space: VirtMapper<FAllocerType>,
@@ -160,6 +163,7 @@ impl Process
 			uid,
 			next_tid: AtomicUsize::new (0),
 			threads: Mutex::new (BTreeMap::new ()),
+			domains: Futex::new (DomainMap::new ()),
 			tlproc: IMutex::new (ThreadListProcLocal::new ()),
 			addr_space: VirtMapper::new (&zm),
 		})
@@ -251,6 +255,11 @@ impl Process
 	pub fn next_tid (&self) -> usize
 	{
 		self.next_tid.fetch_add (1, Ordering::Relaxed)
+	}
+
+	pub fn domains (&self) -> &Futex<DomainMap>
+	{
+		&self.domains
 	}
 
 	// returns false if thread with tid is already inserted or tid was not gotten by next tid func

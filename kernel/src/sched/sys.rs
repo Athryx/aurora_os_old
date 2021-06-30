@@ -1,3 +1,5 @@
+use crate::uses::*;
+use sys_consts::options::RegOptions;
 use crate::syscall::SyscallVals;
 use crate::sysret;
 use super::*;
@@ -51,4 +53,34 @@ pub extern "C" fn futex_move (vals: &mut SyscallVals)
 	let addr_new = vals.a2;
 	let n = vals.a3;
 	vals.a1 = proc_c ().futex_move (addr_old, ThreadState::FutexBlock(addr_new), n);
+}
+
+// TODO: handler reg_public and reg_group options
+pub extern "C" fn reg (vals: &mut SyscallVals)
+{
+	let options = RegOptions::from_bits_truncate (vals.options);
+	let domain = vals.a1;
+	let rip = vals.a2;
+
+	let mut handler_options = HandlerOptions::new ();
+
+	let domain = if options.contains (RegOptions::DEFAULT)
+	{
+		None
+	}
+	else
+	{
+		Some(domain)
+	};
+
+	if options.contains (RegOptions::BLOCK)
+	{
+		handler_options.blocking_mode = BlockMode::Blocking(thread_res_c ().tid ());
+	}
+
+	let handler = DomainHandler::new (rip, handler_options);
+
+	proc_c ().domains ().lock ().register (domain, handler);
+
+	sysret! (vals, 0);
 }

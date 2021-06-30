@@ -14,6 +14,7 @@ use crate::consts::INIT_STACK;
 use crate::gdt::tss;
 pub use process::Process;
 pub use thread::{Thread, TNode, ThreadState};
+pub use domain::*;
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
@@ -33,6 +34,7 @@ pub mod sys;
 mod process;
 mod thread;
 mod elf;
+mod domain;
 
 static tlist: IMutex<ThreadList> = IMutex::new (ThreadList::new ());
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());

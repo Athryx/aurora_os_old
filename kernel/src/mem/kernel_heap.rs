@@ -364,7 +364,7 @@ impl LinkedListAllocator
 // TODO: add relloc function
 struct GlobalAllocator
 {
-	allocer: Mutex<Option<LinkedListAllocator>>,
+	allocer: Futex<Option<LinkedListAllocator>>,
 }
 
 impl GlobalAllocator
@@ -372,7 +372,7 @@ impl GlobalAllocator
 	const fn new () -> GlobalAllocator
 	{
 		GlobalAllocator {
-			allocer: Mutex::new (None),
+			allocer: Futex::new (None),
 		}
 	}
 

@@ -11,3 +11,14 @@ bitflags!
 		const EXACT = 1 << 4;
 	}
 }
+
+bitflags!
+{
+	pub struct RegOptions: u32
+	{
+		const BLOCK = 1;
+		const DEFAULT = 1 << 1;
+		const PUBLIC = 1 << 2;
+		const GROUP = 1 << 3;
+	}
+}

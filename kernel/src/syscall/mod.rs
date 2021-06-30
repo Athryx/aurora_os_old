@@ -1,6 +1,6 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{thread_new, thread_block, futex_block, futex_unblock, futex_move};
+use crate::sched::sys::{thread_new, thread_block, futex_block, futex_unblock, futex_move, reg};
 use crate::mem::sys::realloc;
 
 pub use sys_consts::SysErr;
@@ -13,7 +13,7 @@ extern "C"
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
-static syscalls: [SyscallFunc; 16] = [
+static syscalls: [SyscallFunc; 23] = [
 	sys_hi,
 	sys_hi,
 	thread_new,
@@ -28,6 +28,13 @@ static syscalls: [SyscallFunc; 16] = [
 	realloc,
 	sys_hi,
 	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	sys_hi,
+	reg,
 	sys_hi,
 	sys_hi,
 ];
@@ -163,7 +170,7 @@ macro_rules! sysret
 
 extern "C" fn sys_hi (vals: &mut SyscallVals)
 {
-	println! ("hi");
+	//println! ("hi");
 	/*eprintln! ("vals: {:#x?}", vals);
 	eprintln! ("options {:x}", vals.options);
 	eprintln! ("num {}", vals.a1);*/

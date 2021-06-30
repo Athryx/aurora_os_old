@@ -158,7 +158,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
-	//test ();
+	test ();
 
 	loop {
 		hlt ();
@@ -381,6 +381,7 @@ fn test_alloc_thread ()
 		let _x = Box::new (0);
 		let _y = Box::new (0);
 		let _z = Box::new (0);
+		println! ("alloc test done");
 		thread_c ().block (ThreadState::Destroy);
 	}
 }

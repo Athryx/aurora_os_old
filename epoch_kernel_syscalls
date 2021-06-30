@@ -235,7 +235,7 @@ use msg_return to leave this temporary stack
 
 bit 1 (reg_default):
 0: reg registers function only for specified domain
-1: reg registers function to respond to all domains that don't have an infividual function registered to handle them
+1: reg registers function to respond to all domains that don't have an individual function registered to handle them
 
 bit 2 (reg_public):
 TODO: explain application modules and trees better
@@ -250,9 +250,6 @@ repated calls with {rip} == 0  and reg_group bit set will allow multiple groups 
 return value:
 0: success
 1: failure
-
-Please wait, the meeting host will let you in soon.
-1ST Adv. Eng./ Sr. Engineering I.S./ Arch. Design I.S.
 
 21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> usize
 send a message to another process

@@ -65,6 +65,9 @@ impl<T> Futex<T>
 	}
 }
 
+unsafe impl<T> Send for Futex<T> {}
+unsafe impl<T> Sync for Futex<T> {}
+
 #[derive(Debug)]
 pub struct FutexGaurd<'a, T> (&'a Futex<T>);
 
