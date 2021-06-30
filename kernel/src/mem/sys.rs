@@ -116,7 +116,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			if size > psize
 			{
 				let elem = VirtLayoutElement::new (size - psize, new_flags)
-					.ok_or_else (|| MemErr::OutOfMem ("out of memory"))?;
+					.ok_or (MemErr::OutOfMem ("out of memory"))?;
 				phys_zones.push (elem);
 			}
 			else if size < psize

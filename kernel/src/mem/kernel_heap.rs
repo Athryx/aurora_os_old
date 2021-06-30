@@ -1,5 +1,5 @@
 use crate::uses::*;
-use crate::util::{LinkedList, MemCell, UniqueRef, UniqueMut, UniquePtr};
+use crate::util::{LinkedList, MemCell, UniqueRef, UniqueMut, UniquePtr, Futex};
 use crate::impl_list_node;
 use spin::Mutex;
 use core::mem;
@@ -50,7 +50,7 @@ struct Node
 
 impl Node
 {
-	unsafe fn new<'a> (addr: usize, size: usize) -> MemCell<Self>
+	unsafe fn new (addr: usize, size: usize) -> MemCell<Self>
 	{
 		let ptr = addr as *mut Node;
 
@@ -131,7 +131,7 @@ struct HeapZone
 impl HeapZone
 {
 	// size is aligned up to page size
-	unsafe fn new<'a> (size: usize) -> Option<MemCell<Self>>
+	unsafe fn new (size: usize) -> Option<MemCell<Self>>
 	{
 		let size = align_up (size, PAGE_SIZE);
 		let mem = zm.alloc (size)?;

@@ -140,7 +140,8 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	let old_thread_cell = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
 	let old_thread = old_thread_cell.borrow_mut ();
 
-	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::Relaxed);
+	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::SeqCst);
+	rprintln!("nsec last: {}\nnsec current: {}", nsec_last, nsec_current);
 	old_thread.inc_time (nsec_current - nsec_last);
 
 	// FIXME: smp race condition

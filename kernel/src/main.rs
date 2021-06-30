@@ -52,12 +52,13 @@ use alloc::collections::*;
 use util::AtomicU128;
 use alloc::vec;
 use upriv::{PrivLevel, IOPRIV_UID};
+use time::timer;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !
 {
+	rprintln! ("{}", info);
 	println! ("{}", info);
-	eprintln! ("{}", info);
 
 	loop {
 		cli ();
@@ -154,13 +155,6 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	println! ("epoch v0.0.1");
 
-	let atom = AtomicU128::new (0);
-	for a in 0..20420
-	{
-		atom.store (a);
-		assert_eq! (atom.load (), a);
-	}
-
 	sti_safe ();
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
@@ -176,6 +170,7 @@ use core::cell::Cell;
 use core::fmt::{self, Formatter, Display};
 use util::MemCell;
 use util::TreeNode;
+use util::{Futex};
 
 #[derive(Debug)]
 struct TreeTest
@@ -208,7 +203,7 @@ impl Display for TreeTest
 {
 	fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result
 	{
-		write! (f, "{}:{}", self.key, self.bf.get ());
+		write! (f, "{}:{}", self.key, self.bf.get ()).unwrap ();
 		Ok(())
 	}
 }
@@ -221,7 +216,7 @@ static mut join_tid: usize = 0;
 fn test ()
 {
 	let mut num = 141;
-	let test_closure = move || {
+	let _test_closure = move || {
 		eprintln! ("test closure ran");
 		eprintln! ("num {}", num);
 		num += 1;
@@ -229,7 +224,12 @@ fn test ()
 		thread_c ().block (ThreadState::Destroy);
 	};
 
-	cli ();
+	let atom = AtomicU128::new (0);
+	for a in 0..20420
+	{
+		atom.store (a);
+		assert_eq! (atom.load (), a);
+	}
 
 	let mut tree = AvlTree::new ();
 	tree.insert (0, TreeTest::new ()).unwrap ();
@@ -260,16 +260,23 @@ fn test ()
 	tree.remove (&999).unwrap ();
 	eprintln! ("{}", tree);
 
-	loop
+	let temp = Futex::new (0);
 	{
-		cli ();
-		hlt ();
+		let mut a = temp.lock ();
+		*a += 2;
 	}
+
+	eprintln! ("{}", *temp.lock ());
+
 	unsafe
 	{
 		join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
 	}
 	proc_c ().new_thread (test_thread_2, Some("join_test_thread".to_string ())).unwrap ();
+	for _ in 0..10
+	{
+		proc_c ().new_thread (test_alloc_thread, Some("alloc_test_thread".to_string ())).unwrap ();
+	}
 	/*unsafe
 	{
 		proc_c ().new_thread (core::mem::transmute (&test_closure), Some("closure_test_thread".to_string ())).unwrap ();
@@ -279,10 +286,6 @@ fn test ()
 fn test_thread_2 ()
 {
 	eprintln! ("join test thread started");
-	loop
-	{
-		hlt ();
-	}
 	thread_c ().block (ThreadState::Join(unsafe { join_tid }));
 	eprintln! ("finished joining");
 	thread_c ().block (ThreadState::Destroy);
@@ -347,9 +350,38 @@ fn test_thread_1 ()
 	println! ("{}", *a);
 	println! ("{}", *b);
 	eprintln! ("test finished");
+	thread_c ().block (ThreadState::Destroy);
+}
+
+fn test_alloc_thread ()
+{
 	loop
 	{
-		hlt ();
+		let _a = Box::new (0);
+		let _b = Box::new (0);
+		let _c = Box::new (0);
+		let _d = Box::new (0);
+		let _e = Box::new (0);
+		let _f = Box::new (0);
+		let _g = Box::new (0);
+		let _h = Box::new (0);
+		let _i = Box::new (0);
+		let _j = Box::new (0);
+		let _k = Box::new (0);
+		let _l = Box::new (0);
+		let _m = Box::new (0);
+		let _n = Box::new (0);
+		let _o = Box::new (0);
+		let _p = Box::new (0);
+		let _q = Box::new (0);
+		let _s = Box::new (0);
+		let _t = Box::new (0);
+		let _u = Box::new (0);
+		let _v = Box::new (0);
+		let _w = Box::new (0);
+		let _x = Box::new (0);
+		let _y = Box::new (0);
+		let _z = Box::new (0);
+		thread_c ().block (ThreadState::Destroy);
 	}
-	thread_c ().block (ThreadState::Destroy);
 }

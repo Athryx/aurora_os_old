@@ -1035,8 +1035,8 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		let mut btree = self.virt_map.lock ();
 
-		let virt_zone = Self::find_range (&mut btree, size)
-			.ok_or_else (|| MemErr::InvlVirtMem ("not enough space in virtual memory space for allocation"))?;
+		let virt_zone = Self::find_range (&btree, size)
+			.ok_or (MemErr::InvlVirtMem ("not enough space in virtual memory space for allocation"))?;
 
 		let iter = PageMappingIterator::new (&phys_zones, &virt_zone);
 		self.map_internal (iter);
@@ -1074,7 +1074,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		let mut btree = self.virt_map.lock ();
 
-		if Self::free_space (&mut btree, virt_zone, None).is_none ()
+		if Self::free_space (&btree, virt_zone, None).is_none ()
 		{
 			return Err(MemErr::InvlVirtMem ("invalid virt zone passed to map_at"));
 		}
@@ -1096,7 +1096,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let mut btree = self.virt_map.lock ();
 
 		let virt_layout = btree.get_mut (&virt_zone)
-			.ok_or_else (|| MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
+			.ok_or (MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
 
 		if virt_layout.alloc_type () != atype
 		{
@@ -1166,7 +1166,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let mut btree = self.virt_map.lock ();
 
 		let virt_layout = btree.get_mut (&virt_zone)
-			.ok_or_else (|| MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
+			.ok_or (MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
 
 		if virt_layout.alloc_type () != atype
 		{
@@ -1193,22 +1193,16 @@ impl<T: FrameAllocator> VirtMapper<T>
 		{
 			let mut phys_zones = btree.remove (&virt_zone).unwrap ();
 
-			if target_addr == virt_zone.addr ()
-			{
-				let iter = PageMappingIterator::new (&phys_zones, &nrange);
-				self.map_internal (iter);
-				phys_zones.sync_mem ();
-			}
-			else
+			if target_addr != virt_zone.addr ()
 			{
 				let iter = PageMappingIterator::new_unmapper (&phys_zones, &virt_zone);
 				self.map_internal (iter);
 				phys_zones.mark_unmapped ();
-	
-				let iter = PageMappingIterator::new (&phys_zones, &nrange);
-				self.map_internal (iter);
-				phys_zones.sync_mem ();
 			}
+
+			let iter = PageMappingIterator::new (&phys_zones, &nrange);
+			self.map_internal (iter);
+			phys_zones.sync_mem ();
 
 			btree.insert (nrange, phys_zones);
 
@@ -1228,7 +1222,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 		let mut btree = self.virt_map.lock ();
 
 		let virt_layout = btree.get_mut (&virt_zone)
-			.ok_or_else (|| MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
+			.ok_or (MemErr::InvlPtr ("invalid virt zone passed to remap"))?;
 
 		if virt_layout.alloc_type () != atype
 		{

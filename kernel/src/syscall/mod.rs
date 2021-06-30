@@ -164,9 +164,9 @@ macro_rules! sysret
 extern "C" fn sys_hi (vals: &mut SyscallVals)
 {
 	println! ("hi");
-	eprintln! ("vals: {:#x?}", vals);
+	/*eprintln! ("vals: {:#x?}", vals);
 	eprintln! ("options {:x}", vals.options);
-	eprintln! ("num {}", vals.a1);
+	eprintln! ("num {}", vals.a1);*/
 	vals.a1 = 0x43;
 	vals.a2 = 0x53;
 }
@@ -177,7 +177,7 @@ pub fn init ()
 	wrmsr (EFER_MSR, efer | EFER_SYSCALL_ENABLE);
 
 	// tell cpu syscall instruction entry point
-	wrmsr (LSTAR_MSR, syscall_entry as u64);
+	wrmsr (LSTAR_MSR, syscall_entry as usize as u64);
 
 	// tell cpu to disable interrupts on syscall_entry
 	wrmsr (FMASK_MSR, 0x200);

@@ -4,6 +4,7 @@ use core::ops::{Deref, DerefMut};
 use core::cell::UnsafeCell;
 use crate::sched::*;
 
+#[derive(Debug)]
 pub struct Futex<T>
 {
 	acquired: AtomicBool,
@@ -13,7 +14,7 @@ pub struct Futex<T>
 
 impl<T> Futex<T>
 {
-	pub fn new (data: T) -> Self
+	pub const fn new (data: T) -> Self
 	{
 		Futex {
 			acquired: AtomicBool::new (false),
@@ -64,6 +65,7 @@ impl<T> Futex<T>
 	}
 }
 
+#[derive(Debug)]
 pub struct FutexGaurd<'a, T> (&'a Futex<T>);
 
 impl <'a, T> FutexGaurd<'a, T>

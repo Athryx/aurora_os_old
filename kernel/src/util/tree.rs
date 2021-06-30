@@ -663,7 +663,7 @@ impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
 
 			Self::print_ident (f, depth);
 			Display::fmt (node, f).unwrap ();
-			write! (f, "\n");
+			write! (f, "\n").unwrap ();
 
 			match node.left ().as_ref ()
 			{
@@ -680,7 +680,7 @@ impl<K: Ord, V: TreeNode<Key = K> + Display> AvlTree<K, V>
 	{
 		for _ in 0..depth
 		{
-				write! (f, "\t");
+				write! (f, "\t").unwrap ();
 		}
 	}
 }

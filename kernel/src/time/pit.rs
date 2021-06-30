@@ -55,9 +55,9 @@ impl Pit
 	// not safe to call from scheduler interrupt handler
 	pub fn set_reset (&self, ticks: u16)
 	{
-		// channel 0, low - high byte, square wave mode, 16 bit binary
+		// channel 0, low - high byte, rate generator mode, 16 bit binary
 		self.lock.lock ();
-		outb (PIT_COMMAND, 0b00110110);
+		outb (PIT_COMMAND, 0b00110100);
 		outb (PIT_CHANNEL_0, get_bits (ticks as _, 0..8) as _);
 		outb (PIT_CHANNEL_0, get_bits (ticks as _, 8..16) as _);
 
@@ -78,8 +78,7 @@ impl Pit
 			outb (PIT_COMMAND, 0);
 			let low = inb (PIT_CHANNEL_0);
 			let high = inb (PIT_CHANNEL_0);
-	
-			self.elapsed_time.load (Ordering::Relaxed) + (NANOSEC_PER_CLOCK * ((high as u64) << 8 | low as u64))
+			self.elapsed_time.load (Ordering::Relaxed) + (NANOSEC_PER_CLOCK * (self.reset.load (Ordering::Relaxed) as u64 - ((high as u64) << 8 | low as u64)))
 		}
 		else
 		{
