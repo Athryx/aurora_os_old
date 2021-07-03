@@ -1,5 +1,5 @@
 use crate::uses::*;
-use sys_consts::options::RegOptions;
+use sys_consts::options::{RegOptions, MsgOptions};
 use crate::syscall::SyscallVals;
 use crate::sysret;
 use super::*;
@@ -55,7 +55,7 @@ pub extern "C" fn futex_move (vals: &mut SyscallVals)
 	vals.a1 = proc_c ().futex_move (addr_old, ThreadState::FutexBlock(addr_new), n);
 }
 
-// TODO: handler reg_public and reg_group options
+// TODO: handle reg_public and reg_group options
 pub extern "C" fn reg (vals: &mut SyscallVals)
 {
 	let options = RegOptions::from_bits_truncate (vals.options);
@@ -83,4 +83,10 @@ pub extern "C" fn reg (vals: &mut SyscallVals)
 	proc_c ().domains ().lock ().register (domain, handler);
 
 	sysret! (vals, 0);
+}
+
+// TODO: handler msg_pid and smem_transfer_mask options
+pub extern "C" fn msg (vals: &mut SyscallVals)
+{
+	let options = MsgOptions::from_bits_truncate (vals.options);
 }

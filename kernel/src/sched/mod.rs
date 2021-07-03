@@ -35,6 +35,7 @@ mod process;
 mod thread;
 mod elf;
 mod domain;
+mod connection;
 
 static tlist: IMutex<ThreadList> = IMutex::new (ThreadList::new ());
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());

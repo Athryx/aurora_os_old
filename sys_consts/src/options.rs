@@ -22,3 +22,16 @@ bitflags!
 		const GROUP = 1 << 3;
 	}
 }
+
+bitflags!
+{
+	pub struct MsgOptions: u32
+	{
+		const PID = 1;
+		const BLOCK = 1 << 1;
+		const SMEM1 = 1 << 4;
+		const SMEM2 = 1 << 5;
+		const SMEM3 = 1 << 6;
+		const SMEM4 = 1 << 7;
+	}
+}

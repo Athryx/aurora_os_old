@@ -167,9 +167,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 use core::cell::Cell;
 use core::fmt::{self, Formatter, Display};
-use util::MemCell;
-use util::TreeNode;
-use util::{Futex};
+use util::*;
 
 #[derive(Debug)]
 struct TreeTest
@@ -214,6 +212,9 @@ static mut join_tid: usize = 0;
 
 fn test ()
 {
+	let stopf = false;
+	if stopf { cli (); }
+
 	let mut num = 141;
 	let _test_closure = move || {
 		eprintln! ("test closure ran");
@@ -258,6 +259,22 @@ fn test ()
 	eprintln! ("{}", tree);
 	tree.remove (&999).unwrap ();
 	eprintln! ("{}", tree);
+
+	let vec = NLVec::new ();
+	vec.push (3);
+	vec.push (2);
+	vec.push (5);
+	vec.remove (1);
+	eprintln! ("{:?}", vec);
+
+	if stopf
+	{
+		loop
+		{
+			cli ();
+			hlt ();
+		}
+	}
 
 	let temp = Futex::new (0);
 	{

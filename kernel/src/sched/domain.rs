@@ -83,4 +83,9 @@ impl DomainMap
 			None => self.set_default_handler (Some(handler)),
 		}
 	}
+
+	pub fn get (&self, domain: usize) -> Option<&DomainHandler>
+	{
+		self.domains.get (&domain).or ((&self.default_handler).as_ref ())
+	}
 }

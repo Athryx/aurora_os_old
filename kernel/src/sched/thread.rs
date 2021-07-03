@@ -114,6 +114,8 @@ pub enum ThreadState
 	Join(usize),
 	// virtual address currently waiting on
 	FutexBlock(usize),
+	// connection id we are waiting for a reply from
+	Listening(usize),
 }
 
 impl ThreadState
