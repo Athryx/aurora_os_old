@@ -279,6 +279,15 @@ impl<T: ?Sized> UniqueMut<'_, T>
 		}
 	}
 
+	pub fn downgrade<'a> (self) -> UniqueRef<'a, T>
+		where Self: 'a
+	{
+		unsafe
+		{
+			UniqueRef::from_ptr (self.data)
+		}
+	}
+
 	pub unsafe fn unbound<'a> (self) -> UniqueMut<'a, T>
 	{
 		UniqueMut::from_ptr (self.ptr_mut ())

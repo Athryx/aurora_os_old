@@ -77,7 +77,7 @@ impl<K: Ord + Clone, V> NLVecMap<K, V>
 	pub fn remove (&self, key: &K) -> Option<V>
 	{
 		self.0.write (|vec| {
-			match Self::search (vec, &key)
+			match Self::search (vec, key)
 			{
 				Ok(index) => Some(vec[index]),
 				Err(_) => None,
@@ -89,38 +89,12 @@ impl<K: Ord + Clone, V> NLVecMap<K, V>
 	// else, Err(index where element should go) is returned
 	fn search (vec: &Vec<*const MapNode<K, V>>, key: &K) -> Result<usize, usize>
 	{
-		let mut start = 0;
-		let mut end = vec.len ();
-		
-		loop
+		unsafe
 		{
-			let i = (start + end) / 2;
-			let elem = unsafe { &vec[i].as_ref ().unwrap ().key };
-
-			if key < elem
-			{
-				end = i;
-			}
-			else if key > elem
-			{
-				start = i;
-			}
-			else
-			{
-				return Ok(i);
-			}
-
-			if start == end
-			{
-				if key > elem
-				{
-					return Err(i + 1);
-				}
-				else
-				{
-					return Err(i);
-				}
-			}
+			vec.binary_search_by (|ptr| {
+				let probe_key = &ptr.as_ref ().unwrap ().key;
+				probe_key.cmp (key)
+			})
 		}
 	}
 }
