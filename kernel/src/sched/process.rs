@@ -10,19 +10,20 @@ use crate::uses::*;
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
-use crate::util::{LinkedList, AvlTree, IMutex, MemCell, Futex};
+use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef};
 use super::{ThreadList, tlist, proc_list};
 use super::elf::{ElfParser, Section};
-use super::thread::{Thread, TNode, ThreadState};
-use super::domain::DomainMap;
+use super::thread::{Thread, ThreadState};
+use super::domain::{DomainMap, BlockMode};
+use super::connection::{MsgArgs, Connection};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
 pub struct FutexTreeNode
 {
-	addr: usize,
-	list: LinkedList<TNode>,
+	addr: Cell<usize>,
+	list: LinkedList<Thread>,
 	parent: Cell<*const Self>,
 	left: Cell<*const Self>,
 	right: Cell<*const Self>,
@@ -33,12 +34,12 @@ impl FutexTreeNode
 {
 	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
 
-	pub fn new () -> MemCell<Self>
+	pub fn new () -> MemOwner<Self>
 	{
 		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for FutexTreeNode");
 		let ptr = mem.as_ptr () as *mut Self;
 		let out = FutexTreeNode {
-			addr: 0,
+			addr: Cell::new (0),
 			list: LinkedList::new (),
 			parent: Cell::new (null ()),
 			left: Cell::new (null ()),
@@ -49,12 +50,12 @@ impl FutexTreeNode
 		unsafe
 		{
 			ptr::write (ptr, out);
-			MemCell::new (ptr)
+			MemOwner::new (ptr)
 		}
 	}
 
-	// Safety: MemCell must point to a valid FutexTreeNode
-	pub unsafe fn dealloc (this: MemCell<Self>)
+	// Safety: MemOwner must point to a valid FutexTreeNode
+	pub unsafe fn dealloc (this: MemOwner<Self>)
 	{
 		let ptr = NonNull::new (this.ptr_mut ()).unwrap ().cast ();
 		Global.deallocate (ptr, Self::LAYOUT);
@@ -68,7 +69,7 @@ crate::impl_tree_node! (usize, FutexTreeNode, parent, left, right, addr, bf);
 #[derive(Debug)]
 pub struct ThreadListProcLocal
 {
-	join: LinkedList<TNode>,
+	join: LinkedList<Thread>,
 	futex: AvlTree<usize, FutexTreeNode>,
 }
 
@@ -83,7 +84,7 @@ impl ThreadListProcLocal
 	}
 
 	// returns None if futex addres is not present
-	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<TNode>>
+	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<Thread>>
 	{
 		match state
 		{
@@ -94,7 +95,7 @@ impl ThreadListProcLocal
 		}
 	}
 
-	pub fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<TNode>>
+	pub fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<Thread>>
 	{
 		match state
 		{
@@ -104,7 +105,7 @@ impl ThreadListProcLocal
 		}
 	}
 
-	pub fn ensure_futex_addr (&mut self, addr: usize, node: MemCell<FutexTreeNode>) -> Option<MemCell<FutexTreeNode>>
+	pub fn ensure_futex_addr (&mut self, addr: usize, node: MemOwner<FutexTreeNode>) -> Option<MemOwner<FutexTreeNode>>
 	{
 		match self.futex.insert (addr, node)
 		{
@@ -116,7 +117,7 @@ impl ThreadListProcLocal
 
 impl Index<ThreadState> for ThreadListProcLocal
 {
-	type Output = LinkedList<TNode>;
+	type Output = LinkedList<Thread>;
 
 	fn index (&self, state: ThreadState) -> &Self::Output
 	{
@@ -142,7 +143,7 @@ pub struct Process
 	uid: PrivLevel,
 
 	next_tid: AtomicUsize,
-	threads: Mutex<BTreeMap<usize, Arc<Thread>>>,
+	threads: Mutex<BTreeMap<usize, MemOwner<Thread>>>,
 
 	domains: Futex<DomainMap>,
 
@@ -262,8 +263,16 @@ impl Process
 		&self.domains
 	}
 
+	pub fn get_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
+	{
+		unsafe
+		{
+			self.threads.lock ().get (&tid).map (|memown| memown.clone ())
+		}
+	}
+
 	// returns false if thread with tid is already inserted or tid was not gotten by next tid func
-	pub fn insert_thread (&self, thread: Arc<Thread>) -> bool
+	pub fn insert_thread (&self, thread: MemOwner<Thread>) -> bool
 	{
 		if thread.tid () >= self.next_tid.load (Ordering::Relaxed)
 		{
@@ -284,7 +293,7 @@ impl Process
 	// sets any threads waiting on this thread to ready to run if thread_list is Some
 	// NOTE: acquires the tlproc lock and tlist lock
 	// TODO: make process die after last thread removed
-	pub fn remove_thread (&self, tid: usize) -> Option<Arc<Thread>>
+	pub fn remove_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
 	{
 		let out = self.threads.lock ().remove (&tid)?;
 		let mut thread_list = tlist.lock ();
@@ -297,7 +306,7 @@ impl Process
 
 			if tid == join_tid
 			{
-				TNode::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), Some(&mut list)).unwrap ();
+				Thread::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), Some(&mut list)).unwrap ();
 			}
 		}
 
@@ -308,16 +317,13 @@ impl Process
 
 	// returns tid in ok
 	// locks thread list
-	pub fn new_thread (&self, thread_func: fn() -> (), name: Option<String>) -> Result<usize, Err>
+	pub fn new_thread (&self, thread_func: usize, name: Option<String>) -> Result<usize, Err>
 	{
 		let tid = self.next_tid ();
-		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name, tid)), thread_func as usize)?;
-		let tweak = Arc::downgrade (&thread);
-		if self.insert_thread (thread)
+		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name, tid)), thread_func)?;
+		if self.insert_thread (unsafe { thread.clone () })
 		{
-			let tnode = TNode::new (tweak);
-			tnode.borrow_mut ().set_state (ThreadState::Ready);
-			tlist.lock ()[ThreadState::Ready].push (tnode);
+			tlist.lock ()[ThreadState::Ready].push (thread);
 			Ok(tid)
 		}
 		else
@@ -360,14 +366,55 @@ impl Process
 			match list[ThreadState::FutexBlock(addr)].pop_front ()
 			{
 				Some(tpointer) => {
-					tpointer.borrow ().set_state (state);
-					TNode::insert_into (tpointer, Some(&mut thread_list), Some(&mut list)).unwrap ();
+					tpointer.set_state (state);
+					Thread::insert_into (tpointer, Some(&mut thread_list), Some(&mut list)).unwrap ();
 				},
 				None => return i,
 			}
 		}
 
 		count
+	}
+
+	// returns true if message succesfuly recieved and processed
+	pub fn message (&self, conn: &Connection, args: &MsgArgs) -> Result<(), Err>
+	{
+		let endpoint = conn.get_endpoint (self.pid)?;
+
+		let thread;
+		let mut data;
+		match endpoint.tid ()
+		{
+			Some(tid) => {
+				thread = self.get_thread (tid)?;
+				data = thread.conn_data ();
+				let conn_id = data.conn_id?;
+				if conn_id != conn.id ()
+				{
+					return Err(Err::new ("thread specified in connection does not match threads speified current connection"));
+				}
+			},
+			None => {
+				let dmap = self.domains.lock ();
+				let handler = dmap.get (conn.domain ())?;
+				match handler.options ().blocking_mode
+				{
+					BlockMode::Blocking(tid) => {
+						thread = self.get_thread (tid)?;
+						data = thread.conn_data ();
+					}
+					BlockMode::NonBlocking => {
+						let tid = self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ())))?;
+						thread = self.get_thread (tid)?;
+						data = thread.conn_data ();
+					},
+				}
+			},
+		};
+
+		data.conn_id = Some(conn.id ());
+
+		Ok(())
 	}
 }
 
@@ -395,7 +442,7 @@ impl Drop for Process
 
 			unsafe
 			{
-				tpointer.borrow_mut ().dealloc ();
+				tpointer.dealloc ();
 			}
 		}
 		loop
@@ -413,7 +460,7 @@ impl Drop for Process
 
 			unsafe
 			{
-				tpointer.borrow_mut ().dealloc ();
+				tpointer.dealloc ();
 			}
 		}
 	}

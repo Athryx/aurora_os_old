@@ -12,7 +12,7 @@ use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
-use crate::util::{ListNode, IMutex, IMutexGuard, MemCell, UniqueMut, UniquePtr, AtomicU128};
+use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGaurd, MemOwner, UniqueMut, UniqueRef, UniquePtr, AtomicU128};
 use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
 use super::{Registers, ThreadList, int_sched, tlist};
@@ -196,27 +196,91 @@ impl ThreadState
 }
 
 #[derive(Debug)]
+pub struct ConnData
+{
+	// current connection that is being responded to
+	pub conn_id: Option<usize>,
+	past_state: Vec<(Registers, Stack)>
+}
+
+impl ConnData
+{
+	pub fn new () -> Self
+	{
+		ConnData {
+			conn_id: None,
+			past_state: Vec::new (),
+		}
+	}
+
+	pub fn push_state (&mut self, thread: &Thread)
+	{
+		let regs = *thread.regs.lock ();
+		let mut stack = Stack::user_new (DEFAULT_STACK_SIZE, &thread.process ().unwrap ().addr_space).unwrap ();
+		core::mem::swap (&mut *thread.stack.lock (), &mut stack);
+		self.past_state.push ((regs, stack));
+	}
+
+	pub fn pop_state (&mut self, thread: &Thread)
+	{
+		if let Some((regs, mut stack)) = self.past_state.pop ()
+		{
+			*thread.regs.lock () = regs;
+			core::mem::swap (&mut *thread.stack.lock (), &mut stack);
+			unsafe
+			{
+				stack.dealloc (&thread.process ().unwrap ().addr_space);
+			}
+		}
+	}
+}
+
+// TODO: should probably merge into one type with Thread
+// all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
 pub struct Thread
 {
+	process: Weak<Process>,
 	tid: usize,
 	name: String,
 
-	process: Weak<Process>,
+	// TODO: find a better solution
+	state: AtomicU128,
+	run_time: AtomicU64,
+
 	pub regs: IMutex<Registers>,
-	stack: Stack,
+	stack: Futex<Stack>,
 	kstack: Option<Stack>,
+
+	conn_data: Futex<ConnData>,
+
+	prev: AtomicPtr<Self>,
+	next: AtomicPtr<Self>,
 }
 
 impl Thread
 {
-	pub fn new (process: Weak<Process>, tid: usize, name: String, rip: usize) -> Result<Arc<Self>, Err>
+	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
+
+	fn create (tnode: Self) -> MemOwner<Self>
+	{
+		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ThreadLNode");
+		let ptr = mem.as_ptr () as *mut Self;
+
+		unsafe
+		{
+			ptr::write (ptr, tnode);
+			MemOwner::new (ptr)
+		}
+	}
+
+	pub fn new (process: Weak<Process>, tid: usize, name: String, rip: usize) -> Result<MemOwner<Self>, Err>
 	{
 		Self::new_stack_size (process, tid, name, rip, DEFAULT_STACK_SIZE, DEFAULT_KSTACK_SIZE)
 	}
 
 	// kstack_size only applies for ring 3 processes, for ring 0 stack_size is used as the stack size, but the stack is still a kernel stack
 	// does not put thread inside scheduler queue
-	pub fn new_stack_size (process: Weak<Process>, tid: usize, name: String, rip: usize, stack_size: usize, kstack_size: usize) -> Result<Arc<Self>, Err>
+	pub fn new_stack_size (process: Weak<Process>, tid: usize, name: String, rip: usize, stack_size: usize, kstack_size: usize) -> Result<MemOwner<Self>, Err>
 	{
 		let proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
 		let mapper = &proc.addr_space;
@@ -249,19 +313,24 @@ impl Thread
 		regs.rip = rip;
 		regs.rsp = stack.top () - 8;
 
-		Ok(Arc::new (Thread {
+		Ok(Self::create (Thread {
+			process,
 			tid,
 			name,
-			process,
+			state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			run_time: AtomicU64::new (0),
 			regs: IMutex::new (regs),
-			stack,
+			stack: Futex::new (stack),
 			kstack,
+			conn_data: Futex::new (ConnData::new ()),
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
 		}))
 	}
 
 	// only used for kernel idle thread
 	// uid is assumed kernel
-	pub fn from_stack (process: Weak<Process>, tid: usize, name: String, rip: usize, range: VirtRange) -> Result<Arc<Self>, Err>
+	pub fn from_stack (process: Weak<Process>, tid: usize, name: String, rip: usize, range: VirtRange) -> Result<MemOwner<Self>, Err>
 	{
 		// TODO: this hass to be ensured in smp
 		let _proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
@@ -273,19 +342,35 @@ impl Thread
 		regs.rip = rip;
 		regs.rsp = stack.top () - 8;
 
-		Ok(Arc::new (Thread {
+		Ok(Self::create (Thread {
+			process,
 			tid,
 			name,
-			process,
+			state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			run_time: AtomicU64::new (0),
 			regs: IMutex::new (regs),
-			stack,
+			stack: Futex::new (stack),
 			kstack: None,
+			conn_data: Futex::new (ConnData::new ()),
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
 		}))
 	}
 
-	pub fn process (&self) -> Arc<Process>
+	// for future compatability, when thread could be dead because of other reasons
+	pub fn is_alive (&self) -> bool
 	{
-		self.process.upgrade ().expect ("process should be alive")
+		self.proc_alive ()
+	}
+
+	pub fn proc_alive (&self) -> bool
+	{
+		self.process.strong_count () != 0
+	}
+
+	pub fn process (&self) -> Option<Arc<Process>>
+	{
+		self.process.upgrade ()
 	}
 
 	pub fn tid (&self) -> usize
@@ -296,73 +381,6 @@ impl Thread
 	pub fn name (&self) -> &str
 	{
 		&self.name
-	}
-}
-
-impl Drop for Thread
-{
-	fn drop (&mut self)
-	{
-		let mapper = &self.process ().addr_space;
-		unsafe
-		{
-			self.stack.dealloc (mapper);
-			if let Some(stack) = self.kstack.as_ref ()
-			{
-				stack.dealloc (mapper);
-			}
-		}
-	}
-}
-
-unsafe impl Send for Thread {}
-// This isn't true on its own, but there will be checks in the scheduler
-unsafe impl Sync for Thread {}
-
-// TODO: should probably merge into one type with Thread
-// all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
-pub struct TNode
-{
-	pub thread: Weak<Thread>,
-	// TODO: find a better solution
-	state: AtomicU128,
-	run_time: AtomicU64,
-
-	prev: AtomicPtr<Self>,
-	next: AtomicPtr<Self>,
-}
-
-impl TNode
-{
-	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
-
-	pub fn new (thread: Weak<Thread>) -> MemCell<Self>
-	{
-		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ThreadLNode");
-		let ptr = mem.as_ptr () as *mut Self;
-		let out = TNode {
-			thread,
-			state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
-			run_time: AtomicU64::new (0),
-			prev: AtomicPtr::new (null_mut ()),
-			next: AtomicPtr::new (null_mut ()),
-		};
-
-		unsafe
-		{
-			ptr::write (ptr, out);
-			MemCell::new (ptr)
-		}
-	}
-
-	pub fn is_alive (&self) -> bool
-	{
-		self.thread.strong_count () != 0
-	}
-
-	pub fn thread (&self) -> Option<Arc<Thread>>
-	{
-		self.thread.upgrade ()
 	}
 
 	pub fn state (&self) -> ThreadState
@@ -375,8 +393,13 @@ impl TNode
 		self.state.store (state.as_u128 ())
 	}
 
+	pub fn conn_data (&self) -> FutexGaurd<ConnData>
+	{
+		self.conn_data.lock ()
+	}
+
 	// returns false if failed to remove
-	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemCell<TNode>, T>
+	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemOwner<Thread>, T>
 		where T: UniquePtr<Self> + 'a
 	{
 		let state = ptr.state ();
@@ -388,7 +411,7 @@ impl TNode
 				None => Err(ptr),
 			}
 		}
-		else if ptr.is_alive ()
+		else if ptr.proc_alive ()
 		{
 			match proctlist
 			{
@@ -404,9 +427,9 @@ impl TNode
 
 	// returns None if failed to insert into list
 	// inserts into current state list
-	pub fn insert_into<'a> (cell: MemCell<Self>, gtlist: Option<&'a mut ThreadList>, proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, TNode>, MemCell<TNode>>
+	pub fn insert_into<'a> (cell: MemOwner<Self>, gtlist: Option<&'a mut ThreadList>, proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, Thread>, MemOwner<Thread>>
 	{
-		let state = cell.borrow ().state ();
+		let state = cell.state ();
 		if !state.is_proc_local ()
 		{
 			match gtlist
@@ -415,7 +438,7 @@ impl TNode
 				None => Err(cell),
 			}
 		}
-		else if cell.borrow ().is_alive ()
+		else if cell.proc_alive ()
 		{
 			match proctlist
 			{
@@ -432,14 +455,14 @@ impl TNode
 	// moves ThreadLNode from old thread state data structure to specified new thread state data structure and return true
 	// will set state variable accordingly
 	// if the thread has already been destroyed via process exiting, this will return false
-	pub fn move_to<'a, 'b, T> (ptr: T, state: ThreadState, mut gtlist: Option<&'a mut ThreadList>, mut proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, TNode>, T>
+	pub fn move_to<'a, 'b, T> (ptr: T, state: ThreadState, mut gtlist: Option<&'a mut ThreadList>, mut proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, Thread>, T>
 		where T: UniquePtr<Self> + Clone + 'b
 	{
 		let ptr2 = ptr.clone ();
 		match Self::remove_from_current (ptr, gtlist.as_deref_mut (), proctlist.as_deref_mut ())
 		{
 			Ok(cell) => {
-				cell.borrow_mut ().set_state (state);
+				cell.set_state (state);
 				// TODO: figure out if we need to handle None case of this specially
 				Self::insert_into (cell, gtlist, proctlist)
 					.map_err (|_| ptr2)
@@ -456,9 +479,9 @@ impl TNode
 			ThreadState::Running => return,
 			ThreadState::FutexBlock(addr) => {
 				// if the thread is not alive because process died, thread will eventually be destroyed in int_sched called bellow
-				if let Some(thread) = self.thread ()
+				if let Some(process) = self.process ()
 				{
-					thread.process ().ensure_futex_addr (addr);
+					process.ensure_futex_addr (addr);
 				}
 			}
 			_ => (),
@@ -493,40 +516,59 @@ impl TNode
 	// will also put threas that are waiting on this thread in ready queue,
 	// but only if process is still alive and thread_list is not None
 	// NOTE: don't call with any IMutexs locked
-	pub unsafe fn dealloc (&mut self)
+	// TODO: make safer
+	// safety: must call with no other references pointing to self existing
+	pub unsafe fn dealloc (&self)
 	{
 		// FIXME: smp reace condition if process is freed after initial thread () call
-		if let Some(thread) = self.thread ()
+		if let Some(process) = self.process ()
 		{
-			thread.process ().remove_thread (thread.tid).expect ("thread should have been in process");
+			process.remove_thread (self.tid).expect ("thread should have been in process");
 		}
 
-		let Self {
-			thread,
-			state: _,
-			run_time: _,
-			prev: _,
-			next: _,
-		} = self;
-
-		ptr::drop_in_place (thread as *mut Weak<Thread>);
-		let ptr = NonNull::new (self as *mut Self).unwrap ().cast ();
+		ptr::drop_in_place (self as *const Self as *mut Self);
+		let ptr = NonNull::new (self as *const Self as *mut Self).unwrap ().cast ();
 		Global.deallocate (ptr, Self::LAYOUT);
 	}
 }
 
-impl fmt::Debug for TNode
+impl Drop for Thread
+{
+	fn drop (&mut self)
+	{
+		if let Some(process) = self.process ()
+		{
+			let mapper = &process.addr_space;
+			unsafe
+			{
+				self.stack.lock ().dealloc (mapper);
+				if let Some(stack) = self.kstack.as_ref ()
+				{
+					stack.dealloc (mapper);
+				}
+			}
+		}
+	}
+}
+
+impl fmt::Debug for Thread
 {
 	fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result
 	{
-		f.debug_struct ("TNode")
-			.field ("thread", &self.thread ())
+		f.debug_struct ("Thread")
+			.field ("process", &self.process ())
+			.field ("tid", &self.tid)
+			.field ("name", &self.name)
 			.field ("state", &self.state)
 			.field ("run_time", &self.run_time)
+			.field ("regs", &self.regs)
+			.field ("stack", &self.stack)
+			.field ("kstack", &self.kstack)
+			.field ("conn_data", &self.conn_data)
 			.field ("prev", &self.prev)
 			.field ("next", &self.next)
 			.finish ()
 	}
 }
 
-crate::impl_list_node! (TNode, prev, next);
+crate::impl_list_node! (Thread, prev, next);

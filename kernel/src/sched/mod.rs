@@ -13,7 +13,7 @@ use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
 pub use process::Process;
-pub use thread::{Thread, TNode, ThreadState};
+pub use thread::{Thread, ThreadState};
 pub use domain::*;
 
 // TODO: clean up code, it is kind of ugly
@@ -70,7 +70,7 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 		let sleep_nsec = tpointer.state ().sleep_nsec ().unwrap ();
 		if nsec >= sleep_nsec
 		{
-			TNode::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+			Thread::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
 		}
 	}
 
@@ -120,15 +120,15 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 {
 	let mut thread_list = tlist.lock ();
 
-	let tcell = loop
+	let tpointer = loop
 	{
 		match thread_list[ThreadState::Ready].pop_front ()
 		{
 			Some(t) => {
-				if !t.borrow ().is_alive ()
+				if !t.is_alive ()
 				{
-					t.borrow_mut ().set_state (ThreadState::Destroy);
-					TNode::insert_into (t, Some(&mut thread_list), None).unwrap ();
+					t.set_state (ThreadState::Destroy);
+					Thread::insert_into (t, Some(&mut thread_list), None).unwrap ();
 				}
 				else
 				{
@@ -138,43 +138,48 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 			None => return None,
 		}
 	};
-	let tpointer = tcell.borrow_mut ();
 
-	let old_thread_cell = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
-	let old_thread = old_thread_cell.borrow_mut ();
+	let old_thread = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
 
 	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::SeqCst);
-	rprintln!("nsec last: {}\nnsec current: {}", nsec_last, nsec_current);
-	old_thread.inc_time (nsec_current - nsec_last);
+	rprintln! ("nsec last: {}\nnsec current: {}", nsec_last, nsec_current);
+	if nsec_current >= nsec_last
+	{
+		old_thread.inc_time (nsec_current - nsec_last);
+	}
+	else
+	{
+		rprintln! ("WARNING: pit returned time value less than previous time value");
+	}
 
 	// FIXME: smp race condition
-	let old_process = old_thread.thread ().unwrap ().process ();
+	let old_process = old_thread.process ().unwrap ();
 	let mut tlproc_list = old_process.tlproc.lock ();
 
 	if let ThreadState::Running = old_thread.state ()
 	{
 		old_thread.set_state (ThreadState::Ready);
 	}
-	drop (old_thread);
+
 	// if process was dropped, move to destroy list
-	let old_is_alive = match TNode::insert_into (old_thread_cell, Some(&mut thread_list), Some(&mut tlproc_list))
+	let old_is_alive = match Thread::insert_into (old_thread, Some(&mut thread_list), Some(&mut tlproc_list))
 	{
 		Ok(_) => true,
 		Err(tcell) => {
-			tcell.borrow_mut ().set_state (ThreadState::Destroy);
-			TNode::insert_into (tcell, Some(&mut thread_list), None).unwrap ();
+			tcell.set_state (ThreadState::Destroy);
+			Thread::insert_into (tcell, Some(&mut thread_list), None).unwrap ();
 			false
 		}
 	};
 
 	// TODO: add premptive multithreading here
 	tpointer.set_state (ThreadState::Running);
-	drop (tpointer);
-	let tpointer = TNode::insert_into (tcell, Some(&mut thread_list), None).expect ("could not set running thread");
+	let tpointer = Thread::insert_into (tpointer, Some(&mut thread_list), None).expect ("could not set running thread");
 
 	rprintln! ("switching to:\n{:#x?}", *tpointer);
 
-	let new_process = tpointer.thread ().unwrap ().process ();
+	// FIXME: smp race condition
+	let new_process = tpointer.process ().unwrap ();
 
 	if !old_is_alive || old_process.pid () != new_process.pid ()
 	{
@@ -185,7 +190,7 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	{
 		// FIXME: ugly
 		// safe to do if the scheduler is locked until returning from interrupt handler, since the thread can't be freed
-		out_regs = *tpointer.thread ().unwrap ().regs.lock ();
+		out_regs = *tpointer.regs.lock ();
 		Some(&out_regs)
 	}
 }
@@ -229,7 +234,7 @@ fn thread_cleaner ()
 
 			unsafe
 			{
-				tcell.borrow_mut ().dealloc ();
+				tcell.dealloc ();
 			}
 		}
 		rprintln! ("end thread_cleaner loop");
@@ -238,7 +243,7 @@ fn thread_cleaner ()
 }
 
 #[derive(Debug)]
-pub struct ThreadList([LinkedList<TNode>; 4]);
+pub struct ThreadList([LinkedList<Thread>; 4]);
 
 impl ThreadList
 {
@@ -252,7 +257,7 @@ impl ThreadList
 		])
 	}
 
-	fn get (&self, state: ThreadState) -> Option<&LinkedList<TNode>>
+	fn get (&self, state: ThreadState) -> Option<&LinkedList<Thread>>
 	{
 		match state
 		{
@@ -264,7 +269,7 @@ impl ThreadList
 		}
 	}
 
-	fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<TNode>>
+	fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<Thread>>
 	{
 		match state
 		{
@@ -279,7 +284,7 @@ impl ThreadList
 
 impl Index<ThreadState> for ThreadList
 {
-	type Output = LinkedList<TNode>;
+	type Output = LinkedList<Thread>;
 
 	fn index (&self, state: ThreadState) -> &Self::Output
 	{
@@ -355,7 +360,7 @@ impl Registers
 	}
 }
 
-pub fn thread_c<'a> () -> UniqueRef<'a, TNode>
+pub fn thread_c<'a> () -> UniqueRef<'a, Thread>
 {
 	// This is (sort of) safe to do (only not in timer interrupt) because thread that called it is guarenteed
 	// to have state restored back to same as before if it is interrupted
@@ -365,16 +370,11 @@ pub fn thread_c<'a> () -> UniqueRef<'a, TNode>
 	}
 }
 
-// FIXME: potential smp race condition if process is dropped
-pub fn thread_res_c () -> Arc<Thread>
-{
-	tlist.lock ()[ThreadState::Running].g (0).thread ().unwrap ()
-}
-
 // FIXME: this locks too many locks, potential smp race condition
 pub fn proc_c () -> Arc<Process>
 {
-	thread_res_c ().process ()
+	// panic safety: if this thrad is running, the process exists
+	thread_c ().process ().unwrap ()
 }
 
 pub fn init () -> Result<(), Err>
@@ -387,13 +387,12 @@ pub fn init () -> Result<(), Err>
 
 	let kernel_proc = Process::new (PrivLevel::Kernel, "kernel".to_string ());
 
-	kernel_proc.new_thread (thread_cleaner, Some("thread_cleaner".to_string ()))?;
+	kernel_proc.new_thread (thread_cleaner as usize, Some("thread_cleaner".to_string ()))?;
 
 	// rip will be set on first context switch
 	let idle_thread = Thread::from_stack (Arc::downgrade (&kernel_proc), kernel_proc.next_tid (), "idle_thread".to_string (), 0, *INIT_STACK)?;
-	let tpointer = TNode::new (Arc::downgrade (&idle_thread));
-	tpointer.borrow_mut ().set_state (ThreadState::Running);
-	tlist.lock ()[ThreadState::Running].push (tpointer);
+	idle_thread.set_state (ThreadState::Running);
+	tlist.lock ()[ThreadState::Running].push (unsafe { idle_thread.clone () });
 
 	kernel_proc.insert_thread (idle_thread);
 	proc_list.lock ().insert (kernel_proc.pid (), kernel_proc);

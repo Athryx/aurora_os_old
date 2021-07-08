@@ -1,8 +1,9 @@
 //use core::ops::{Index, IndexMut};
 use core::fmt::{self, Formatter, Debug};
 use core::sync::atomic::AtomicPtr;
+use core::cell::Cell;
 use crate::uses::*;
-use crate::util::{MemCell, UniqueRef, UniqueMut, UniquePtr};
+use crate::util::{MemOwner, UniqueRef, UniqueMut, UniquePtr};
 
 // Safety:
 // next_ptr must return pointer value previously set by set_next, same for preve_ptr and set_prev
@@ -99,34 +100,34 @@ pub struct Node
 {
 	next: AtomicPtr<Node>,
 	prev: AtomicPtr<Node>,
-	pub size: usize,
+	size: Cell<usize>,
 }
 
 impl Node
 {
-	pub unsafe fn new (addr: usize, size: usize) -> MemCell<Self>
+	pub unsafe fn new (addr: usize, size: usize) -> MemOwner<Self>
 	{
 		let ptr = addr as *mut Node;
 
 		let out = Node {
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
-			size,
+			size: Cell::new (size),
 		};
 		ptr.write (out);
 
-		MemCell::new (ptr)
+		MemOwner::new (ptr)
 	}
 
-	/*pub fn size (&self) -> usize
+	pub fn size (&self) -> usize
 	{
-		self.size
+		self.size.get ()
 	}
 
-	pub fn set_size (&mut self, size: usize)
+	pub fn set_size (&self, size: usize)
 	{
-		self.size = size;
-	}*/
+		self.size.set (size);
+	}
 }
 
 impl_list_node! (Node, prev, next);
@@ -157,12 +158,11 @@ impl<T: ListNode> LinkedList<T>
 	}
 
 	// NOTE: first node prev and last store null
-	pub fn push (&mut self, cell: MemCell<T>) -> UniqueMut<T>
+	pub fn push (&mut self, val: MemOwner<T>) -> UniqueMut<T>
 	{
-		let val = cell.borrow ();
 		if self.len == 0
 		{
-			self.start = cell.ptr ();
+			self.start = val.ptr ();
 			val.set_prev (null_mut ());
 			val.set_next (null_mut ());
 		}
@@ -170,21 +170,21 @@ impl<T: ListNode> LinkedList<T>
 		{
 			unsafe
 			{
-				self.end.as_ref ().unwrap ().set_next (cell.ptr ());
+				self.end.as_ref ().unwrap ().set_next (val.ptr ());
 			}
 			val.set_prev (self.end);
 			val.set_next (null_mut ());
 		}
-		self.end = cell.ptr ();
+		self.end = val.ptr ();
 		self.len += 1;
 
 		unsafe
 		{
-			UniqueMut::from_ptr (cell.ptr_mut ())
+			UniqueMut::from_ptr (val.ptr_mut ())
 		}
 	}
 
-	pub fn pop (&mut self) -> Option<MemCell<T>>
+	pub fn pop (&mut self) -> Option<MemOwner<T>>
 	{
 		if self.len == 0
 		{
@@ -194,7 +194,7 @@ impl<T: ListNode> LinkedList<T>
 		let out;
 		unsafe
 		{
-			out = MemCell::new (self.end as *mut _);
+			out = MemOwner::new (self.end as *mut _);
 			let out_ref = self.end.as_ref ().unwrap ();
 			if self.len > 1
 			{
@@ -207,12 +207,11 @@ impl<T: ListNode> LinkedList<T>
 		Some(out)
 	}
 
-	pub fn push_front (&mut self, cell: MemCell<T>) -> UniqueMut<T>
+	pub fn push_front (&mut self, val: MemOwner<T>) -> UniqueMut<T>
 	{
-		let val = cell.borrow ();
 		if self.len == 0
 		{
-			self.end = cell.ptr ();
+			self.end = val.ptr ();
 			val.set_prev (null_mut ());
 			val.set_next (null_mut ());
 		}
@@ -220,21 +219,21 @@ impl<T: ListNode> LinkedList<T>
 		{
 			unsafe
 			{
-				self.start.as_ref ().unwrap ().set_prev (cell.ptr ());
+				self.start.as_ref ().unwrap ().set_prev (val.ptr ());
 			}
 			val.set_next (self.start);
 			val.set_prev (null_mut ());
 		}
-		self.start = cell.ptr ();
+		self.start = val.ptr ();
 		self.len += 1;
 
 		unsafe
 		{
-			UniqueMut::from_ptr (cell.ptr_mut ())
+			UniqueMut::from_ptr (val.ptr_mut ())
 		}
 	}
 
-	pub fn pop_front (&mut self) -> Option<MemCell<T>>
+	pub fn pop_front (&mut self) -> Option<MemOwner<T>>
 	{
 		if self.len == 0
 		{
@@ -244,7 +243,7 @@ impl<T: ListNode> LinkedList<T>
 		let out;
 		unsafe
 		{
-			out = MemCell::new (self.start as *mut _);
+			out = MemOwner::new (self.start as *mut _);
 			let out_ref = self.start.as_ref ().unwrap ();
 			if self.len > 1
 			{
@@ -257,7 +256,7 @@ impl<T: ListNode> LinkedList<T>
 		Some(out)
 	}
 
-	pub fn insert (&mut self, index: usize, cell: MemCell<T>) -> Option<UniqueMut<T>>
+	pub fn insert (&mut self, index: usize, val: MemOwner<T>) -> Option<UniqueMut<T>>
 	{
 		if index > self.len
 		{
@@ -266,20 +265,20 @@ impl<T: ListNode> LinkedList<T>
 
 		if index == 0
 		{
-			return Some(self.push_front (cell));
+			return Some(self.push_front (val));
 		}
 
 		if index == self.len
 		{
-			return Some(self.push (cell));
+			return Some(self.push (val));
 		}
 
 		let node = unsafe { UniqueRef::new (self.get_node (index)) };
 
-		Some(self.insert_before (cell, node))
+		Some(self.insert_before (val, node))
 	}
 
-	pub fn remove (&mut self, index: usize) -> Option<MemCell<T>>
+	pub fn remove (&mut self, index: usize) -> Option<MemOwner<T>>
 	{
 		if index >= self.len
 		{
@@ -301,13 +300,12 @@ impl<T: ListNode> LinkedList<T>
 		Some(self.remove_node (node))
 	}
 
-	pub fn insert_before (&mut self, cell: MemCell<T>, node: impl UniquePtr<T>) -> UniqueMut<T>
+	pub fn insert_before (&mut self, new_node: MemOwner<T>, node: impl UniquePtr<T>) -> UniqueMut<T>
 	{
 		assert! (self.len != 0);
 		self.len += 1;
 
-		let new_ptr = cell.ptr ();
-		let new_node = cell.borrow ();
+		let new_ptr = new_node.ptr ();
 
 		if let Some(prev_node) = unsafe { node.prev_ptr ().as_ref () }
 		{
@@ -325,17 +323,16 @@ impl<T: ListNode> LinkedList<T>
 
 		unsafe
 		{
-			UniqueMut::from_ptr (cell.ptr_mut ())
+			UniqueMut::from_ptr (new_node.ptr_mut ())
 		}
 	}
 
-	pub fn insert_after (&mut self, cell: MemCell<T>, node: impl UniquePtr<T>) -> UniqueMut<T>
+	pub fn insert_after (&mut self, new_node: MemOwner<T>, node: impl UniquePtr<T>) -> UniqueMut<T>
 	{
 		assert! (self.len != 0);
 		self.len += 1;
 
-		let new_ptr = cell.ptr ();
-		let new_node = cell.borrow ();
+		let new_ptr = new_node.ptr ();
 
 		if let Some(next_node) = unsafe { node.next_ptr ().as_ref () }
 		{
@@ -353,12 +350,12 @@ impl<T: ListNode> LinkedList<T>
 
 		unsafe
 		{
-			UniqueMut::from_ptr (cell.ptr_mut ())
+			UniqueMut::from_ptr (new_node.ptr_mut ())
 		}
 	}
 
 	// must pass in node that is in this list
-	pub fn remove_node (&mut self, node: impl UniquePtr<T>) -> MemCell<T>
+	pub fn remove_node (&mut self, node: impl UniquePtr<T>) -> MemOwner<T>
 	{
 		let prev = node.prev_ptr ();
 		let next = node.next_ptr ();
@@ -383,13 +380,15 @@ impl<T: ListNode> LinkedList<T>
 
 		self.len -= 1;
 
-		MemCell::new (node.ptr () as *mut T)
+		unsafe
+		{
+			MemOwner::new (node.ptr () as *mut T)
+		}
 	}
 
-	pub fn update_node (&mut self, old: impl UniquePtr<T>, new: MemCell<T>)
+	pub fn update_node (&mut self, old: impl UniquePtr<T>, new: MemOwner<T>)
 	{
 		let new_ptr = new.ptr ();
-		let new = new.borrow ();
 
 		if let Some(prev_node) = unsafe { old.prev_ptr ().as_ref () }
 		{

@@ -26,7 +26,11 @@ mod futex;
 pub use futex::{Futex, FutexGaurd, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
 
 pub mod cell;
-pub use cell::{MemCell, UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
+//pub use cell::{MemCell, UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
+pub use cell::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
+
+mod mem;
+pub use mem::MemOwner;
 
 mod atomic;
 pub use atomic::AtomicU128;

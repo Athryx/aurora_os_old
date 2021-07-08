@@ -8,7 +8,7 @@ pub extern "C" fn thread_new (vals: &mut SyscallVals)
 {
 	let rip = vals.a1;
 
-	match proc_c ().new_thread (unsafe { core::mem::transmute (rip) }, None)
+	match proc_c ().new_thread (rip, None)
 	{
 		Ok(tid) => {
 			sysret! (vals, tid, 0);
@@ -75,7 +75,7 @@ pub extern "C" fn reg (vals: &mut SyscallVals)
 
 	if options.contains (RegOptions::BLOCK)
 	{
-		handler_options.blocking_mode = BlockMode::Blocking(thread_res_c ().tid ());
+		handler_options.blocking_mode = BlockMode::Blocking(thread_c ().tid ());
 	}
 
 	let handler = DomainHandler::new (rip, handler_options);

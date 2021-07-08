@@ -19,6 +19,16 @@ impl DomainHandler
 			options,
 		}
 	}
+
+	pub fn rip (&self) -> usize
+	{
+		self.rip
+	}
+
+	pub fn options (&self) -> &HandlerOptions
+	{
+		&self.options
+	}
 }
 
 #[derive(Debug, Clone, Copy)]

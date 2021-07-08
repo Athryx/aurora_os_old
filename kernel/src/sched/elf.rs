@@ -74,12 +74,9 @@ impl<'a> ElfParser<'a>
 		out
 	}
 
-	pub fn entry_point (&self) -> fn() -> ()
+	pub fn entry_point (&self) -> usize
 	{
-		unsafe
-		{
-			core::mem::transmute (self.elf_header.entry)
-		}
+		self.elf_header.entry
 	}
 
 	fn extract_slice<T> (data: &[u8], index: usize, len: usize) -> Option<&[T]>

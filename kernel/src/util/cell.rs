@@ -5,7 +5,7 @@ use core::borrow::{Borrow, BorrowMut};
 use core::convert::{AsRef, AsMut};
 use core::marker::PhantomData;
 
-#[derive(Debug, Clone, Copy)]
+/*#[derive(Debug, Clone, Copy)]
 pub struct BorrowError;
 
 #[derive(Debug)]
@@ -162,7 +162,7 @@ impl<T: ?Sized> Drop for Writer<'_, T>
 	{
 		self.cell.rw.store (0, Ordering::SeqCst);
 	}
-}
+}*/
 
 pub trait UniquePtr<T: ?Sized>: Deref<Target = T>
 {

@@ -1,6 +1,6 @@
 use crate::uses::*;
 use core::fmt::{self, Formatter, Display};
-use crate::util::{MemCell, UniqueRef, UniqueMut};
+use crate::util::{MemOwner, UniqueRef, UniqueMut};
 
 pub enum ParentType<'a, T>
 {
@@ -23,7 +23,7 @@ pub unsafe trait TreeNode: Sized
 	fn set_right (&self, right: *const Self);
 
 	fn key (&self) -> &Self::Key;
-	fn set_key (&mut self, key: Self::Key);
+	fn set_key (&self, key: Self::Key);
 
 	fn balance (&self) -> i8;
 	fn set_balance (&self, balance: i8);
@@ -330,12 +330,15 @@ macro_rules! impl_tree_node
 
 			fn key (&self) -> &Self::Key
 			{
-				&self.$key
+				unsafe
+				{
+					self.$key.as_ptr ().as_ref ().unwrap ()
+				}
 			}
 
-			fn set_key (&mut self, key: Self::Key)
+			fn set_key (&self, key: Self::Key)
 			{
-				self.$key = key;
+				self.$key.set (key);
 			}
 
 			fn balance (&self) -> i8
@@ -393,10 +396,8 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 	}
 
 	// tries to insert value into the tree, if it is already occupied, it returns error with value
-	pub fn insert (&mut self, key: K, value: MemCell<V>) -> Result<UniqueMut<V>, MemCell<V>>
+	pub fn insert (&mut self, key: K, v: MemOwner<V>) -> Result<UniqueMut<V>, MemOwner<V>>
 	{
-		let mut v = value.borrow_mut ();
-
 		v.set_left (null_mut ());
 		v.set_right (null_mut ());
 		v.set_balance (0);
@@ -404,8 +405,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 		match self.search (&key)
 		{
 			SearchResult::Present(_) => {
-				drop (v);
-				return Err(value);
+				return Err(v);
 			},
 			SearchResult::LeftOf(ptr) => {
 				let node = unsafe { ptr.as_mut ().unwrap () };
@@ -430,20 +430,19 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 
 				v.set_key (key);
 
-				self.root = value.ptr ();
+				self.root = v.ptr ();
 			},
 		};
 
 		self.len += 1;
 
-		drop (v);
 		unsafe
 		{
-			Ok(UniqueMut::from_ptr (value.ptr_mut ()))
+			Ok(UniqueMut::from_ptr (v.ptr_mut ()))
 		}
 	}
 
-	pub fn remove (&mut self, key: &K) -> Option<MemCell<V>>
+	pub fn remove (&mut self, key: &K) -> Option<MemOwner<V>>
 	{
 		match self.search (key)
 		{
@@ -475,7 +474,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 		}
 	}
 
-	fn remove_edge_node (&mut self, node: &V) -> Option<MemCell<V>>
+	fn remove_edge_node (&mut self, node: &V) -> Option<MemOwner<V>>
 	{
 		// works if both are null
 		let child = if node.right ().is_null ()
@@ -515,7 +514,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 			},
 		}
 
-		Some(MemCell::new (node.as_ptr ()))
+		Some(unsafe { MemOwner::new (node.as_ptr ()) })
 	}
 
 	pub fn get (&self, key: &K) -> Option<UniqueRef<V>>
