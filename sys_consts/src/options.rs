@@ -29,6 +29,7 @@ bitflags!
 	{
 		const PID = 1;
 		const BLOCK = 1 << 1;
+		const REPLY = 1 << 2;
 		const SMEM1 = 1 << 4;
 		const SMEM2 = 1 << 5;
 		const SMEM3 = 1 << 6;

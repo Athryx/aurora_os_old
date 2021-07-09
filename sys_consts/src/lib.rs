@@ -69,6 +69,60 @@ impl From<NoneError> for SysErr
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum MsgErr
+{
+	Recieve = 0,
+	NonBlockOk = 1,
+	BlockOkResp = 2,
+	BlockOkRet = 3,
+	BlockOkTerm = 4,
+	InvlId = 5,
+	InvlPriv = 6,
+	InvlReply = 7,
+	Unknown = 8,
+}
+
+impl MsgErr
+{
+	pub fn new (n: u8) -> Option<Self>
+	{
+		if n > Self::Unknown as u8
+		{
+			None
+		}
+		else
+		{
+			unsafe
+			{
+				Some(core::mem::transmute (n))
+			}
+		}
+	}
+
+	pub fn num (&self) -> u8
+	{
+		*self as u8
+	}
+
+	pub fn as_str (&self) -> &'static str
+	{
+		match self
+		{
+			Self::Recieve => "message recieved",
+			Self::NonBlockOk => "non blocking message succesfully sent",
+			Self::BlockOkResp => "blocking message sent, and a response was recieved",
+			Self::BlockOkRet => "blocking message sent, and the recipipient called msg_return",
+			Self::BlockOkTerm => "blocking message sent, and the recipipient thread terminated",
+			Self::InvlId => "no process with specified pid or eid exists",
+			Self::InvlPriv => "insufficent priveledges to send a message to the specified process and domain",
+			Self::InvlReply => "thread tried to reply but it did not have an open connection",
+			Self::Unknown => "unknown error",
+		}
+	}
+}
+
 pub mod thread
 {
 	pub const YIELD: usize = 0;

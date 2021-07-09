@@ -11,11 +11,11 @@ use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef};
-use super::{ThreadList, tlist, proc_list};
+use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
 use super::domain::{DomainMap, BlockMode};
-use super::connection::{MsgArgs, Connection};
+use super::connection::{MsgArgs, Connection, Endpoint};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
@@ -376,8 +376,27 @@ impl Process
 		count
 	}
 
+	pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), Err>
+	{
+		let dmap = self.domains.lock ();
+		let handler = dmap.get (conn.domain ())?;
+		let tid = match handler.options ().blocking_mode
+		{
+			BlockMode::Blocking(tid) => {
+				// check if thread with tid exists
+				let _ = self.get_thread (tid)?;
+				tid
+			},
+			BlockMode::NonBlocking => {
+				self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ())))?
+			},
+		};
+		conn.insert_endpoint (Endpoint::new (self.pid, tid));
+		Ok(())
+	}
+
 	// returns true if message succesfuly recieved and processed
-	pub fn message (&self, conn: &Connection, args: &MsgArgs) -> Result<(), Err>
+	/*pub fn message (&self, conn: &Connection, args: &MsgArgs) -> Result<(), Err>
 	{
 		let endpoint = conn.get_endpoint (self.pid)?;
 
@@ -413,8 +432,50 @@ impl Process
 		};
 
 		data.conn_id = Some(conn.id ());
+		*thread.regs.lock () = Registers::from_msg_args (self.uid, args);
+		// syscall system cannot set arbritary registers when returning, so we need to use interrupt returning mechanism
+		if thread.tid () == thread_c ().tid ()
+		{
+			int_sched ();
+		}
 
 		Ok(())
+	}*/
+
+	// returns true if message sent to thread
+	pub fn recieve_message (&self, connection: &Connection, endpoint: &Endpoint, args: &MsgArgs) -> bool
+	{
+		match self.get_thread (endpoint.tid ())
+		{
+			Some(thread) => {
+				let mut data = thread.conn_data ();
+				let new_regs = Registers::from_msg_args (self.uid, connection.domain (), args);
+
+				if data.conn_id.is_none () || data.conn_id.unwrap () != connection.id ()
+				{
+					let new_stack = match Stack::user_new (Stack::DEFAULT_SIZE, &self.addr_space)
+					{
+						Ok(stack) => stack,
+						Err(_) => return false,
+					};
+					let new_state = ConnSaveState::new (new_regs, new_stack, Some(connection.id ()));
+					thread.push_conn_state (&mut data, new_state);
+				}
+				else
+				{
+					*thread.regs.lock () = new_regs;
+				}
+
+				// syscall system cannot set arbritary registers when returning, so we need to use interrupt returning mechanism
+				if thread.tid () == thread_c ().tid ()
+				{
+					int_sched ();
+				}
+	
+				true
+			},
+			None => false,
+		}
 	}
 }
 
@@ -422,6 +483,7 @@ impl Drop for Process
 {
 	fn drop (&mut self)
 	{
+		// TODO: drop FutexTreeNodes
 		// Need to drop all the threads first, because they asssume process is always alive if they are alive
 		// TODO: make this faster
 		let mut threads = self.threads.lock ();

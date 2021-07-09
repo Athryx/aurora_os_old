@@ -1,6 +1,6 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, msg};
+use crate::sched::sys::{thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, msg, msg_return};
 use crate::mem::sys::realloc;
 
 pub use sys_consts::SysErr;
@@ -36,7 +36,7 @@ static syscalls: [SyscallFunc; 23] = [
 	sys_hi,
 	reg,
 	msg,
-	sys_hi,
+	msg_return,
 ];
 
 // TODO: figure out if packed is needed

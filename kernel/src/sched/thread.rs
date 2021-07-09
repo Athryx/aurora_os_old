@@ -17,19 +17,9 @@ use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
 use super::{Registers, ThreadList, int_sched, tlist};
 
-const USER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
-// FIXME: temporarily setting IOPL to 3 for testing
-const IOPRIV_REGS: Registers = Registers::new (0x3202, 0x23, 0x1b);
-//const IOPRIV_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
-const SUPERUSER_REGS: Registers = Registers::new (0x202, 0x23, 0x1b);
-const KERNEL_REGS: Registers = Registers::new (0x202, 0x08, 0x10);
-
-const DEFAULT_STACK_SIZE: usize = PAGE_SIZE * 32;
-const DEFAULT_KSTACK_SIZE: usize = PAGE_SIZE * 16;
-
 // TODO: implement support for growing stack
 #[derive(Debug)]
-enum Stack
+pub enum Stack
 {
 	User(VirtRange),
 	Kernel(Allocation),
@@ -38,8 +28,10 @@ enum Stack
 
 impl Stack
 {
+	pub const DEFAULT_SIZE: usize = PAGE_SIZE * 32;
+	pub const DEFAULT_KERNEL_SIZE: usize = PAGE_SIZE * 16;
 	// size in bytes
-	fn user_new (size: usize, mapper: &VirtMapper<FAllocerType>) -> Result<Self, Err>
+	pub fn user_new (size: usize, mapper: &VirtMapper<FAllocerType>) -> Result<Self, Err>
 	{
 		let elem_vec = vec![
 			VirtLayoutElement::new (PAGE_SIZE, PageMappingFlags::NONE)?,
@@ -54,19 +46,19 @@ impl Stack
 	}
 
 	// TODO: put guard page in this one
-	fn kernel_new (size: usize) -> Result<Self, Err>
+	pub fn kernel_new (size: usize) -> Result<Self, Err>
 	{
 		let allocation = zm.alloc (size)?;
 
 		Ok(Self::Kernel(allocation))
 	}
 
-	fn no_alloc_new (range: VirtRange) -> Self
+	pub fn no_alloc_new (range: VirtRange) -> Self
 	{
 		Self::KernelNoAlloc(range)
 	}
 
-	unsafe fn dealloc (&self, mapper: &VirtMapper<FAllocerType>)
+	pub unsafe fn dealloc (&self, mapper: &VirtMapper<FAllocerType>)
 	{
 		match self
 		{
@@ -76,7 +68,7 @@ impl Stack
 		}
 	}
 
-	fn bottom (&self) -> usize
+	pub fn bottom (&self) -> usize
 	{
 		match self
 		{
@@ -86,12 +78,12 @@ impl Stack
 		}
 	}
 
-	fn top (&self) -> usize
+	pub fn top (&self) -> usize
 	{
 		self.bottom () + self.size ()
 	}
 
-	fn size (&self) -> usize
+	pub fn size (&self) -> usize
 	{
 		match self
 		{
@@ -196,11 +188,31 @@ impl ThreadState
 }
 
 #[derive(Debug)]
+pub struct ConnSaveState
+{
+	regs: Registers,
+	stack: Stack,
+	conn_id: Option<usize>,
+}
+
+impl ConnSaveState
+{
+	pub fn new (regs: Registers, stack: Stack, conn_id: Option<usize>) -> Self
+	{
+		ConnSaveState {
+			regs,
+			stack,
+			conn_id,
+		}
+	}
+}
+
+#[derive(Debug)]
 pub struct ConnData
 {
 	// current connection that is being responded to
 	pub conn_id: Option<usize>,
-	past_state: Vec<(Registers, Stack)>
+	past_state: Vec<ConnSaveState>
 }
 
 impl ConnData
@@ -210,27 +222,6 @@ impl ConnData
 		ConnData {
 			conn_id: None,
 			past_state: Vec::new (),
-		}
-	}
-
-	pub fn push_state (&mut self, thread: &Thread)
-	{
-		let regs = *thread.regs.lock ();
-		let mut stack = Stack::user_new (DEFAULT_STACK_SIZE, &thread.process ().unwrap ().addr_space).unwrap ();
-		core::mem::swap (&mut *thread.stack.lock (), &mut stack);
-		self.past_state.push ((regs, stack));
-	}
-
-	pub fn pop_state (&mut self, thread: &Thread)
-	{
-		if let Some((regs, mut stack)) = self.past_state.pop ()
-		{
-			*thread.regs.lock () = regs;
-			core::mem::swap (&mut *thread.stack.lock (), &mut stack);
-			unsafe
-			{
-				stack.dealloc (&thread.process ().unwrap ().addr_space);
-			}
 		}
 	}
 }
@@ -275,7 +266,7 @@ impl Thread
 
 	pub fn new (process: Weak<Process>, tid: usize, name: String, rip: usize) -> Result<MemOwner<Self>, Err>
 	{
-		Self::new_stack_size (process, tid, name, rip, DEFAULT_STACK_SIZE, DEFAULT_KSTACK_SIZE)
+		Self::new_stack_size (process, tid, name, rip, Stack::DEFAULT_SIZE, Stack::DEFAULT_KERNEL_SIZE)
 	}
 
 	// kstack_size only applies for ring 3 processes, for ring 0 stack_size is used as the stack size, but the stack is still a kernel stack
@@ -286,13 +277,7 @@ impl Thread
 		let mapper = &proc.addr_space;
 		let uid = proc.uid ();
 
-		let mut regs = match uid
-		{
-			PrivLevel::Kernel => KERNEL_REGS,
-			PrivLevel::SuperUser => SUPERUSER_REGS,
-			PrivLevel::IOPriv => IOPRIV_REGS,
-			PrivLevel::User(_) => USER_REGS,
-		};
+		let mut regs = Registers::from_priv (uid);
 
 		let stack = match uid
 		{
@@ -335,7 +320,7 @@ impl Thread
 		// TODO: this hass to be ensured in smp
 		let _proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
 
-		let mut regs = KERNEL_REGS;
+		let mut regs = Registers::from_priv (PrivLevel::Kernel);
 
 		let stack = Stack::no_alloc_new (range);
 
@@ -396,6 +381,32 @@ impl Thread
 	pub fn conn_data (&self) -> FutexGaurd<ConnData>
 	{
 		self.conn_data.lock ()
+	}
+
+	pub fn push_conn_state (&self, conn_data: &mut ConnData, conn_state: ConnSaveState)
+	{
+		let old_regs = core::mem::replace (&mut *self.regs.lock (), conn_state.regs);
+
+		let old_stack = core::mem::replace (&mut *self.stack.lock (), conn_state.stack);
+
+		let old_state = ConnSaveState::new (old_regs, old_stack, conn_data.conn_id);
+		conn_data.conn_id = conn_state.conn_id;
+
+		conn_data.past_state.push (old_state);
+	}
+
+	pub fn pop_conn_state (&self, conn_data: &mut ConnData)
+	{
+		if let Some(conn_state) = conn_data.past_state.pop ()
+		{
+			*self.regs.lock () = conn_state.regs;
+			unsafe
+			{
+				core::mem::replace (&mut *self.stack.lock (), conn_state.stack)
+					.dealloc (&self.process ().unwrap ().addr_space);
+			}
+			conn_data.conn_id = conn_state.conn_id;
+		}
 	}
 
 	// returns false if failed to remove

@@ -15,6 +15,7 @@ use crate::gdt::tss;
 pub use process::Process;
 pub use thread::{Thread, ThreadState};
 pub use domain::*;
+pub use connection::*;
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
@@ -357,6 +358,36 @@ impl Registers
 			cs,
 			ss,
 		}
+	}
+
+	const fn from_priv (plevel: PrivLevel) -> Self
+	{
+		match plevel
+		{
+			PrivLevel::Kernel => Registers::new (0x202, 0x08, 0x10),
+			PrivLevel::SuperUser => Registers::new (0x202, 0x23, 0x1b),
+			// FIXME: temporarily setting IOPL to 3 for testing
+			PrivLevel::IOPriv => Registers::new (0x3202, 0x23, 0x1b),
+			PrivLevel::User(_) => Registers::new (0x202, 0x23, 0x1b),
+		}
+	}
+
+	const fn from_msg_args (plevel: PrivLevel, domain: usize, msg_args: &MsgArgs) -> Self
+	{
+		let mut regs = Registers::from_priv (plevel);
+		// TODO: set domain, options, and sender pid
+		regs.rax = msg_args.options as usize;
+		regs.rbx = msg_args.sender_pid;
+		regs.rdx = domain;
+		regs.rsi = msg_args.a1;
+		regs.rdi = msg_args.a2;
+		regs.r8 = msg_args.a3;
+		regs.r9 = msg_args.a4;
+		regs.r12 = msg_args.a5;
+		regs.r13 = msg_args.a6;
+		regs.r14 = msg_args.a7;
+		regs.r15 = msg_args.a8;
+		regs
 	}
 }
 

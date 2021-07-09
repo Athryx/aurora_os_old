@@ -1,6 +1,9 @@
 use crate::uses::*;
+use sys_consts::{options::MsgOptions, MsgErr};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::util::{Futex, FutexGaurd, NLVecMap};
+use crate::syscall::SyscallVals;
+use super::{proc_list, thread_c, proc_c, Registers};
 
 lazy_static!
 {
@@ -79,6 +82,40 @@ impl Connection
 		&mut self.endpoints
 	}
 
+	// TODO: figure out return value
+	pub fn send_message (&mut self, args: &MsgArgs) -> Result<(), Err>
+	{
+		let tid = thread_c ().tid ();
+		let pid = proc_c ().pid ();
+		let plist = proc_list.lock ();
+
+		let mut i = 0;
+		while let Some(endpoint) = self.endpoints.get (i)
+		{
+			// TODO: ensure exiting processes are removed from the connection
+			if endpoint.pid != pid || endpoint.tid != tid
+			{
+				match plist.get (&endpoint.pid)
+				{
+					Some(process) => {
+						if !process.recieve_message (self, endpoint, args)
+						{
+							self.endpoints.remove (i);
+							continue;
+						}
+					},
+					None => {
+						self.endpoints.remove (i);
+						continue;
+					},
+				}
+			}
+			i += 1;
+		}
+
+		Ok(())
+	}
+
 	pub fn insert_endpoint (&mut self, endpoint: Endpoint)
 	{
 		if let Err(index) = self.endpoint_index (endpoint.pid)
@@ -87,7 +124,7 @@ impl Connection
 		}
 	}
 
-	pub fn get_endpoint (&self, pid: usize) -> Option<&Endpoint>
+	/*pub fn get_endpoint (&self, pid: usize) -> Option<&Endpoint>
 	{
 		match self.endpoint_index (pid)
 		{
@@ -112,7 +149,7 @@ impl Connection
 			Ok(index) => Some(self.endpoints.remove (index)),
 			Err(_) => None,
 		}
-	}
+	}*/
 
 	fn endpoint_index (&self, pid: usize) -> Result<usize, usize>
 	{
@@ -124,12 +161,12 @@ impl Connection
 pub struct Endpoint
 {
 	pid: usize,
-	tid: Option<usize>,
+	tid: usize,
 }
 
 impl Endpoint
 {
-	pub const fn new (pid: usize, tid: Option<usize>) -> Self
+	pub const fn new (pid: usize, tid: usize) -> Self
 	{
 		Endpoint {
 			pid,
@@ -137,7 +174,7 @@ impl Endpoint
 		}
 	}
 
-	pub fn tid (&self) -> Option<usize>
+	pub fn tid (&self) -> usize
 	{
 		self.tid
 	}
@@ -146,6 +183,8 @@ impl Endpoint
 #[derive(Debug, Clone, Copy)]
 pub struct MsgArgs
 {
+	pub options: u32,
+	pub sender_pid: usize,
 	pub a1: usize,
 	pub a2: usize,
 	pub a3: usize,
@@ -154,4 +193,9 @@ pub struct MsgArgs
 	pub a6: usize,
 	pub a7: usize,
 	pub a8: usize,
+}
+
+pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
+{
+	Ok(())
 }

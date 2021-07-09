@@ -1,5 +1,6 @@
 TODO:
 more descriptive error values
+error values are written in kernel, just not described well heare
 
 decide if vfs should go in kernel or not
 if it does, can probably remove the info syscall and just use a proc like filesystem
@@ -52,6 +53,8 @@ r13: arg 6
 r14: arg 7
 r15: arg 8
 
+more details about this abi under msg syscall
+
 
 0: info
 
@@ -75,6 +78,7 @@ reason:
 0: yield, sets thread to running state and switches to another thread, if available
 if no threads other than the idle thread are ready to run, the current thread will continue to run
 1: destroy, switches to another thread and terminates the current thread
+if another thread is waiting on this thread for a message reply, than that thread is unblocked
 2: sleep, will sleep until {nsec} nanoseconds after boot
 3: join, will block until thread with id {thread_id} terminates
 any other number will do nothing
@@ -251,8 +255,11 @@ return value:
 0: success
 1: failure
 
-21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> usize
+21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize)
 send a message to another process
+note: this syscall returns using the message handler api
+// TODO: maybe change this, because it is useless
+note: a thread can message another thread in the same process or itself
 
 options:
 bit 0 (msg_pid):
@@ -265,6 +272,11 @@ if the other process replies, the handler registered for the reply domain will b
 1: block until other process replies
 if the other process replies, the data will be put in this processes registers
 
+bit 2 (msg_reply):
+0: create a new connection to specified process or processes
+1: reply to connection this thread is currently part of, will fail if it is not apart of the connection
+if this option is used pid and eid are ignored
+
 bit 4-7 (smem_transfer_mask):
 transfers shared memory pointed to by a certain register to other process
 the recieving process has the memory mapped in their address space, and recieves a pointer to the memory in the respective register
@@ -276,8 +288,59 @@ bit 6 set: transfers a5
 bit 7 set: transfers a7
 
 return value:
-0: success
-1: no process with eid or pid exists
+this syscall returns using the message handler api
+message handler abi:
+rax: flags
+rbx: sender pid
+rcx: unused
+rdx: domain
+rbp: unused
+rsp: unused
+rsi: arg 1
+rdi: arg 2
+r8: arg 3
+r9: arg 4
+r10: unused
+r11: unused
+r12: arg 5
+r13: arg 6
+r14: arg 7
+r15: arg 8
+
+options:
+bits 0-7 (msg_return_value):
+0 (recieve):
+this thread never called msg, and is recieving a message from another thread
+1 (non_block_ok):
+non blocking success
+original registers preserved, excapt for rax and other registers not preserved by syscall api
+2 (block_ok_resp):
+blocking success, and the recipient responded
+3 (block_ok_ret):
+blocking success, and the recipient called msg_return before responding
+original registers preserved, excapt for rax and other registers not preserved by syscall api
+4 (block_ok_term):
+blocking success, and the recipient thread terminated before responding
+original registers preserved, excapt for rax and other registers not preserved by syscall api
+5 (invl_id):
+no process with eid or pid exists
+original registers preserved, excapt for rax and other registers not preserved by syscall api
+6 (invl_priv):
+process does not have sufficient permissions to message specified process on the selected domain
+original registers preserved, excapt for rax and other registers not preserved by syscall api
+7 (invl_reply):
+msg_reply bit was set, but the thread was not part of an existing connection
+original registers preserved, excapt for rax and other registers not preserved by syscall api
+8 (unknown):
+unknown error
+it is not specified if original registers are preserved
+
+bit 8-11 (smem_transfer_mask):
+this bitmask specifies which args contain pointers to shared memory
+bit 8 set: arg1 has pointer to shared memory, arg2 has lenth of shared memory in pages
+bit 9 set: arg3 has pointer to shared memory, arg4 has lenth of shared memory in pages
+bit 10 set: arg5 has pointer to shared memory, arg6 has lenth of shared memory in pages
+bit 11 set: arg7 has pointer to shared memory, arg8 has lenth of shared memory in pages
 
 
 22: fn msg_return ()

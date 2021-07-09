@@ -1,5 +1,6 @@
 use crate::uses::*;
-use sys_consts::options::{RegOptions, MsgOptions};
+use sys_consts::options::{RegOptions};
+use sys_consts::MsgErr;
 use crate::syscall::SyscallVals;
 use crate::sysret;
 use super::*;
@@ -88,5 +89,29 @@ pub extern "C" fn reg (vals: &mut SyscallVals)
 // TODO: handler msg_pid and smem_transfer_mask options
 pub extern "C" fn msg (vals: &mut SyscallVals)
 {
-	let options = MsgOptions::from_bits_truncate (vals.options);
+	match connection::msg (vals)
+	{
+		Ok(regs) => {
+			vals.options = regs.rax as u32;
+			vals.a1 = regs.rbx;
+			vals.a2 = regs.rdx;
+			vals.a3 = regs.rsi;
+			vals.a4 = regs.rdi;
+			vals.a5 = regs.r8;
+			vals.a6 = regs.r9;
+			vals.a7 = regs.r12;
+			vals.a8 = regs.r13;
+			vals.a9 = regs.r14;
+			vals.a10 = regs.r15;
+			vals.rsp = regs.rsp;
+			vals.rip = regs.rip;
+		},
+		Err(msg_err) => {
+			vals.options = msg_err.as_num () as u32;
+		},
+	}
+}
+
+pub extern "C" fn msg_return (_vals: &mut SyscallVals)
+{
 }
