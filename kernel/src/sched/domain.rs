@@ -75,6 +75,11 @@ impl DomainMap
 		}
 	}
 
+	pub fn default_handler (&self) -> Option<DomainHandler>
+	{
+		self.default_handler
+	}
+
 	// returns old default handler
 	pub fn set_default_handler (&mut self, new: Option<DomainHandler>) -> Option<DomainHandler>
 	{
@@ -91,6 +96,16 @@ impl DomainMap
 		{
 			Some(domain) =>	self.domains.insert (domain, handler),
 			None => self.set_default_handler (Some(handler)),
+		}
+	}
+
+	// removes specified domain handler, returning the old one if it existed
+	pub fn remove (&mut self, domain: Option<usize>) -> Option<DomainHandler>
+	{
+		match domain
+		{
+			Some(domain) => self.domains.remove (&domain),
+			None => self.set_default_handler (None),
 		}
 	}
 

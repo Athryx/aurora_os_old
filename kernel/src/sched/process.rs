@@ -1,4 +1,5 @@
 use spin::Mutex;
+use sys_consts::MsgErr;
 use core::cell::Cell;
 use core::ops::{Index, IndexMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -376,19 +377,21 @@ impl Process
 		count
 	}
 
-	pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), Err>
+	// TODO: make sure terminating thread removes any registered domain handlers
+	// TODO: more descriptive errors
+	pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), MsgErr>
 	{
 		let dmap = self.domains.lock ();
-		let handler = dmap.get (conn.domain ())?;
+		let handler = dmap.get (conn.domain ()).ok_or (MsgErr::InvlPriv)?;
 		let tid = match handler.options ().blocking_mode
 		{
 			BlockMode::Blocking(tid) => {
 				// check if thread with tid exists
-				let _ = self.get_thread (tid)?;
+				let _ = self.get_thread (tid).ok_or (MsgErr::InvlPriv)?;
 				tid
 			},
 			BlockMode::NonBlocking => {
-				let tid = self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ())))?;
+				let tid = self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ()))).map_err (|_| MsgErr::Unknown)?;
 				self.get_thread (tid).unwrap ().conn_data ().conn_id = Some(conn.id ());
 				tid
 			},
@@ -466,6 +469,12 @@ impl Process
 				else
 				{
 					*thread.regs.lock () = new_regs;
+				}
+
+				if let ThreadState::Listening(_) = thread.state ()
+				{
+					let mut thread_list = tlist.lock ();
+					Thread::move_to (thread_c (), ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
 				}
 
 				true

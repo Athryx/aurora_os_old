@@ -254,7 +254,7 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
 		connection.insert_endpoint (Endpoint::new (proc_c ().pid (), thread_c ().tid ()));
 
 		proc_list.lock ().get (&target_pid).ok_or (MsgErr::InvlId)?
-			.add_endpoint (&mut connection);
+			.add_endpoint (&mut connection)?;
 
 		connection.send_message (&args, blocking)
 	}
