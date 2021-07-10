@@ -2,11 +2,14 @@ use spin::Mutex;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use core::time::Duration;
 use core::ops::{Index, IndexMut};
+use core::cell::Cell;
+use core::ptr::NonNull;
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
+use alloc::alloc::{Global, Allocator, Layout};
 use crate::uses::*;
 use crate::int::idt::{Handler, IRQ_TIMER, INT_SCHED};
-use crate::util::{LinkedList, IMutex, UniqueRef, UniqueMut, UniquePtr};
+use crate::util::{AvlTree, TreeNode, LinkedList, IMutex, IMutexGuard, UniqueRef, UniqueMut, UniquePtr, mlayout_of, MemOwner};
 use crate::arch::x64::{cli_safe, sti_safe, sti_inc, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
 use crate::time::timer;
 use crate::upriv::PrivLevel;
@@ -38,7 +41,7 @@ mod elf;
 mod domain;
 mod connection;
 
-static tlist: IMutex<ThreadList> = IMutex::new (ThreadList::new ());
+static tlist: ThreadListGuard = ThreadListGuard::new ();
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());
 
 // amount of time that elapses before we will switch to a new thread in nanoseconds
@@ -221,7 +224,7 @@ fn thread_cleaner ()
 		loop
 		{
 			let mut thread_list = tlist.lock ();
-			let tcell = match thread_list[ThreadState::Destroy].pop_front ()
+			let tcell = match (*thread_list)[ThreadState::Destroy].pop_front ()
 			{
 				Some(thread) => thread,
 				None => break,
@@ -244,28 +247,86 @@ fn thread_cleaner ()
 }
 
 #[derive(Debug)]
-pub struct ThreadList([LinkedList<Thread>; 4]);
+struct ConnTreeNode
+{
+	id: Cell<usize>,
+	list: LinkedList<Thread>,
+
+	bf: Cell<i8>,
+	parent: Cell<*const Self>,
+	left: Cell<*const Self>,
+	right: Cell<*const Self>,
+}
+
+impl ConnTreeNode
+{
+	const LAYOUT: Layout = mlayout_of::<Self> ();
+
+	pub fn new () -> MemOwner<Self>
+	{
+		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ConnTreeNode");
+		let ptr = mem.as_ptr () as *mut Self;
+
+		let out = ConnTreeNode {
+			id: Cell::new (0),
+			list: LinkedList::new (),
+			bf: Cell::new (0),
+			parent: Cell::new (null ()),
+			left: Cell::new (null ()),
+			right: Cell::new (null ()),
+		};
+
+		unsafe
+		{
+			ptr::write (ptr, out);
+			MemOwner::new (ptr)
+		}
+	}
+
+	// Safety: MemOwner must point to a valid FutexTreeNode
+	pub unsafe fn dealloc (this: MemOwner<Self>)
+	{
+		let ptr = NonNull::new (this.ptr_mut ()).unwrap ().cast ();
+		Global.deallocate (ptr, Self::LAYOUT);
+	}
+}
+
+unsafe impl Send for ConnTreeNode {}
+
+crate::impl_tree_node! (usize, ConnTreeNode, parent, left, right, id, bf);
+
+#[derive(Debug)]
+pub struct ThreadList
+{
+	running: LinkedList<Thread>,
+	ready: LinkedList<Thread>,
+	destroy: LinkedList<Thread>,
+	sleep: LinkedList<Thread>,
+	conn_wait: AvlTree<usize, ConnTreeNode>,
+}
 
 impl ThreadList
 {
 	const fn new () -> Self
 	{
-		ThreadList([
-			LinkedList::new (),
-			LinkedList::new (),
-			LinkedList::new (),
-			LinkedList::new (),
-		])
+		ThreadList {
+			running: LinkedList::new (),
+			ready: LinkedList::new (),
+			destroy: LinkedList::new (),
+			sleep: LinkedList::new (),
+			conn_wait: AvlTree::new (),
+		}
 	}
 
 	fn get (&self, state: ThreadState) -> Option<&LinkedList<Thread>>
 	{
 		match state
 		{
-			ThreadState::Running => Some(&self.0[0]),
-			ThreadState::Ready => Some(&self.0[1]),
-			ThreadState::Destroy => Some(&self.0[2]),
-			ThreadState::Sleep(_) => Some(&self.0[3]),
+			ThreadState::Running => Some(&self.running),
+			ThreadState::Ready => Some(&self.ready),
+			ThreadState::Destroy => Some(&self.destroy),
+			ThreadState::Sleep(_) => Some(&self.sleep),
+			ThreadState::Listening(id) => Some(unsafe { unbound (&self.conn_wait.get (&id)?.list) }),
 			_ => None
 		}
 	}
@@ -274,10 +335,11 @@ impl ThreadList
 	{
 		match state
 		{
-			ThreadState::Running => Some(&mut self.0[0]),
-			ThreadState::Ready => Some(&mut self.0[1]),
-			ThreadState::Destroy => Some(&mut self.0[2]),
-			ThreadState::Sleep(_) => Some(&mut self.0[3]),
+			ThreadState::Running => Some(&mut self.running),
+			ThreadState::Ready => Some(&mut self.ready),
+			ThreadState::Destroy => Some(&mut self.destroy),
+			ThreadState::Sleep(_) => Some(&mut self.sleep),
+			ThreadState::Listening(id) => Some(unsafe { unbound_mut (&mut self.conn_wait.get_mut (&id)?.list) }),
 			_ => None
 		}
 	}
@@ -298,6 +360,43 @@ impl IndexMut<ThreadState> for ThreadList
 	fn index_mut (&mut self, state: ThreadState) -> &mut Self::Output
 	{
 		self.get_mut (state).expect ("attempted to index ThreadState with invalid state")
+	}
+}
+
+pub struct ThreadListGuard(IMutex<ThreadList>);
+
+impl ThreadListGuard
+{
+	pub const fn new () -> Self
+	{
+		ThreadListGuard(IMutex::new (ThreadList:: new ()))
+	}
+
+	pub fn lock (&self) -> IMutexGuard<ThreadList>
+	{
+		self.0.lock ()
+	}
+
+	pub fn ensure (&self, state: ThreadState)
+	{
+		match state
+		{
+			ThreadState::Listening(conn_id) => {
+				if self.lock ().conn_wait.get (&conn_id).is_none ()
+				{
+					let node = ConnTreeNode::new ();
+					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
+					if let Err(val) = self.lock ().conn_wait.insert (conn_id, node)
+					{
+						unsafe
+						{
+							ConnTreeNode::dealloc (val);
+						}
+					}
+				}
+			},
+			_ => (),
+		}
 	}
 }
 
@@ -332,6 +431,11 @@ pub struct Registers
 
 impl Registers
 {
+	const fn zero () -> Self
+	{
+		Self::new (0, 0, 0)
+	}
+
 	const fn new (rflags: usize, cs: u16, ss: u16) -> Self
 	{
 		Registers {

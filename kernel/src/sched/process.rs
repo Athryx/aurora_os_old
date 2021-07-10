@@ -10,7 +10,7 @@ use crate::uses::*;
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
-use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef};
+use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, mlayout_of};
 use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
@@ -32,7 +32,7 @@ pub struct FutexTreeNode
 
 impl FutexTreeNode
 {
-	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
+	const LAYOUT: Layout = mlayout_of::<Self> ();
 
 	pub fn new () -> MemOwner<Self>
 	{
@@ -388,7 +388,9 @@ impl Process
 				tid
 			},
 			BlockMode::NonBlocking => {
-				self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ())))?
+				let tid = self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ())))?;
+				self.get_thread (tid).unwrap ().conn_data ().conn_id = Some(conn.id ());
+				tid
 			},
 		};
 		conn.insert_endpoint (Endpoint::new (self.pid, tid));
@@ -466,12 +468,6 @@ impl Process
 					*thread.regs.lock () = new_regs;
 				}
 
-				// syscall system cannot set arbritary registers when returning, so we need to use interrupt returning mechanism
-				if thread.tid () == thread_c ().tid ()
-				{
-					int_sched ();
-				}
-	
 				true
 			},
 			None => false,

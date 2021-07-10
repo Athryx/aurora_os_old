@@ -45,6 +45,13 @@ unsafe fn from_heap<V> (ptr: *const V) -> V
 	*Box::from_raw (ptr as *mut _)
 }
 
+use alloc::alloc::Layout;
+
+pub const fn mlayout_of<T> () -> Layout
+{
+	unsafe { Layout::from_size_align_unchecked (size_of::<T> (), core::mem::align_of::<T> ()) }
+}
+
 // code from some reddit post
 #[macro_export]
 macro_rules! init_array (

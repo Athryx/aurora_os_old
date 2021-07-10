@@ -107,7 +107,7 @@ pub extern "C" fn msg (vals: &mut SyscallVals)
 			vals.rip = regs.rip;
 		},
 		Err(msg_err) => {
-			vals.options = msg_err.as_num () as u32;
+			vals.options = msg_err.num () as u32;
 		},
 	}
 }

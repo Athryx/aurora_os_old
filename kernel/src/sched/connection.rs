@@ -3,7 +3,7 @@ use sys_consts::{options::MsgOptions, MsgErr};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::util::{Futex, FutexGaurd, NLVecMap};
 use crate::syscall::SyscallVals;
-use super::{proc_list, thread_c, proc_c, Registers};
+use super::{proc_list, tlist, proc_c, thread_c, Registers, ThreadState};
 
 lazy_static!
 {
@@ -82,8 +82,7 @@ impl Connection
 		&mut self.endpoints
 	}
 
-	// TODO: figure out return value
-	pub fn send_message (&mut self, args: &MsgArgs) -> Result<(), Err>
+	pub fn send_message (&mut self, args: &MsgArgs, blocking: bool) -> Result<Registers, MsgErr>
 	{
 		let tid = thread_c ().tid ();
 		let pid = proc_c ().pid ();
@@ -92,7 +91,6 @@ impl Connection
 		let mut i = 0;
 		while let Some(endpoint) = self.endpoints.get (i)
 		{
-			// TODO: ensure exiting processes are removed from the connection
 			if endpoint.pid != pid || endpoint.tid != tid
 			{
 				match plist.get (&endpoint.pid)
@@ -113,7 +111,24 @@ impl Connection
 			i += 1;
 		}
 
-		Ok(())
+		drop (plist);
+
+		if blocking
+		{
+			self.await_response ()
+		}
+		else
+		{
+			Err(MsgErr::NonBlockOk)
+		}
+	}
+
+	fn await_response (&self) -> Result<Registers, MsgErr>
+	{
+		let new_state = ThreadState::Listening(self.id);
+		tlist.ensure (new_state);
+		thread_c ().block (new_state);
+		*thread_c ().rcv_regs ().lock ()
 	}
 
 	pub fn insert_endpoint (&mut self, endpoint: Endpoint)
@@ -197,5 +212,50 @@ pub struct MsgArgs
 
 pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
 {
-	Ok(())
+	// FIXME: find where to set rip
+	let options = MsgOptions::from_bits_truncate (vals.options);
+	let blocking = options.contains (MsgOptions::BLOCK);
+
+	let target_pid = vals.a1;
+	let domain = vals.a2;
+	let args = MsgArgs {
+		options: MsgErr::Recieve.num () as u32,
+		sender_pid: proc_c ().pid (),
+		a1: vals.a3,
+		a2: vals.a4,
+		a3: vals.a5,
+		a4: vals.a6,
+		a5: vals.a7,
+		a6: vals.a8,
+		a7: vals.a9,
+		a8: vals.a10,
+	};
+
+	if target_pid == proc_c ().pid ()
+	{
+		return Err(MsgErr::InvlId);
+	}
+
+	if options.contains (MsgOptions::REPLY)
+	{
+		match thread_c ().conn_data ().conn_id
+		{
+			Some(conn_id) => {
+				let mut connection = conn_map.get_connection (conn_id).unwrap ();
+				connection.send_message (&args, blocking)
+			},
+			None => Err(MsgErr::InvlReply),
+		}
+	}
+	else
+	{
+		let conn_id = conn_map.new_connection (domain);
+		let mut connection = conn_map.get_connection (conn_id).unwrap ();
+		connection.insert_endpoint (Endpoint::new (proc_c ().pid (), thread_c ().tid ()));
+
+		proc_list.lock ().get (&target_pid).ok_or (MsgErr::InvlId)?
+			.add_endpoint (&mut connection);
+
+		connection.send_message (&args, blocking)
+	}
 }

@@ -1,4 +1,5 @@
 use spin::Mutex;
+use sys_consts::MsgErr;
 use ptr::NonNull;
 use core::time::Duration;
 use core::fmt;
@@ -12,7 +13,7 @@ use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
-use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGaurd, MemOwner, UniqueMut, UniqueRef, UniquePtr, AtomicU128};
+use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGaurd, MemOwner, UniqueMut, UniqueRef, UniquePtr, AtomicU128, mlayout_of};
 use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
 use super::{Registers, ThreadList, int_sched, tlist};
@@ -243,6 +244,7 @@ pub struct Thread
 	kstack: Option<Stack>,
 
 	conn_data: Futex<ConnData>,
+	msg_recieve_regs: Futex<Result<Registers, MsgErr>>,
 
 	prev: AtomicPtr<Self>,
 	next: AtomicPtr<Self>,
@@ -250,7 +252,7 @@ pub struct Thread
 
 impl Thread
 {
-	const LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked (size_of::<Self> (), core::mem::align_of::<Self> ()) };
+	const LAYOUT: Layout = mlayout_of::<Self> ();
 
 	fn create (tnode: Self) -> MemOwner<Self>
 	{
@@ -308,6 +310,7 @@ impl Thread
 			stack: Futex::new (stack),
 			kstack,
 			conn_data: Futex::new (ConnData::new ()),
+			msg_recieve_regs: Futex::new (Err(MsgErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 		}))
@@ -337,6 +340,7 @@ impl Thread
 			stack: Futex::new (stack),
 			kstack: None,
 			conn_data: Futex::new (ConnData::new ()),
+			msg_recieve_regs: Futex::new (Err(MsgErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 		}))
@@ -381,6 +385,11 @@ impl Thread
 	pub fn conn_data (&self) -> FutexGaurd<ConnData>
 	{
 		self.conn_data.lock ()
+	}
+
+	pub fn rcv_regs (&self) -> &Futex<Result<Registers, MsgErr>>
+	{
+		&self.msg_recieve_regs
 	}
 
 	pub fn push_conn_state (&self, conn_data: &mut ConnData, conn_state: ConnSaveState)

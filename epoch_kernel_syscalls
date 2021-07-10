@@ -255,11 +255,9 @@ return value:
 0: success
 1: failure
 
-21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize)
+21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> usize
 send a message to another process
 note: this syscall returns using the message handler api
-// TODO: maybe change this, because it is useless
-note: a thread can message another thread in the same process or itself
 
 options:
 bit 0 (msg_pid):
@@ -288,7 +286,9 @@ bit 6 set: transfers a5
 bit 7 set: transfers a7
 
 return value:
-this syscall returns using the message handler api
+this syscall returns using the message handler api if it is called with msg_reply flag set
+if it is not called with msg_reply, it will return msg_return_value normaly
+
 message handler abi:
 rax: flags
 rbx: sender pid
@@ -323,7 +323,7 @@ original registers preserved, excapt for rax and other registers not preserved b
 blocking success, and the recipient thread terminated before responding
 original registers preserved, excapt for rax and other registers not preserved by syscall api
 5 (invl_id):
-no process with eid or pid exists
+no process with eid or pid exists, or thread tried to msg its own process
 original registers preserved, excapt for rax and other registers not preserved by syscall api
 6 (invl_priv):
 process does not have sufficient permissions to message specified process on the selected domain
