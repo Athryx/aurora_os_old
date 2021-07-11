@@ -1,6 +1,5 @@
 use crate::uses::*;
 use sys_consts::options::{RegOptions};
-use sys_consts::MsgErr;
 use crate::syscall::SyscallVals;
 use crate::sysret;
 use super::*;

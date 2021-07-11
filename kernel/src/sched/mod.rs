@@ -476,22 +476,27 @@ impl Registers
 		}
 	}
 
-	const fn from_msg_args (plevel: PrivLevel, domain: usize, msg_args: &MsgArgs) -> Self
+	const fn from_msg_args (plevel: PrivLevel, msg_args: &MsgArgs) -> Self
 	{
-		let mut regs = Registers::from_priv (plevel);
-		// TODO: set domain, options, and sender pid
-		regs.rax = msg_args.options as usize;
-		regs.rbx = msg_args.sender_pid;
-		regs.rdx = domain;
-		regs.rsi = msg_args.a1;
-		regs.rdi = msg_args.a2;
-		regs.r8 = msg_args.a3;
-		regs.r9 = msg_args.a4;
-		regs.r12 = msg_args.a5;
-		regs.r13 = msg_args.a6;
-		regs.r14 = msg_args.a7;
-		regs.r15 = msg_args.a8;
-		regs
+		let mut out = Registers::from_priv (plevel);
+		out.apply_msg_args (msg_args);
+		out
+	}
+
+	const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
+	{
+		self.rax = msg_args.options as usize;
+		self.rbx = msg_args.sender_pid;
+		self.rdx = msg_args.domain;
+		self.rsi = msg_args.a1;
+		self.rdi = msg_args.a2;
+		self.r8 = msg_args.a3;
+		self.r9 = msg_args.a4;
+		self.r12 = msg_args.a5;
+		self.r13 = msg_args.a6;
+		self.r14 = msg_args.a7;
+		self.r15 = msg_args.a8;
+		self
 	}
 }
 

@@ -1,5 +1,5 @@
+use crate::uses::*;
 use spin::Mutex;
-use sys_consts::MsgErr;
 use core::cell::Cell;
 use core::ops::{Index, IndexMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -7,7 +7,6 @@ use core::ptr::NonNull;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
-use crate::uses::*;
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::upriv::PrivLevel;
@@ -379,19 +378,20 @@ impl Process
 
 	// TODO: make sure terminating thread removes any registered domain handlers
 	// TODO: more descriptive errors
-	pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), MsgErr>
+	pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), SysErr>
 	{
 		let dmap = self.domains.lock ();
-		let handler = dmap.get (conn.domain ()).ok_or (MsgErr::InvlPriv)?;
+		let handler = dmap.get (conn.domain ()).ok_or (SysErr::InvlPriv)?;
 		let tid = match handler.options ().blocking_mode
 		{
 			BlockMode::Blocking(tid) => {
 				// check if thread with tid exists
-				let _ = self.get_thread (tid).ok_or (MsgErr::InvlPriv)?;
+				let _ = self.get_thread (tid).ok_or (SysErr::InvlPriv)?;
 				tid
 			},
 			BlockMode::NonBlocking => {
-				let tid = self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ()))).map_err (|_| MsgErr::Unknown)?;
+				// FIXME: change new_thread to return a SysErr
+				let tid = self.new_thread (handler.rip (), Some(format! ("domain_handler_{}", conn.domain ()))).map_err (|_| SysErr::Unknown)?;
 				self.get_thread (tid).unwrap ().conn_data ().conn_id = Some(conn.id ());
 				tid
 			},
@@ -453,28 +453,17 @@ impl Process
 		match self.get_thread (endpoint.tid ())
 		{
 			Some(thread) => {
-				let mut data = thread.conn_data ();
-				let new_regs = Registers::from_msg_args (self.uid, connection.domain (), args);
-
-				if data.conn_id.is_none () || data.conn_id.unwrap () != connection.id ()
-				{
-					let new_stack = match Stack::user_new (Stack::DEFAULT_SIZE, &self.addr_space)
-					{
-						Ok(stack) => stack,
-						Err(_) => return false,
-					};
-					let new_state = ConnSaveState::new (new_regs, new_stack, Some(connection.id ()));
-					thread.push_conn_state (&mut data, new_state);
-				}
-				else
-				{
-					*thread.regs.lock () = new_regs;
-				}
+				// need to lock this until end od this block
+				let mut conn_data = thread.conn_data ();
+				let regs = thread.switch_conn_state (&mut conn_data, Some(connection.id ()), args);
 
 				if let ThreadState::Listening(_) = thread.state ()
 				{
 					let mut thread_list = tlist.lock ();
 					Thread::move_to (thread_c (), ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+				}
+				else
+				{
 				}
 
 				true

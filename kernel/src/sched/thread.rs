@@ -1,5 +1,5 @@
+use crate::uses::*;
 use spin::Mutex;
-use sys_consts::MsgErr;
 use ptr::NonNull;
 use core::time::Duration;
 use core::fmt;
@@ -8,7 +8,6 @@ use core::mem::transmute;
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
-use crate::uses::*;
 use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
@@ -16,7 +15,7 @@ use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGaurd, MemOwner, UniqueMut, UniqueRef, UniquePtr, AtomicU128, mlayout_of};
 use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
-use super::{Registers, ThreadList, int_sched, tlist};
+use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c};
 
 // TODO: implement support for growing stack
 #[derive(Debug)]
@@ -193,17 +192,15 @@ pub struct ConnSaveState
 {
 	regs: Registers,
 	stack: Stack,
-	conn_id: Option<usize>,
 }
 
 impl ConnSaveState
 {
-	pub fn new (regs: Registers, stack: Stack, conn_id: Option<usize>) -> Self
+	pub fn new (regs: Registers, stack: Stack) -> Self
 	{
 		ConnSaveState {
 			regs,
 			stack,
-			conn_id,
 		}
 	}
 }
@@ -213,7 +210,7 @@ pub struct ConnData
 {
 	// current connection that is being responded to
 	pub conn_id: Option<usize>,
-	past_state: Vec<ConnSaveState>
+	states: BTreeMap<Option<usize>, ConnSaveState>
 }
 
 impl ConnData
@@ -222,7 +219,7 @@ impl ConnData
 	{
 		ConnData {
 			conn_id: None,
-			past_state: Vec::new (),
+			states: BTreeMap::new (),
 		}
 	}
 }
@@ -244,7 +241,7 @@ pub struct Thread
 	kstack: Option<Stack>,
 
 	conn_data: Futex<ConnData>,
-	msg_recieve_regs: Futex<Result<Registers, MsgErr>>,
+	msg_recieve_regs: Futex<Result<Registers, SysErr>>,
 
 	prev: AtomicPtr<Self>,
 	next: AtomicPtr<Self>,
@@ -310,7 +307,7 @@ impl Thread
 			stack: Futex::new (stack),
 			kstack,
 			conn_data: Futex::new (ConnData::new ()),
-			msg_recieve_regs: Futex::new (Err(MsgErr::Unknown)),
+			msg_recieve_regs: Futex::new (Err(SysErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 		}))
@@ -340,7 +337,7 @@ impl Thread
 			stack: Futex::new (stack),
 			kstack: None,
 			conn_data: Futex::new (ConnData::new ()),
-			msg_recieve_regs: Futex::new (Err(MsgErr::Unknown)),
+			msg_recieve_regs: Futex::new (Err(SysErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 		}))
@@ -387,34 +384,40 @@ impl Thread
 		self.conn_data.lock ()
 	}
 
-	pub fn rcv_regs (&self) -> &Futex<Result<Registers, MsgErr>>
+	pub fn rcv_regs (&self) -> &Futex<Result<Registers, SysErr>>
 	{
 		&self.msg_recieve_regs
 	}
 
-	pub fn push_conn_state (&self, conn_data: &mut ConnData, conn_state: ConnSaveState)
+	// panic safety: this can't be called on any running thread
+	// do not call with conn_data locked
+	pub fn switch_conn_state (&self, conn_data: &mut ConnData, conn_id: Option<usize>, args: &MsgArgs) -> Option<Registers>
 	{
-		let old_regs = core::mem::replace (&mut *self.regs.lock (), conn_state.regs);
+		assert! (thread_c ().ptr () != self as *const _);
 
-		let old_stack = core::mem::replace (&mut *self.stack.lock (), conn_state.stack);
+		let old_conn_id = conn_data.conn_id;
+		conn_data.states.get_mut (&old_conn_id).unwrap ().regs = *self.regs.lock ();
 
-		let old_state = ConnSaveState::new (old_regs, old_stack, conn_data.conn_id);
-		conn_data.conn_id = conn_state.conn_id;
-
-		conn_data.past_state.push (old_state);
-	}
-
-	pub fn pop_conn_state (&self, conn_data: &mut ConnData)
-	{
-		if let Some(conn_state) = conn_data.past_state.pop ()
+		conn_data.conn_id = conn_id;
+		match conn_data.states.get_mut (&conn_id)
 		{
-			*self.regs.lock () = conn_state.regs;
-			unsafe
-			{
-				core::mem::replace (&mut *self.stack.lock (), conn_state.stack)
-					.dealloc (&self.process ().unwrap ().addr_space);
-			}
-			conn_data.conn_id = conn_state.conn_id;
+			Some(conn_state) => {
+				let mut new_regs = conn_state.regs;
+				Some(*new_regs.apply_msg_args (args))
+			},
+			None => {
+				let new_stack = match Stack::user_new (Stack::DEFAULT_SIZE, &self.process ().unwrap ().addr_space)
+				{
+					Ok(stack) => stack,
+					Err(_) => return None,
+				};
+				let mut new_regs = Registers::from_msg_args (self.process ().unwrap ().uid (), args);
+				new_regs.rsp = new_stack.top () - 8;
+				let new_state = ConnSaveState::new (new_regs, new_stack);
+				conn_data.states.insert (conn_id, new_state);
+
+				Some(new_regs)
+			},
 		}
 	}
 

@@ -14,13 +14,17 @@ pub mod options;
 pub enum SysErr
 {
 	Ok = 0,
-	OutOfMem = 1,
-	InvlVirtMem = 2,
-	InvlPtr = 3,
-	InvlVirtAddr = 4,
-	InvlArgs = 5,
-	InvlPriv = 6,
-	Unknown = 7,
+	MsgResp = 1,
+	MsgRet = 2,
+	MsgTerm = 3,
+	OutOfMem = 4,
+	InvlVirtMem = 5,
+	InvlPtr = 6,
+	InvlVirtAddr = 7,
+	InvlArgs = 8,
+	InvlPriv = 9,
+	InvlId = 10,
+	Unknown = 11,
 }
 
 impl SysErr
@@ -50,12 +54,16 @@ impl SysErr
 		match self
 		{
 			Self::Ok => "no error",
+			Self::MsgResp => "blocking message sent, and a response was recieved",
+			Self::MsgRet => "blocking message sent, and the recipipient called msg_return",
+			Self::MsgTerm => "blocking message sent, and the recipipient thread terminated",
 			Self::OutOfMem => "out of memory",
 			Self::InvlVirtMem => "virtual memory collision",
 			Self::InvlPtr => "invalid pointer",
 			Self::InvlVirtAddr => "nan canonical pointer",
 			Self::InvlArgs => "invalid arguments",
 			Self::InvlPriv => "insufficent priveledge",
+			Self::InvlId => "invalid identifier",
 			Self::Unknown => "unknown error",
 		}
 	}
@@ -66,60 +74,6 @@ impl From<NoneError> for SysErr
 	fn from (_: NoneError) -> Self
 	{
 		SysErr::Unknown
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum MsgErr
-{
-	Recieve = 0,
-	NonBlockOk = 1,
-	BlockOkResp = 2,
-	BlockOkRet = 3,
-	BlockOkTerm = 4,
-	InvlId = 5,
-	InvlPriv = 6,
-	InvlReply = 7,
-	Unknown = 8,
-}
-
-impl MsgErr
-{
-	pub fn new (n: u8) -> Option<Self>
-	{
-		if n > Self::Unknown as u8
-		{
-			None
-		}
-		else
-		{
-			unsafe
-			{
-				Some(core::mem::transmute (n))
-			}
-		}
-	}
-
-	pub fn num (&self) -> u8
-	{
-		*self as u8
-	}
-
-	pub fn as_str (&self) -> &'static str
-	{
-		match self
-		{
-			Self::Recieve => "message recieved",
-			Self::NonBlockOk => "non blocking message succesfully sent",
-			Self::BlockOkResp => "blocking message sent, and a response was recieved",
-			Self::BlockOkRet => "blocking message sent, and the recipipient called msg_return",
-			Self::BlockOkTerm => "blocking message sent, and the recipipient thread terminated",
-			Self::InvlId => "no process with specified pid or eid exists",
-			Self::InvlPriv => "insufficent priveledges to send a message to the specified process and domain",
-			Self::InvlReply => "thread tried to reply but it did not have an open connection",
-			Self::Unknown => "unknown error",
-		}
 	}
 }
 

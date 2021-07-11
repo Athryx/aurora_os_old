@@ -1,5 +1,5 @@
 use crate::uses::*;
-use sys_consts::{options::MsgOptions, MsgErr};
+use sys_consts::options::MsgOptions;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::util::{Futex, FutexGaurd, NLVecMap};
 use crate::syscall::SyscallVals;
@@ -82,7 +82,7 @@ impl Connection
 		&mut self.endpoints
 	}
 
-	pub fn send_message (&mut self, args: &MsgArgs, blocking: bool) -> Result<Registers, MsgErr>
+	pub fn send_message (&mut self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
 	{
 		let tid = thread_c ().tid ();
 		let pid = proc_c ().pid ();
@@ -119,11 +119,11 @@ impl Connection
 		}
 		else
 		{
-			Err(MsgErr::NonBlockOk)
+			Err(SysErr::Ok)
 		}
 	}
 
-	fn await_response (&self) -> Result<Registers, MsgErr>
+	fn await_response (&self) -> Result<Registers, SysErr>
 	{
 		let new_state = ThreadState::Listening(self.id);
 		tlist.ensure (new_state);
@@ -189,6 +189,11 @@ impl Endpoint
 		}
 	}
 
+	pub fn pid (&self) -> usize
+	{
+		self.pid
+	}
+
 	pub fn tid (&self) -> usize
 	{
 		self.tid
@@ -200,6 +205,7 @@ pub struct MsgArgs
 {
 	pub options: u32,
 	pub sender_pid: usize,
+	pub domain: usize,
 	pub a1: usize,
 	pub a2: usize,
 	pub a3: usize,
@@ -210,7 +216,8 @@ pub struct MsgArgs
 	pub a8: usize,
 }
 
-pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
+// TODO: make this work with more than two endpoints, if that feature isn't removed
+pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 {
 	// FIXME: find where to set rip
 	let options = MsgOptions::from_bits_truncate (vals.options);
@@ -219,8 +226,9 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
 	let target_pid = vals.a1;
 	let domain = vals.a2;
 	let args = MsgArgs {
-		options: MsgErr::Recieve.num () as u32,
+		options: SysErr::Ok.num () as u32,
 		sender_pid: proc_c ().pid (),
+		domain,
 		a1: vals.a3,
 		a2: vals.a4,
 		a3: vals.a5,
@@ -233,7 +241,7 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
 
 	if target_pid == proc_c ().pid ()
 	{
-		return Err(MsgErr::InvlId);
+		return Err(SysErr::InvlId);
 	}
 
 	if options.contains (MsgOptions::REPLY)
@@ -244,7 +252,7 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
 				let mut connection = conn_map.get_connection (conn_id).unwrap ();
 				connection.send_message (&args, blocking)
 			},
-			None => Err(MsgErr::InvlReply),
+			None => Err(SysErr::InvlArgs),
 		}
 	}
 	else
@@ -253,7 +261,7 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, MsgErr>
 		let mut connection = conn_map.get_connection (conn_id).unwrap ();
 		connection.insert_endpoint (Endpoint::new (proc_c ().pid (), thread_c ().tid ()));
 
-		proc_list.lock ().get (&target_pid).ok_or (MsgErr::InvlId)?
+		proc_list.lock ().get (&target_pid).ok_or (SysErr::InvlId)?
 			.add_endpoint (&mut connection)?;
 
 		connection.send_message (&args, blocking)

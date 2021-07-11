@@ -14,6 +14,7 @@
 #![feature(map_first_last)]
 #![feature(stmt_expr_attributes)]
 #![feature(map_try_insert)]
+#![feature(const_mut_refs)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
