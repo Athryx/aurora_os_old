@@ -163,7 +163,7 @@ pub fn sti_hlt ()
 // so there is no need for special synchronization, simple usize will do
 static mut cli_count: usize = 1;
 
-#[inline]
+/*#[inline]
 pub fn cli_safe ()
 {
 	cli ();
@@ -188,7 +188,7 @@ pub fn cli_inc ()
 pub fn sti_inc ()
 {
 	unsafe { cli_count = cli_count.saturating_sub (1) }
-}
+}*/
 
 pub fn is_int_enabled () -> bool
 {

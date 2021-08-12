@@ -497,13 +497,6 @@ impl ZoneManager
 		self.zlen.set (zlen);
 	}
 
-	fn get_allocer (&self) -> usize
-	{
-		// I don't really know what the ordering part means, but I think relaxed is good
-		let selnum = self.selnum.fetch_add (1, Ordering::Relaxed);
-		selnum % self.zlen.get ()
-	}
-
 	fn allocer_action<F> (&self, mut f: F) -> Option<Allocation>
 		where F: FnMut(&mut BuddyAllocator) -> Option<Allocation>
 	{

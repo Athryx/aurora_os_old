@@ -293,9 +293,9 @@ pub extern "C" fn sys_print_debug (vals: &mut SyscallVals)
 		{
 			unsafe
 			{
-				R_WRITER.write_byte (get_bits (bytes, i..(i + 8)) as u8);
+				R_WRITER.write_byte (get_bits (bytes, (8 * i)..(8 * i + 8)) as u8);
 			}
-			i += 8;
+			i += 1;
 			n -= 1;
 		}
 		n

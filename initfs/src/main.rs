@@ -12,19 +12,18 @@ fn main ()
 	{
 		let options = ReallocOptions::READ | ReallocOptions::WRITE | ReallocOptions::EXEC;
 		let (addr, size) = realloc (0, 4096, 0, options).unwrap ();
-		//let (addr2, size2) = realloc (0, 4 * 4096, 0x47000, options).unwrap ();
-		//let _ = realloc (addr2, 0, 0, options).unwrap ();
-		//let (addr, size) = realloc (addr, 2 * 4096, 0, options).unwrap ();
-		//let (addr, size) = realloc (addr, 4 * 4096, 0x46000, options).unwrap ();
-		//let (addr, size) = realloc (addr, 5 * 4096, 0x46000, options).unwrap ();
+		let (addr2, size2) = realloc (0, 4 * 4096, 0x47000, options).unwrap ();
+		let _ = realloc (addr2, 0, 0, options).unwrap ();
+		let (addr, size) = realloc (addr, 2 * 4096, 0, options).unwrap ();
+		let (addr, size) = realloc (addr, 4 * 4096, 0x46000, options).unwrap ();
+		let (addr, size) = realloc (addr, 5 * 4096, 0x46000, options).unwrap ();
 
-		asm!(
-			"mov al, 72",
-			"out 0xe9, al",
-			out("al") _);
+		loop
+		{
+			println! ("Hello, World!");
+			//println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
+		}
 
-		//print_debug (&[b'h'; 80], 80);
-		//println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
 		asm!(
 			"lbl:",
 			"mov rax, 0",

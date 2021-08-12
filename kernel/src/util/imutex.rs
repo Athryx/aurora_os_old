@@ -68,11 +68,3 @@ impl<T> DerefMut for IMutexGuard<'_, T>
 		&mut self.0
 	}
 }
-
-/*impl<T: ?Sized> Drop for IMutexGuard<'_, T>
-{
-	fn drop (&mut self)
-	{
-		sti_safe ();
-	}
-}*/

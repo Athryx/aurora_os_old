@@ -41,7 +41,7 @@ syscall_entry:
 	shl rax, 32		; cant use and because it messes things up
 	shr rax, 32
 
-	cmp rax, 21		; make sure it is a valid syscall
+	cmp rax, 24		; make sure it is a valid syscall
 	jg .invalid_syscall
 
 	mov rdi, rsp
@@ -57,7 +57,7 @@ syscall_entry:
 	jmp .valid_syscall
 
 .invalid_syscall:
-	add rsp, 16
+	add rsp, 8
 	mov rax, -1 
 
 .valid_syscall:
