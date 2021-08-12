@@ -84,14 +84,13 @@ impl Connection
 
 	pub fn send_message (&mut self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
 	{
-		let tid = thread_c ().tid ();
 		let pid = proc_c ().pid ();
 		let plist = proc_list.lock ();
 
 		let mut i = 0;
 		while let Some(endpoint) = self.endpoints.get (i)
 		{
-			if endpoint.pid != pid || endpoint.tid != tid
+			if endpoint.pid != pid
 			{
 				match plist.get (&endpoint.pid)
 				{

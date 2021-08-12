@@ -1,6 +1,7 @@
 TODO:
 more descriptive error values
 error values are written in kernel, just not described well heare
+slightly more consistant names
 
 decide if vfs should go in kernel or not
 if it does, can probably remove the info syscall and just use a proc like filesystem
@@ -56,10 +57,25 @@ r15: arg 8
 more details about this abi under msg syscall
 
 
-0: info
+0: fn info ()
 
 
-2: fn thread_new (rip: usize) -> (tid: usize, err: usize)
+// TODO: specify ProcStartData
+1: fn spawn (addr: usize, len: usize, psdata: *const ProcStartData) -> (pid: usize, err: SysErr)
+spawns a new process
+{addr} points to the start of the memory containing the elf executable to be loaded, {len} is the length of the elf executable in bytes
+{psdata} contains additional data for the process, and the information in it will be mapped into the new process' memory
+the exact data in the ProcStartData structure is TBD, but it will likely have things like command line arguments, stdio smid, uid, etc.
+spawn can only be called by a superuser process
+
+return value:
+pid:
+pid of new process
+err:
+syserr code
+
+
+2: fn thread_new (rip: usize) -> (tid: usize, err: SysErr)
 creates a new thread and returns its id
 the thread function should not return, it should call thread_block with destroy in order to terminate itself
 
@@ -67,8 +83,7 @@ return value:
 tid:
 thread id
 err:
-0: success
-1: error, could not create thread, value in .0 is garbage
+syserr code
 
 
 3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize)
@@ -111,7 +126,7 @@ memory zone or into a non shared memory zone
 10: set_thread_properties
 
 
-11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (mem: usize, len: usize, err: usize)
+11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (mem: usize, len: usize, err: SysErr)
 allocates, rellocates, or frees memory pointed to by mem
 
 if {mem} == 0:
@@ -162,8 +177,7 @@ len:
 length of memory allocated in pages, this is guarenteed to ba at least {len} pages long,
 but it could be longer than specified, unless the realloc_exact option is specified
 err:
-0: success
-1: failure
+syserr code
 
 
 12: fn mmio_map (phys_addr: usize, n: usize) -> usize
@@ -180,13 +194,12 @@ unmaps memory previously mapped by mmap
 only superuser or iopriv processes can call munmap
 
 
-14: fn port_map (port: usize) -> usize
+14: fn port_map (port: usize) -> SysErr
 allows the process to use port {port}
 only superuser or iopriv processes can call munmap
 
 return value:
-0: success
-1: failure
+syserr code
 
 
 15: fn port_unmap (port: usize)
@@ -194,24 +207,55 @@ the process can no longer use port {port}
 only superuser or iopriv processes can call munmap
 
 
-16: fn salloc (pages: usize) -> usize
+16: fn salloc (pages: usize) -> (smid: usize, err: SysErr)
 allocate shared memory to be shared with msg
+returns the shared memory id (smid) that can be mapped with smap or shared with msg
+NOTE: smids are process local, so they must be shared with msg, and they cannot be shared using other shared memory
+
+options:
+bit 0 (read):
+allows reading of shared memory
+
+bit 1 (write):
+allows writing to shared memory
+
+bit 2 (exec):
+allows executing instrcutions from shared memory
+
+return value:
+smid:
+shared memory id
+err:
+syserr code
 
 
-17: fn sdealloc (addr: usize)
+17: fn sdealloc (smid: usize)
 free shared memory allocated by salloc or recieved by another process
-removes the shared memory from current address space, and once all processes that had it
-free it, shared memory is deallocated from physical memory
+unmaps the shared memory if it has not yet been unmapped, and it invalidates {smid}
+once all processess that had the shared memory free it, the shared memory is deallocated from physical memory
 
 
-18: fn smem_size (addr: usize) -> usize
-returns the size of shared memory at {addr} in pages
-returns 0 if there is no shared memory at {addr}
+18: fn smap (smid: usize) -> (addr: usize, pages: usize, err: usize)
+mappes the shared memory with id {smid}
+
+return value:
+addr: address of shared memory
+pages: length of shared memory region in pages
+err: syserr code
 
 
-19: mprotect (addr: usize) -> usize
+19: fn sunmap (smid: usize)
+unmaps the shared memory with id {smid}
+
+
+20: fn smem_size (smid: usize) -> usize
+returns the size of shared memory at {smid} in pages
+returns 0 if there is no shared memory with id {smid}
+
+
+21: fn mprotect (addr: usize) -> usize
 sets the read, write, and execute permissions on a chunk of memory
-mprotect cannot be called on shared memory after it has already been shared
+mprotect cannot be called on shared memory
 
 options:
 bit 0 (read):
@@ -228,41 +272,39 @@ return valus:
 1: failure
 
 
-20: fn reg (domain: usize, rip: usize, | gid: usize) -> usize
+22: fn reg (domain: usize, rip: usize, | gid: usize) -> SysErr
 register function at instrcution pointer {rip} to handle messages with domain {domain}
 
 options:
 bit 0 (reg_block):
 0: will spawn a new thread to handle the message
-1: will block the current thread and switch to a temporary stack to handle the message
-use msg_return to leave this temporary stack
+1: will spawn a new thread to handle the message, and will block the current thread until the other thread terminates
 
 bit 1 (reg_default):
 0: reg registers function only for specified domain
 1: reg registers function to respond to all domains that don't have an individual function registered to handle them
 
-bit 2 (reg_public):
-TODO: explain application modules and trees better
-0: private, domain cannot be messaged from an application not in the same module in the application tree
-1: public, domain can be messaged from outside the application module, assuming parent application modules are public
+bit 2 (reg_local):
+0: global, registers handler to respond to messages sent by executable name
+1: local, registers handler to respond to messages sent by pid
 
 bit 3 (reg_group):
 0: ignore gid argument
 1: applications must be member of group specified by {gid} to message this domain
-repated calls with {rip} == 0  and reg_group bit set will allow multiple groups to access this domain
+repated calls with {rip} == 0 and reg_group bit set will allow multiple groups to access this domain
 
 return value:
-0: success
-1: failure
+syserr code
 
-21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> usize
-send a message to another process
+
+23: fn msg (exec_name: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize) -> SysErr
+send a message to another process (process cannot message itself)
 note: this syscall returns using the message handler api
 
 options:
 bit 0 (msg_pid):
-0: send message to all processes with executable id specified in arg
-1: send message to process with pid
+0: send message to all processes with name {exec_name}
+1: send message to process with pid {pid}
 
 bit 1 (msg_block):
 0: do not wait for reply from other process
@@ -273,21 +315,23 @@ if the other process replies, the data will be put in this processes registers
 bit 2 (msg_reply):
 0: create a new connection to specified process or processes
 1: reply to connection this thread is currently part of, will fail if it is not apart of the connection
-if this option is used pid and eid are ignored
+if this option is used pid and exec_name are ignored
 
-bit 4-7 (smem_transfer_mask):
-transfers shared memory pointed to by a certain register to other process
-the recieving process has the memory mapped in their address space, and recieves a pointer to the memory in the respective register
-the calling process also recieves the size of the shared memory in the next register
-this means that the argument adjacent to the sending process is not sent
-bit 4 set: transfers a1
-bit 5 set: transfers a3
-bit 6 set: transfers a5
-bit 7 set: transfers a7
+bit 8-15 (smem_transfer_mask):
+transfers shared memory references by smid in a certain register to other process
+the recieving process recieves an smid that can be mapped with smap
+bit 8 set: transfers a1
+bit 9 set: transfers a2
+bit 10 set: transfers a3
+bit 11 set: transfers a4
+bit 12 set: transfers a5
+bit 13 set: transfers a6
+bit 14 set: transfers a7
+bit 15 set: transfers a8
 
 return value:
 this syscall returns using the message handler api if it is called with msg_reply flag set
-if it is not called with msg_reply, it will return msg_return_value normaly
+if it is not called with msg_reply, it will return msg_return_value normaly, wich is a syserr code
 
 message handler abi:
 rax: flags
@@ -309,40 +353,16 @@ r15: arg 8
 
 options:
 bits 0-7 (msg_return_value):
-0 (recieve):
-this thread never called msg, and is recieving a message from another thread
-1 (non_block_ok):
-non blocking success
-original registers preserved, excapt for rax and other registers not preserved by syscall api
-2 (block_ok_resp):
-blocking success, and the recipient responded
-3 (block_ok_ret):
-blocking success, and the recipient called msg_return before responding
-original registers preserved, excapt for rax and other registers not preserved by syscall api
-4 (block_ok_term):
-blocking success, and the recipient thread terminated before responding
-original registers preserved, excapt for rax and other registers not preserved by syscall api
-5 (invl_id):
-no process with eid or pid exists, or thread tried to msg its own process
-original registers preserved, excapt for rax and other registers not preserved by syscall api
-6 (invl_priv):
-process does not have sufficient permissions to message specified process on the selected domain
-original registers preserved, excapt for rax and other registers not preserved by syscall api
-7 (invl_reply):
-msg_reply bit was set, but the thread was not part of an existing connection
-original registers preserved, excapt for rax and other registers not preserved by syscall api
-8 (unknown):
-unknown error
+syserr code
 it is not specified if original registers are preserved
 
-bit 8-11 (smem_transfer_mask):
-this bitmask specifies which args contain pointers to shared memory
-bit 8 set: arg1 has pointer to shared memory, arg2 has lenth of shared memory in pages
-bit 9 set: arg3 has pointer to shared memory, arg4 has lenth of shared memory in pages
-bit 10 set: arg5 has pointer to shared memory, arg6 has lenth of shared memory in pages
-bit 11 set: arg7 has pointer to shared memory, arg8 has lenth of shared memory in pages
-
-
-22: fn msg_return ()
-returns off the message stack, and back to the regular stack, and restores all original registers
-causes any other threads waiting for a reply to unblock
+bit 8-15 (smem_transfer_mask):
+this bitmask specifies which args contain smids
+bit 8 set: arg 1 has smid
+bit 9 set: arg 2 has smid
+bit 10 set: arg 3 has smid
+bit 11 set: arg 4 has smid
+bit 12 set: arg 5 has smid
+bit 13 set: arg 6 has smid
+bit 14 set: arg 7 has smid
+bit 15 set: arg 8 has smid
