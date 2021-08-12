@@ -20,8 +20,8 @@ fn main ()
 
 		loop
 		{
-			println! ("Hello, World!");
-			//println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
+			//println! ("Hello, World!");
+			println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
 		}
 
 		asm!(

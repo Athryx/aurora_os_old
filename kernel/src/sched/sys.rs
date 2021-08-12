@@ -4,6 +4,10 @@ use crate::syscall::SyscallVals;
 use crate::sysret;
 use super::*;
 
+pub extern "C" fn spawn (vals: &mut SyscallVals)
+{
+}
+
 pub extern "C" fn thread_new (vals: &mut SyscallVals)
 {
 	let rip = vals.a1;

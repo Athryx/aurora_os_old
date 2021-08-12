@@ -1,5 +1,6 @@
 use core::cmp::min;
 use core::marker::PhantomData;
+use core::slice;
 use crate::uses::*;
 use crate::mb2::BootInfo;
 
@@ -187,14 +188,41 @@ impl PhysRange
 		self.as_usize () + self.size
 	}
 
+	pub unsafe fn as_slice (&self) -> &[u8]
+	{
+		slice::from_raw_parts (self.as_usize () as *const u8, self.size)
+	}
+
 	pub fn contains (&self, addr: PhysAddr) -> bool
 	{
 		(addr >= self.addr) && (addr < (self.addr + self.size))
 	}
 
+	// NOTE: this only returns if it intersects at all, not if the range is fully contained in this range
 	pub fn contains_range (&self, range: Self) -> bool
 	{
 		self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
+	}
+
+	pub fn full_contains_range (&self, range: Self) -> bool
+	{
+		self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
+	}
+
+	pub fn merge (&self, other: Self) -> Option<Self>
+	{
+		if self.end_addr () == other.addr ()
+		{
+			Some(Self::new_unaligned (self.addr (), self.size () + other.size ()))
+		}
+		else if other.end_addr () == self.addr ()
+		{
+			Some(Self::new_unaligned (other.addr (), self.size () + other.size ()))
+		}
+		else
+		{
+			None
+		}
 	}
 
 	pub fn split_at (&self, range: Self) -> (Option<PhysRange>, Option<PhysRange>)
@@ -415,14 +443,41 @@ impl VirtRange
 		self.as_usize () + self.size
 	}
 
+	pub unsafe fn as_slice (&self) -> &[u8]
+	{
+		slice::from_raw_parts (self.as_usize () as *const u8, self.size)
+	}
+
 	pub fn contains (&self, addr: VirtAddr) -> bool
 	{
 		(addr >= self.addr) && (addr < (self.addr + self.size))
 	}
 
+	// NOTE: this only returns if it intersects at all, not if the range is fully contained in this range
 	pub fn contains_range (&self, range: Self) -> bool
 	{
 		self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
+	}
+
+	pub fn full_contains_range (&self, range: Self) -> bool
+	{
+		self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
+	}
+
+	pub fn merge (&self, other: Self) -> Option<Self>
+	{
+		if self.end_addr () == other.addr ()
+		{
+			Some(Self::new_unaligned (self.addr (), self.size () + other.size ()))
+		}
+		else if other.end_addr () == self.addr ()
+		{
+			Some(Self::new_unaligned (other.addr (), self.size () + other.size ()))
+		}
+		else
+		{
+			None
+		}
 	}
 
 	pub fn split_at (&self, range: Self) -> (Option<VirtRange>, Option<VirtRange>)

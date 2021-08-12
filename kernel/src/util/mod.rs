@@ -34,7 +34,17 @@ pub use mem::MemOwner;
 
 mod atomic;
 pub use atomic::AtomicU128;
-	
+
+pub fn optac<T, F> (opt: Option<T>, f: F) -> bool
+	where F: FnOnce(T) -> bool
+{
+	match opt
+	{
+		Some(val) => f (val),
+		None => false,
+	}
+}
+
 fn to_heap<V> (object: V) -> *mut V
 {
 	Box::into_raw (Box::new (object))
@@ -43,6 +53,14 @@ fn to_heap<V> (object: V) -> *mut V
 unsafe fn from_heap<V> (ptr: *const V) -> V
 {
 	*Box::from_raw (ptr as *mut _)
+}
+
+pub fn copy_to_heap (slice: &[u8]) -> Vec<u8>
+{
+	let mut out = Vec::with_capacity (slice.len ());
+	out.resize (slice.len (), 0);
+	out.copy_from_slice (slice);
+	out
 }
 
 use alloc::alloc::Layout;
