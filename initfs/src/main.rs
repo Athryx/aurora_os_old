@@ -23,8 +23,8 @@ fn main ()
 			"out 0xe9, al",
 			out("al") _);
 
-		print_debug (&[b'h'; 80], 80);
-		println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
+		//print_debug (&[b'h'; 80], 80);
+		//println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
 		asm!(
 			"lbl:",
 			"mov rax, 0",

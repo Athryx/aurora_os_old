@@ -10,7 +10,7 @@ use alloc::alloc::{Global, Allocator, Layout};
 use crate::uses::*;
 use crate::int::idt::{Handler, IRQ_TIMER, INT_SCHED};
 use crate::util::{AvlTree, TreeNode, LinkedList, IMutex, IMutexGuard, UniqueRef, UniqueMut, UniquePtr, mlayout_of, MemOwner};
-use crate::arch::x64::{cli_safe, sti_safe, sti_inc, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
+use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
@@ -86,9 +86,6 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 		out = schedule (regs, nsec);
 	}
 
-	// returning from interrupt handler will set old flags
-	defer_unlock ();
-
 	out
 }
 
@@ -100,9 +97,6 @@ fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 	lock ();
 
 	let out = schedule (regs, timer.nsec ());
-
-	// returning from interrupt handler will set old flags
-	defer_unlock ();
 
 	out
 }
@@ -202,17 +196,7 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 // TODO: when smp addded, change these
 fn lock ()
 {
-	cli_safe ();
-}
-
-fn unlock ()
-{
-	sti_safe ();
-}
-
-fn defer_unlock ()
-{
-	sti_inc ();
+	cli ();
 }
 
 fn thread_cleaner ()

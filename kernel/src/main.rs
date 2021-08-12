@@ -155,11 +155,11 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	println! ("epoch v0.0.1");
 
-	sti_safe ();
+	sti ();
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
-	//test ();
+	test ();
 
 	loop {
 		hlt ();

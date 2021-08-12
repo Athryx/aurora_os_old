@@ -1,6 +1,6 @@
 use core::ops::{Deref, DerefMut};
 use spin::{Mutex, MutexGuard};
-use crate::arch::x64::{cli_safe, sti_safe};
+use crate::arch::x64::{IntDisable};
 
 // A Mutex that also disables interrupts when locked
 #[derive(Debug)]
@@ -20,14 +20,15 @@ impl<T> IMutex<T>
 
 	pub fn lock (&self) -> IMutexGuard<T>
 	{
-		cli_safe ();
-		IMutexGuard(self.0.lock ())
+		let int_disable = IntDisable::new ();
+		IMutexGuard(self.0.lock (), int_disable)
 	}
 
 	pub fn try_lock (&self) -> Option<IMutexGuard<T>>
 	{
+		let int_disable = IntDisable::new ();
 		self.0.try_lock ().map (|guard| {
-			IMutexGuard(guard)
+			IMutexGuard(guard, int_disable)
 		})
 	}
 
@@ -48,7 +49,7 @@ impl<T: ?Sized + Default> Default for IMutex<T>
 unsafe impl<T: ?Sized + Send> Send for IMutex<T> {}
 unsafe impl<T: ?Sized + Send> Sync for IMutex<T> {}
 
-pub struct IMutexGuard<'a, T: ?Sized + 'a>(MutexGuard<'a, T>);
+pub struct IMutexGuard<'a, T: ?Sized + 'a>(MutexGuard<'a, T>, IntDisable);
 
 impl<T> Deref for IMutexGuard<'_, T>
 {
@@ -68,10 +69,10 @@ impl<T> DerefMut for IMutexGuard<'_, T>
 	}
 }
 
-impl<T: ?Sized> Drop for IMutexGuard<'_, T>
+/*impl<T: ?Sized> Drop for IMutexGuard<'_, T>
 {
 	fn drop (&mut self)
 	{
 		sti_safe ();
 	}
-}
+}*/
