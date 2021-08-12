@@ -45,6 +45,11 @@ pub fn optac<T, F> (opt: Option<T>, f: F) -> bool
 	}
 }
 
+pub fn aligned_nonnull<T> (ptr: *const T) -> bool
+{
+	core::mem::align_of::<T> () == align_of (ptr as usize) && !ptr.is_null ()
+}
+
 fn to_heap<V> (object: V) -> *mut V
 {
 	Box::into_raw (Box::new (object))
@@ -55,10 +60,11 @@ unsafe fn from_heap<V> (ptr: *const V) -> V
 	*Box::from_raw (ptr as *mut _)
 }
 
-pub fn copy_to_heap (slice: &[u8]) -> Vec<u8>
+// TODO: make this not require defualt
+pub fn copy_to_heap<T: Copy + Default> (slice: &[T]) -> Vec<T>
 {
 	let mut out = Vec::with_capacity (slice.len ());
-	out.resize (slice.len (), 0);
+	out.resize (slice.len (), T::default ());
 	out.copy_from_slice (slice);
 	out
 }

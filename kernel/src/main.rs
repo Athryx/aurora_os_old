@@ -143,6 +143,12 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 	Ok(())
 }
 
+struct Test
+{
+	a: usize,
+	b: u8,
+}
+
 #[no_mangle]
 pub extern "C" fn _start (boot_info_addr: usize) -> !
 {
@@ -156,6 +162,9 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 	println! ("epoch v0.0.1");
 
 	sti ();
+
+	println! ("{}", core::mem::align_of::<Test> ());
+	println! ("{}", core::mem::size_of::<Test> ());
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 

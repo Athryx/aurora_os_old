@@ -136,8 +136,6 @@ impl HeapZone
 		let size = mem.len ();
 		let ptr = mem.as_usize () as *mut HeapZone;
 
-		rprintln! ("{}\n{}", size, INITIAL_CHUNK_SIZE);
-
 		let mut out = HeapZone {
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),

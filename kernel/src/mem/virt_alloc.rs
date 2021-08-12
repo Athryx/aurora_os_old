@@ -921,7 +921,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 	}
 
 	pub fn range_map<F, U> (&self, virt_zone: VirtRange, f: F) -> Option<U>
-		where F: FnOnce(&[u8]) -> U
+		where F: FnOnce(&[u8]) -> Option<U>
 	{
 		let btree = self.virt_map.lock ();
 		let mut prev_iter = btree.range (..virt_zone);
@@ -932,7 +932,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 		if optac (prev, |p| p.0.full_contains_range (virt_zone)) || optac (next, |n| n.0.full_contains_range (virt_zone))
 		{
-			return Some(f (unsafe { virt_zone.as_slice () }));
+			return f (unsafe { virt_zone.as_slice () });
 		}
 
 		if prev.is_some () && next.is_some ()
@@ -943,7 +943,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 			{
 				if range.full_contains_range (virt_zone)
 				{
-					return Some(f (unsafe { virt_zone.as_slice () }));
+					return f (unsafe { virt_zone.as_slice () });
 				}
 			}
 		}

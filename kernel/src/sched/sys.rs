@@ -1,11 +1,52 @@
 use crate::uses::*;
 use sys_consts::options::{RegOptions};
-use crate::syscall::SyscallVals;
+use crate::syscall::{SyscallVals, udata::{UserData, UserArray, UserString, fetch_data}};
+use crate::util::copy_to_heap;
 use crate::sysret;
 use super::*;
 
+#[derive(Debug, Clone, Copy)]
+struct ProcStartData
+{
+	name: UserString,
+	uid: usize,
+	args: UserArray<UserString>,
+}
+
+unsafe impl UserData for ProcStartData {}
+
+// FIXME: make sure uid is valid once uid system is added to kernel
+// FIXME: use args
 pub extern "C" fn spawn (vals: &mut SyscallVals)
 {
+	let elf_arr = UserArray::from_parts (vals.a1 as *const u8, vals.a2);
+
+	let psdata_ptr = vals.a3 as *const ProcStartData;
+	let psdata = match fetch_data (psdata_ptr)
+	{
+		Some(data) => data,
+		None => sysret! (vals, 0, SysErr::InvlPtr.num ()),
+	};
+
+	let name = match psdata.name.try_fetch ()
+	{
+		Some(name) => name,
+		None => sysret! (vals, 0, SysErr::InvlPtr.num ()),
+	};
+
+	let elf_data = match elf_arr.try_fetch ()
+	{
+		Some(data) => data,
+		None => sysret! (vals, 0, SysErr::InvlPtr.num ()),
+	};
+
+	let process = match Process::from_elf (&elf_data, PrivLevel::new (psdata.uid), name)
+	{
+		Ok(process) => process,
+		Err(_) => sysret! (vals, 0, SysErr::Unknown.num ()),
+	};
+
+	sysret! (vals, process.pid (), SysErr::Ok.num ());
 }
 
 pub extern "C" fn thread_new (vals: &mut SyscallVals)
