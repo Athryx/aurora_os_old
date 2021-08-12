@@ -19,6 +19,11 @@ unsafe impl UserData for ProcStartData {}
 // FIXME: use args
 pub extern "C" fn spawn (vals: &mut SyscallVals)
 {
+	if proc_c ().uid () != PrivLevel::SuperUser
+	{
+		sysret! (vals, 0, SysErr::InvlPriv.num ());
+	}
+
 	let elf_arr = UserArray::from_parts (vals.a1 as *const u8, vals.a2);
 
 	let psdata_ptr = vals.a3 as *const ProcStartData;
