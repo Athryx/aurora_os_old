@@ -5,11 +5,11 @@
 
 pub mod ext;
 pub mod os;
+pub mod io;
 
 mod uses;
 mod rt;
 mod panicking;
-
-use uses::*;
+mod macros;
 
 pub use core::*;

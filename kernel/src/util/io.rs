@@ -4,6 +4,8 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use crate::arch::x64::*;
 use crate::consts;
+use crate::syscall::SyscallVals;
+use crate::util::get_bits;
 
 const VGA_BUF_WIDTH: usize = 80;
 const VGA_BUF_HEIGHT: usize = 25;
@@ -280,4 +282,34 @@ pub fn _rprint (args: fmt::Arguments)
 	{
 		R_WRITER.write_fmt (args).unwrap ();
 	}
+}
+
+pub extern "C" fn sys_print_debug (vals: &mut SyscallVals)
+{
+	fn print_bytes (bytes: usize, mut n: usize) -> usize
+	{
+		let mut i = 0;
+		while i < core::mem::size_of::<usize> () && n > 0
+		{
+			unsafe
+			{
+				R_WRITER.write_byte (get_bits (bytes, i..(i + 8)) as u8);
+			}
+			i += 8;
+			n -= 1;
+		}
+		n
+	}
+
+	let mut n = core::cmp::min(vals.options, 80) as usize;
+	n = print_bytes (vals.a1, n);
+	n = print_bytes (vals.a2, n);
+	n = print_bytes (vals.a3, n);
+	n = print_bytes (vals.a4, n);
+	n = print_bytes (vals.a5, n);
+	n = print_bytes (vals.a6, n);
+	n = print_bytes (vals.a7, n);
+	n = print_bytes (vals.a8, n);
+	n = print_bytes (vals.a9, n);
+	print_bytes (vals.a10, n);
 }

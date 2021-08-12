@@ -368,7 +368,7 @@ bit 14 set: arg 7 has smid
 bit 15 set: arg 8 has smid
 
 
-24: fn debug_print (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
+24: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
 prints the characters specified in the arguments to the debug console
 this syscall is only for debugging until I write a terminal emulator
 each argument is a combination of 8 bit characters to print to the screen
