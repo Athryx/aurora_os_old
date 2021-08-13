@@ -160,7 +160,3 @@ pub extern "C" fn msg (vals: &mut SyscallVals)
 		},
 	}
 }
-
-pub extern "C" fn msg_return (_vals: &mut SyscallVals)
-{
-}
