@@ -1,6 +1,6 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{spawn, thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, msg};
+use crate::sched::sys::{spawn, thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, connect, disconnect, conn_info, msg};
 use crate::mem::sys::realloc;
 use crate::util::io::sys_print_debug;
 
@@ -16,30 +16,33 @@ extern "C"
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
-static syscalls: [SyscallFunc; 25] = [
-	sys_hi,
+static syscalls: [SyscallFunc; 28] = [
+	sys_nop,
 	spawn,
 	thread_new,
 	thread_block,
-	sys_hi,
-	sys_hi,
+	sys_nop,
+	sys_nop,
 	futex_block,
 	futex_unblock,
 	futex_move,
-	sys_hi,
-	sys_hi,
+	sys_nop,
+	sys_nop,
 	realloc,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
-	sys_hi,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
+	sys_nop,
 	reg,
+	connect,
+	disconnect,
+	conn_info,
 	msg,
 	sys_print_debug,
 ];
@@ -173,14 +176,8 @@ macro_rules! sysret
 	}};
 }
 
-extern "C" fn sys_hi (vals: &mut SyscallVals)
+extern "C" fn sys_nop (_: &mut SyscallVals)
 {
-	//println! ("hi");
-	/*eprintln! ("vals: {:#x?}", vals);
-	eprintln! ("options {:x}", vals.options);
-	eprintln! ("num {}", vals.a1);*/
-	vals.a1 = 0x43;
-	vals.a2 = 0x53;
 }
 
 pub fn init ()

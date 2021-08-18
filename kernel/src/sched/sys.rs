@@ -105,34 +105,81 @@ pub extern "C" fn futex_move (vals: &mut SyscallVals)
 	vals.a1 = proc_c ().futex_move (addr_old, ThreadState::FutexBlock(addr_new), n);
 }
 
-// TODO: handle reg_public and reg_group options
+// TODO: handle reg_group option
 pub extern "C" fn reg (vals: &mut SyscallVals)
 {
 	let options = RegOptions::from_bits_truncate (vals.options);
-	let domain = vals.a1;
 	let rip = vals.a2;
-
-	let mut handler_options = HandlerOptions::new ();
-
 	let domain = if options.contains (RegOptions::DEFAULT)
 	{
 		None
 	}
 	else
 	{
-		Some(domain)
+		Some(vals.a1)
 	};
 
-	if options.contains (RegOptions::BLOCK)
+	let block_mode = if options.contains (RegOptions::BLOCK)
 	{
-		handler_options.blocking_mode = BlockMode::Blocking(thread_c ().tid ());
+		BlockMode::Blocking(thread_c ().tid ())
+	}
+	else
+	{
+		BlockMode::NonBlocking
+	};
+	let public = options.contains (RegOptions::PUBLIC);
+
+	let handler_options = HandlerOptions::new (block_mode, public);
+	let process = proc_c ();
+	let pid = process.pid ();
+	let handler = DomainHandler::new (rip, pid, handler_options);
+
+	let remove = options.contains (RegOptions::REMOVE);
+
+	if options.contains (RegOptions::GLOBAL)
+	{
+		let mut dlock = global_domain_map.lock ();
+		let dmap = dlock.get_mut (process.name ()).unwrap ();
+
+		if remove
+		{
+			if !dmap.remove (pid, domain)
+			{
+				sysret! (vals, SysErr::InvlPriv.num ());
+			}
+		}
+		else if !dmap.register (pid, domain, handler)
+		{
+			sysret! (vals, SysErr::InvlPriv.num ());
+		}
+	}
+	else
+	{
+		// don't need to check if fail, because no other processes will insert into this one
+		let mut dmap = process.domains ().lock ();
+		if remove
+		{
+			dmap.remove (pid, domain);
+		}
+		else
+		{
+			dmap.register (pid, domain, handler);
+		}
 	}
 
-	let handler = DomainHandler::new (rip, handler_options);
+	sysret! (vals, SysErr::Ok.num ());
+}
 
-	proc_c ().domains ().lock ().register (domain, handler);
+pub extern "C" fn connect (vals: &mut SyscallVals)
+{
+}
 
-	sysret! (vals, 0);
+pub extern "C" fn disconnect (vals: &mut SyscallVals)
+{
+}
+
+pub extern "C" fn conn_info (vals: &mut SyscallVals)
+{
 }
 
 // TODO: handler msg_pid and smem_transfer_mask options

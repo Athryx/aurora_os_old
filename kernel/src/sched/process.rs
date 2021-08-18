@@ -248,6 +248,11 @@ impl Process
 		self.pid
 	}
 
+	pub fn name (&self) -> &String
+	{
+		&self.name
+	}
+
 	pub fn uid (&self) -> PrivLevel
 	{
 		self.uid
@@ -382,7 +387,7 @@ impl Process
 	{
 		let dmap = self.domains.lock ();
 		let handler = dmap.get (conn.domain ()).ok_or (SysErr::InvlPriv)?;
-		let tid = match handler.options ().blocking_mode
+		let tid = match handler.options ().block_mode
 		{
 			BlockMode::Blocking(tid) => {
 				// check if thread with tid exists

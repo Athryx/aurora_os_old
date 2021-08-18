@@ -45,6 +45,16 @@ pub fn optac<T, F> (opt: Option<T>, f: F) -> bool
 	}
 }
 
+pub fn optnac<T, F> (opt: Option<T>, f: F) -> bool
+	where F: FnOnce(T) -> bool
+{
+	match opt
+	{
+		Some(val) => f (val),
+		None => true,
+	}
+}
+
 pub fn aligned_nonnull<T> (ptr: *const T) -> bool
 {
 	core::mem::align_of::<T> () == align_of (ptr as usize) && !ptr.is_null ()

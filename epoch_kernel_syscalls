@@ -40,7 +40,7 @@ message handler abi:
 rax: flags
 rbx: sender pid
 rcx: unused
-rdx: domain
+rdx: cid
 rbp: unused
 rsp: unused
 rsi: arg 1
@@ -61,7 +61,7 @@ more details about this abi under msg syscall
 
 
 // TODO: specify ProcStartData
-1: fn spawn (addr: usize, len: usize, psdata: *const ProcStartData) -> (pid: usize, err: SysErr)
+1: fn spawn (addr: usize, len: usize, psdata: *const ProcStartData) -> (err: SysErr, pid: usize)
 spawns a new process
 {addr} points to the start of the memory containing the elf executable to be loaded, {len} is the length of the elf executable in bytes
 {psdata} contains additional data for the process, and the information in it will be mapped into the new process' memory
@@ -69,21 +69,21 @@ the exact data in the ProcStartData structure is TBD, but it will likely have th
 spawn can only be called by a superuser process
 
 return value:
-pid:
-pid of new process
 err:
 syserr code
+pid:
+pid of new process
 
 
-2: fn thread_new (rip: usize) -> (tid: usize, err: SysErr)
+2: fn thread_new (rip: usize) -> (err: SysErr, tid: usize)
 creates a new thread and returns its id
 the thread function should not return, it should call thread_block with destroy in order to terminate itself
 
 return value:
-tid:
-thread id
 err:
 syserr code
+tid:
+thread id
 
 
 3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize)
@@ -126,7 +126,7 @@ memory zone or into a non shared memory zone
 10: set_thread_properties
 
 
-11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (mem: usize, len: usize, err: SysErr)
+11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (err: SysErr, mem: usize, len: usize)
 allocates, rellocates, or frees memory pointed to by mem
 
 if {mem} == 0:
@@ -171,22 +171,22 @@ bit 4 (realloc_exact):
 specifieng this option could lead to wasted physical memory
 
 return value:
+err:
+syserr code
 mem:
 pointer to start of memory, or 0 if all memory was freed or there was an error
 len:
 length of memory allocated in pages, this is guarenteed to ba at least {len} pages long,
 but it could be longer than specified, unless the realloc_exact option is specified
-err:
-syserr code
 
 
-12: fn mmio_map (phys_addr: usize, n: usize) -> usize
+12: fn mmio_map (phys_addr: usize, n: usize) -> (err: SysErr, addr: usize)
 maps n pages starting at physical address phys_addr into the calling process's address space
 only superuser or iopriv processes can call mmap
 
 return value:
-0: mmap was called with insufficent privallages or the requested memory zone is not memory mapped io
-any other value: virtual address of mapped region
+err: syserr code
+addr: virtual address of mapped region
 
 
 13: fn mmio_unmap (virt_addr: usize)
@@ -207,7 +207,7 @@ the process can no longer use port {port}
 only superuser or iopriv processes can call munmap
 
 
-16: fn salloc (pages: usize) -> (smid: usize, err: SysErr)
+16: fn salloc (pages: usize) -> (err: SysErr, smid: usize)
 allocate shared memory to be shared with msg
 returns the shared memory id (smid) that can be mapped with smap or shared with msg
 NOTE: smids are process local, so they must be shared with msg, and they cannot be shared using other shared memory
@@ -223,10 +223,8 @@ bit 2 (exec):
 allows executing instrcutions from shared memory
 
 return value:
-smid:
-shared memory id
-err:
-syserr code
+err: syserr code
+smid: shared memory id
 
 
 17: fn sdealloc (smid: usize)
@@ -235,13 +233,13 @@ unmaps the shared memory if it has not yet been unmapped, and it invalidates {sm
 once all processess that had the shared memory free it, the shared memory is deallocated from physical memory
 
 
-18: fn smap (smid: usize) -> (addr: usize, pages: usize, err: usize)
+18: fn smap (smid: usize) -> (err: SysErr, addr: usize, pages: usize)
 mappes the shared memory with id {smid}
 
 return value:
+err: syserr code
 addr: address of shared memory
 pages: length of shared memory region in pages
-err: syserr code
 
 
 19: fn sunmap (smid: usize)
@@ -284,38 +282,59 @@ bit 1 (reg_default):
 0: reg registers function only for specified domain
 1: reg registers function to respond to all domains that don't have an individual function registered to handle them
 
-bit 2 (reg_local):
-0: global, registers handler to respond to messages sent by executable name
-1: local, registers handler to respond to messages sent by pid
+bit 2 (reg_global):
+0: local, registers handler to respond to messages sent by pid
+1: global, registers handler to respond to messages sent by executable name
 
-bit 3 (reg_group):
+bit 3 (reg_public):
+0: private, processes can only message this domain when replying to a connection which was listening asynchronously
+1: public, and process can message this domain
+
+bit 4 (reg_remove):
+0: reg behaves normally
+1: reg removes the registered handler if any are registered
+
+bit 5 (reg_group):
 0: ignore gid argument
 1: applications must be member of group specified by {gid} to message this domain
 repated calls with {rip} == 0 and reg_group bit set will allow multiple groups to access this domain
 
 return value:
-syserr code
+syserr code:
+InvlPriv:
+could not register handler for domain under executable name because another process already registered a handler
 
 
-23: fn msg (exec_name: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize) -> SysErr
+23: fn connect (exec_name: *const c_char | pid: usize, domain: usize) -> (cid: usize, err: SysErr)
+open a connection with another process (can not open connection to self)
+
+options:
+bit 0 (connect_pid):
+0: open connection with domain handler registered for {exec_name}
+1: open connection with domain handler registered for process with pid {pid}
+
+return value:
+cid: connection id
+err: syserr code
+
+
+24: fn disconnect (cid: usize)
+close connection with cid {cid}
+
+
+25: conn_info (cid: usize)
+
+
+26: fn msg (cid: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> SysErr
 send a message to another process (process cannot message itself)
 note: this syscall returns using the message handler api
 
 options:
-bit 0 (msg_pid):
-0: send message to all processes with name {exec_name}
-1: send message to process with pid {pid}
-
 bit 1 (msg_block):
 0: do not wait for reply from other process
 if the other process replies, the handler registered for the reply domain will be called
 1: block until other process replies
 if the other process replies, the data will be put in this processes registers
-
-bit 2 (msg_reply):
-0: create a new connection to specified process or processes
-1: reply to connection this thread is currently part of, will fail if it is not apart of the connection
-if this option is used pid and exec_name are ignored
 
 bit 8-15 (smem_transfer_mask):
 transfers shared memory references by smid in a certain register to other process
@@ -368,7 +387,7 @@ bit 14 set: arg 7 has smid
 bit 15 set: arg 8 has smid
 
 
-24: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
+27: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
 prints the characters specified in the arguments to the debug console
 this syscall is only for debugging until I write a terminal emulator
 each argument is a combination of 8 bit characters to print to the screen
