@@ -301,10 +301,29 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 }
 
 #[derive(Debug)]
+struct ConnMapEntry
+{
+	sender: bool,
+	conn: Arc<Connection>,
+}
+
+impl ConnMapEntry
+{
+	pub fn this_cpid (&self) -> ConnPid
+	{
+		self.conn.cpid (self.sender)
+	}
+
+	pub fn other_cpid (&self) -> ConnPid
+	{
+		self.conn.cpid (!self.sender)
+	}
+}
+
+#[derive(Debug)]
 pub struct ConnectionMap
 {
-	data: BTreeMap<usize, Arc<Connection>>,
-	ext_data: BTreeMap<usize, Arc<Connection>>,
+	data: Vec<ConnMapEntry>,
 	next_id: usize,
 }
 
@@ -313,28 +332,40 @@ impl ConnectionMap
 	pub fn new () -> Self
 	{
 		ConnectionMap {
-			data: BTreeMap::new (),
-			ext_data: BTreeMap::new (),
+			data: Vec::new (),
 			next_id: 0,
 		}
 	}
 
-	// TODO: handle connections being closed
-	// returns id of connection in this process
-	pub fn insert (&mut self, connection: Arc<Connection>) -> usize
+	fn get_index (&self, conn_id: usize) -> Result<usize, usize>
 	{
-		let id = self.next_id;
-		self.next_id += 1;
-		self.data.insert (id, connection);
-		id
+		self.data.binary_search_by (|probe| probe.this_cpid ().pid ().cmp (&conn_id))
 	}
 
-	// assocaiates an incoming connection id from another process with a connection id in this process
-	pub fn assoc (&mut self, conn_id: usize, ext_conn_id: usize)
+	pub fn next_id (&mut self) -> usize
 	{
-		if let Some(connection) = self.data.get (&conn_id)
+		let out = self.next_id;
+		self.next_id += 1;
+		out
+	}
+
+	// TODO: handle connections being closed
+	// returns true if connection inserted into map
+	// connection is connection to insert, pid is pid that this connection map is part of, in order to know which is the internal and extarnal ids
+	pub fn insert (&mut self, connection: Arc<Connection>, pid: usize) -> bool
+	{
+		let sender = connection.is_sender (pid);
+		match self.get_index (connection.cpid (sender).conn_id ())
 		{
-			self.ext_data.insert (ext_conn_id, connection.clone ());
+			Ok(_) => false,
+			Err(index) => {
+				let input = ConnMapEntry {
+					sender,
+					conn: connection,
+				};
+				self.data.insert (index, input);
+				true
+			},
 		}
 	}
 
@@ -345,12 +376,19 @@ impl ConnectionMap
 
 	pub fn get_int (&self, conn_id: usize) -> Option<&Arc<Connection>>
 	{
-		self.data.get (&conn_id)
+		self.data.get (self.get_index (conn_id).ok ()?).map (|cme| &cme.conn)
 	}
 
 	pub fn get_ext (&self, conn_id: usize) -> Option<&Arc<Connection>>
 	{
-		self.ext_data.get (&conn_id)
+		for cpid in self.data.iter ()
+		{
+			if cpid.other_cpid ().conn_id () == conn_id
+			{
+				return Some(&cpid.conn);
+			}
+		}
+		None
 	}
 }
 
@@ -361,23 +399,53 @@ struct ConnInner
 	wating_thread: Option<MemOwner<Thread>>,
 }
 
+// FIXME: this is an awful name for this structure, and so are all the methods named pid that return this
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnPid
+{
+	pid: usize,
+	conn_id: usize,
+}
+
+impl ConnPid
+{
+	pub fn new (pid: usize, conn_id: usize) -> Self
+	{
+		ConnPid {
+			pid,
+			conn_id,
+		}
+	}
+
+	pub fn pid (&self) -> usize
+	{
+		self.pid
+	}
+
+	pub fn conn_id (&self) -> usize
+	{
+		self.conn_id
+	}
+}
+
 #[derive(Debug)]
 pub struct Connection
 {
 	domain: usize,
-	pids: usize,
-	pidr: usize,
+	cpids: ConnPid,
+	cpidr: ConnPid,
 	data: Futex<ConnInner>,
 }
 
 impl Connection
 {
-	pub fn new (domain: usize, handler: DomainHandler, pids: usize) -> Arc<Self>
+	pub fn new (domain: usize, handler: DomainHandler, cpids: ConnPid, cpidr: ConnPid) -> Arc<Self>
 	{
+		assert_eq! (handler.pid (), cpidr.pid ());
 		Arc::new (Connection {
 			domain,
-			pids: pids,
-			pidr: handler.pid (),
+			cpids,
+			cpidr,
 			data: Futex::new (ConnInner {
 				init_handler: Some(handler),
 				wating_thread: None,
@@ -390,20 +458,53 @@ impl Connection
 		self.domain
 	}
 
-	pub fn other (&self, pid: usize) -> usize
+	pub fn this (&self, pid: usize) -> ConnPid
 	{
-		if pid == self.pids
+		if pid == self.cpids.pid ()
 		{
-			self.pidr
+			self.cpids
 		}
-		else if pid == self.pidr
+		else if pid == self.cpidr.pid ()
 		{
-			self.pids
+			self.cpidr
 		}
 		else
 		{
 			panic! ("process is not part of connection it is messaging on");
 		}
+	}
+
+	pub fn other (&self, pid: usize) -> ConnPid
+	{
+		if pid == self.cpids.pid ()
+		{
+			self.cpidr
+		}
+		else if pid == self.cpidr.pid ()
+		{
+			self.cpids
+		}
+		else
+		{
+			panic! ("process is not part of connection it is messaging on");
+		}
+	}
+
+	pub fn cpid (&self, sender: bool) -> ConnPid
+	{
+		if sender
+		{
+			self.cpids
+		}
+		else
+		{
+			self.cpidr
+		}
+	}
+
+	pub fn is_sender (&self, pid: usize) -> bool
+	{
+		pid == self.cpids.pid ()
 	}
 
 	pub fn send_message (&self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
@@ -413,7 +514,7 @@ impl Connection
 		let process = proc_c ();
 		let other_pid = self.other (process.pid ());
 		let plock = proc_list.lock ();
-		let other_process = plock.get (&other_pid).ok_or (SysErr::MsgTerm)?.clone ();
+		let other_process = plock.get (&other_pid.pid ()).ok_or (SysErr::MsgTerm)?.clone ();
 
 		unimplemented! ();
 	}

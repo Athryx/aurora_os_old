@@ -281,6 +281,11 @@ impl Process
 		&self.connections
 	}
 
+	pub fn insert_connection (&self, connection: Arc<Connection>)
+	{
+		self.connections.lock ().insert (connection, self.pid);
+	}
+
 	pub fn get_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
 	{
 		unsafe
@@ -392,19 +397,6 @@ impl Process
 		}
 
 		count
-	}
-
-	// TODO: handle connections being closed
-	// returns id of connection in this process
-	pub fn insert_connection (&self, connection: Arc<Connection>) -> usize
-	{
-		self.connections.lock ().insert (connection)
-	}
-
-	// assocaiates an incoming connection id from another process with a connection id in this process
-	pub fn assoc_connection (&self, conn_id: usize, ext_conn_id: usize)
-	{
-		self.connections.lock ().assoc (conn_id, ext_conn_id);
 	}
 
 	// TODO: make sure terminating thread removes any registered domain handlers

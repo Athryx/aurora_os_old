@@ -225,17 +225,21 @@ pub extern "C" fn connect (vals: &mut SyscallVals)
 		sysret! (vals, SysErr::InvlId.num (), 0);
 	}
 
-	let connection = Connection::new (domain, handler, process.pid ());
+	let cid = process.connections ().lock ().next_id ();
+	let other_cid = other_process.connections ().lock ().next_id ();
+
+	let cpid = ConnPid::new (process.pid (), cid);
+	let other_cpid = ConnPid::new (other_process.pid (), other_cid);
+
+	let connection = Connection::new (domain, handler, cpid, other_cpid);
 
 	// NOTE: this doesn't keep locks of both connection maps in each process locked, because this could be a race condition
 	// as a result, msg could be called with a valid conn_id before connect returns, but this id would be invalid in the other process
 	// so msg needs to check if get_ext on connection map in other process returns none, than it should return InvlId
-	let int_id = process.insert_connection (connection.clone ());
-	let ext_id = other_process.insert_connection (connection);
-	process.assoc_connection (int_id, ext_id);
-	other_process.assoc_connection (ext_id, int_id);
+	process.insert_connection (connection.clone ());
+	other_process.insert_connection (connection);
 
-	sysret! (vals, SysErr::Ok.num (), int_id);
+	sysret! (vals, SysErr::Ok.num (), cid);
 }
 
 pub extern "C" fn disconnect (vals: &mut SyscallVals)
