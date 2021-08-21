@@ -23,7 +23,8 @@ pub enum SysErr
 	InvlArgs = 7,
 	InvlPriv = 8,
 	InvlId = 9,
-	Unknown = 10,
+	InvlString = 10,
+	Unknown = 11,
 }
 
 impl SysErr
@@ -62,6 +63,7 @@ impl SysErr
 			Self::InvlArgs => "invalid arguments",
 			Self::InvlPriv => "insufficent priveledge",
 			Self::InvlId => "invalid identifier",
+			Self::InvlString => "invalid utf-8 string",
 			Self::Unknown => "unknown error",
 		}
 	}

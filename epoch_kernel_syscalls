@@ -305,7 +305,7 @@ InvlPriv:
 could not register handler for domain under executable name because another process already registered a handler
 
 
-23: fn connect (exec_name: *const c_char | pid: usize, domain: usize) -> (cid: usize, err: SysErr)
+23: fn connect (exec_name: *const char | pid: usize, exec_name_len: usize |, domain: usize) -> (err: SysErr, cid: usize)
 open a connection with another process (can not open connection to self)
 
 options:
@@ -328,6 +328,8 @@ close connection with cid {cid}
 26: fn msg (cid: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> SysErr
 send a message to another process (process cannot message itself)
 note: this syscall returns using the message handler api
+the first msg sent will call the DomainHandler registered at the time of calling connect
+if the other process asynchronously awaits reply, subsequent replies will use the processess locally registered handler at the time of calling msg
 
 options:
 bit 1 (msg_block):

@@ -1,5 +1,5 @@
 use crate::uses::*;
-use sys_consts::options::{RegOptions};
+use sys_consts::options::{ConnectOptions, RegOptions};
 use crate::syscall::{SyscallVals, udata::{UserData, UserArray, UserString, fetch_data}};
 use crate::util::copy_to_heap;
 use crate::sysret;
@@ -138,8 +138,7 @@ pub extern "C" fn reg (vals: &mut SyscallVals)
 
 	if options.contains (RegOptions::GLOBAL)
 	{
-		let mut dlock = global_domain_map.lock ();
-		let dmap = dlock.get_mut (process.name ()).unwrap ();
+		let mut dmap = process.namespace ().domains ().lock ();
 
 		if remove
 		{
@@ -172,6 +171,71 @@ pub extern "C" fn reg (vals: &mut SyscallVals)
 
 pub extern "C" fn connect (vals: &mut SyscallVals)
 {
+	let options = ConnectOptions::from_bits_truncate (vals.options);
+	let domain = vals.a3;
+
+	let handler = if options.contains (ConnectOptions::PID)
+	{
+		let pid = vals.a1;
+		let plock = proc_list.lock ();
+		let process = match plock.get (&pid)
+		{
+			Some(process) => process,
+			None => sysret! (vals, SysErr::InvlId.num (), 0),
+		};
+		let dlock = process.domains ().lock ();
+		match dlock.get (domain)
+		{
+			Some(handler) => *handler,
+			None => sysret! (vals, SysErr::InvlId.num (), 0),
+		}
+	}
+	else
+	{
+		let ustring = UserString::from_parts (vals.a1 as *const u8, vals.a2);
+		let exec_name = match ustring.try_fetch ()
+		{
+			Some(string) => string,
+			None => sysret! (vals, SysErr::InvlString.num (), 0),
+		};
+		let namespace = match namespace_map.lock ().get (&exec_name)
+		{
+			// should be ok to unwrap because we hold lock, and namespaces ensure that when dropped it removes the weak from namespace_map
+			Some(namespace) => namespace.upgrade ().unwrap (),
+			None => sysret! (vals, SysErr::InvlId.num (), 0),
+		};
+		let dlock = namespace.domains ().lock ();
+		match dlock.get (domain)
+		{
+			Some(handler) => *handler,
+			None => sysret! (vals, SysErr::InvlId.num (), 0),
+		}
+	};
+
+	let process = proc_c ();
+	let plock = proc_list.lock ();
+	let other_process = match plock.get (&handler.pid ())
+	{
+		Some(process) => process,
+		None => sysret! (vals, SysErr::InvlId.num (), 0),
+	};
+
+	if process.pid () == other_process.pid ()
+	{
+		sysret! (vals, SysErr::InvlId.num (), 0);
+	}
+
+	let connection = Connection::new (domain, handler, process.pid ());
+
+	// NOTE: this doesn't keep locks of both connection maps in each process locked, because this could be a race condition
+	// as a result, msg could be called with a valid conn_id before connect returns, but this id would be invalid in the other process
+	// so msg needs to check if get_ext on connection map in other process returns none, than it should return InvlId
+	let int_id = process.insert_connection (connection.clone ());
+	let ext_id = other_process.insert_connection (connection);
+	process.assoc_connection (int_id, ext_id);
+	other_process.assoc_connection (ext_id, int_id);
+
+	sysret! (vals, SysErr::Ok.num (), int_id);
 }
 
 pub extern "C" fn disconnect (vals: &mut SyscallVals)
@@ -182,7 +246,7 @@ pub extern "C" fn conn_info (vals: &mut SyscallVals)
 {
 }
 
-// TODO: handler msg_pid and smem_transfer_mask options
+// TODO: handler smem_transfer_mask options
 pub extern "C" fn msg (vals: &mut SyscallVals)
 {
 	match connection::msg (vals)

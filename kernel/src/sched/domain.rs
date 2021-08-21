@@ -2,11 +2,6 @@ use crate::uses::*;
 use alloc::collections::BTreeMap;
 use crate::util::{Futex, optnac};
 
-lazy_static!
-{
-	pub static ref global_domain_map: Futex<BTreeMap<String, DomainMap>> = Futex::new (BTreeMap::new ());
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct DomainHandler
 {

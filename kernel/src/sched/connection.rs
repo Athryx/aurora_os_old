@@ -1,11 +1,13 @@
 use crate::uses::*;
 use sys_consts::options::MsgOptions;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use alloc::sync::Arc;
+use alloc::collections::BTreeMap;
 use crate::util::{Futex, FutexGaurd, NLVecMap};
 use crate::syscall::SyscallVals;
-use super::{proc_list, tlist, proc_c, thread_c, Registers, ThreadState};
+use super::*;
 
-lazy_static!
+/*lazy_static!
 {
 	pub static ref conn_map: ConnectionMap = ConnectionMap::new ();
 }
@@ -265,4 +267,133 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 
 		connection.send_message (&args, blocking)
 	}
+}*/
+
+pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
+{
+	let options = MsgOptions::from_bits_truncate (vals.options);
+	let blocking = options.contains (MsgOptions::BLOCK);
+
+	let process = proc_c ();
+
+	let cid = vals.a1;
+	let connection = match process.connections ().lock ().get_int (cid)
+	{
+		Some(connection) => connection.clone (),
+		None => return Err(SysErr::InvlId),
+	};
+
+	let args = MsgArgs {
+		options: SysErr::Ok.num () as u32,
+		sender_pid: process.pid (),
+		domain: connection.domain (),
+		a1: vals.a2,
+		a2: vals.a3,
+		a3: vals.a4,
+		a4: vals.a5,
+		a5: vals.a6,
+		a6: vals.a7,
+		a7: vals.a8,
+		a8: vals.a9,
+	};
+	unimplemented! ();
+}
+
+#[derive(Debug)]
+pub struct ConnectionMap
+{
+	data: BTreeMap<usize, Arc<Connection>>,
+	ext_data: BTreeMap<usize, Arc<Connection>>,
+	next_id: usize,
+}
+
+impl ConnectionMap
+{
+	pub fn new () -> Self
+	{
+		ConnectionMap {
+			data: BTreeMap::new (),
+			ext_data: BTreeMap::new (),
+			next_id: 0,
+		}
+	}
+
+	// TODO: handle connections being closed
+	// returns id of connection in this process
+	pub fn insert (&mut self, connection: Arc<Connection>) -> usize
+	{
+		let id = self.next_id;
+		self.next_id += 1;
+		self.data.insert (id, connection);
+		id
+	}
+
+	// assocaiates an incoming connection id from another process with a connection id in this process
+	pub fn assoc (&mut self, conn_id: usize, ext_conn_id: usize)
+	{
+		if let Some(connection) = self.data.get (&conn_id)
+		{
+			self.ext_data.insert (ext_conn_id, connection.clone ());
+		}
+	}
+
+	/*pub fn remove (&mut self, id: usize) -> Option<Arc<Connection>>
+	{
+		self.data.remove (&id)
+	}*/
+
+	pub fn get_int (&self, conn_id: usize) -> Option<&Arc<Connection>>
+	{
+		self.data.get (&conn_id)
+	}
+
+	pub fn get_ext (&self, conn_id: usize) -> Option<&Arc<Connection>>
+	{
+		self.ext_data.get (&conn_id)
+	}
+}
+
+#[derive(Debug)]
+pub struct Connection
+{
+	domain: usize,
+	pids: usize,
+	pidr: usize,
+	init_handler: Option<DomainHandler>,
+	wating_thread: Option<MemOwner<Thread>>,
+}
+
+impl Connection
+{
+	pub fn new (domain: usize, handler: DomainHandler, pids: usize) -> Arc<Self>
+	{
+		Arc::new (Connection {
+			domain,
+			pids: pids,
+			pidr: handler.pid (),
+			init_handler: Some(handler),
+			wating_thread: None,
+		})
+	}
+
+	pub fn domain (&self) -> usize
+	{
+		self.domain
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MsgArgs
+{
+	pub options: u32,
+	pub sender_pid: usize,
+	pub domain: usize,
+	pub a1: usize,
+	pub a2: usize,
+	pub a3: usize,
+	pub a4: usize,
+	pub a5: usize,
+	pub a6: usize,
+	pub a7: usize,
+	pub a8: usize,
 }

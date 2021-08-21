@@ -84,6 +84,13 @@ pub struct UserString
 
 impl UserString
 {
+	pub fn from_parts (ptr: *const u8, len: usize) -> Self
+	{
+		UserString {
+			data: UserArray::from_parts (ptr, len),
+		}
+	}
+
 	pub fn ptr (&self) -> *const u8
 	{
 		self.data.ptr ()

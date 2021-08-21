@@ -15,7 +15,8 @@ use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
 use super::domain::{DomainMap, BlockMode};
-use super::connection::{MsgArgs, Connection, Endpoint};
+use super::Namespace;
+use super::connection::{MsgArgs, Connection, ConnectionMap};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
@@ -137,7 +138,7 @@ impl IndexMut<ThreadState> for ThreadListProcLocal
 pub struct Process
 {
 	pid: usize,
-	name: String,
+	name: Arc<Namespace>,
 	self_ref: Weak<Self>,
 
 	uid: PrivLevel,
@@ -146,6 +147,7 @@ pub struct Process
 	threads: Mutex<BTreeMap<usize, MemOwner<Thread>>>,
 
 	domains: Futex<DomainMap>,
+	connections: Futex<ConnectionMap>,
 
 	pub tlproc: IMutex<ThreadListProcLocal>,
 
@@ -159,12 +161,13 @@ impl Process
 	{
 		Arc::new_cyclic (|weak| Self {
 			pid: NEXT_PID.fetch_add (1, Ordering::Relaxed),
-			name,
+			name: Namespace::new (name),
 			self_ref: weak.clone (),
 			uid,
 			next_tid: AtomicUsize::new (0),
 			threads: Mutex::new (BTreeMap::new ()),
 			domains: Futex::new (DomainMap::new ()),
+			connections: Futex::new (ConnectionMap::new ()),
 			tlproc: IMutex::new (ThreadListProcLocal::new ()),
 			addr_space: VirtMapper::new (&zm),
 		})
@@ -250,6 +253,11 @@ impl Process
 
 	pub fn name (&self) -> &String
 	{
+		self.name.name ()
+	}
+
+	pub fn namespace (&self) -> &Arc<Namespace>
+	{
 		&self.name
 	}
 
@@ -266,6 +274,11 @@ impl Process
 	pub fn domains (&self) -> &Futex<DomainMap>
 	{
 		&self.domains
+	}
+
+	pub fn connections (&self) -> &Futex<ConnectionMap>
+	{
+		&self.connections
 	}
 
 	pub fn get_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
@@ -325,7 +338,7 @@ impl Process
 	pub fn new_thread (&self, thread_func: usize, name: Option<String>) -> Result<usize, Err>
 	{
 		let tid = self.next_tid ();
-		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name, tid)), thread_func)?;
+		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name (), tid)), thread_func)?;
 		if self.insert_thread (unsafe { thread.clone () })
 		{
 			tlist.lock ()[ThreadState::Ready].push (thread);
@@ -381,9 +394,22 @@ impl Process
 		count
 	}
 
+	// TODO: handle connections being closed
+	// returns id of connection in this process
+	pub fn insert_connection (&self, connection: Arc<Connection>) -> usize
+	{
+		self.connections.lock ().insert (connection)
+	}
+
+	// assocaiates an incoming connection id from another process with a connection id in this process
+	pub fn assoc_connection (&self, conn_id: usize, ext_conn_id: usize)
+	{
+		self.connections.lock ().assoc (conn_id, ext_conn_id);
+	}
+
 	// TODO: make sure terminating thread removes any registered domain handlers
 	// TODO: more descriptive errors
-	pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), SysErr>
+	/*pub fn add_endpoint (&self, conn: &mut Connection) -> Result<(), SysErr>
 	{
 		let dmap = self.domains.lock ();
 		let handler = dmap.get (conn.domain ()).ok_or (SysErr::InvlPriv)?;
@@ -403,7 +429,7 @@ impl Process
 		};
 		conn.insert_endpoint (Endpoint::new (self.pid, tid));
 		Ok(())
-	}
+	}*/
 
 	// returns true if message succesfuly recieved and processed
 	/*pub fn message (&self, conn: &Connection, args: &MsgArgs) -> Result<(), Err>
@@ -453,7 +479,7 @@ impl Process
 	}*/
 
 	// returns true if message sent to thread
-	pub fn recieve_message (&self, connection: &Connection, endpoint: &Endpoint, args: &MsgArgs) -> bool
+	/*pub fn recieve_message (&self, connection: &Connection, endpoint: &Endpoint, args: &MsgArgs) -> bool
 	{
 		match self.get_thread (endpoint.tid ())
 		{
@@ -475,7 +501,7 @@ impl Process
 			},
 			None => false,
 		}
-	}
+	}*/
 }
 
 impl Drop for Process

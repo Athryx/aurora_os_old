@@ -19,6 +19,7 @@ pub use process::Process;
 pub use thread::{Thread, ThreadState};
 pub use domain::*;
 pub use connection::*;
+pub use namespace::{Namespace, namespace_map};
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
@@ -40,6 +41,7 @@ mod thread;
 mod elf;
 mod domain;
 mod connection;
+mod namespace;
 
 static tlist: ThreadListGuard = ThreadListGuard::new ();
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());
@@ -469,7 +471,7 @@ impl Registers
 
 	const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
 	{
-		self.rax = msg_args.options as usize;
+		/*self.rax = msg_args.options as usize;
 		self.rbx = msg_args.sender_pid;
 		self.rdx = msg_args.domain;
 		self.rsi = msg_args.a1;
@@ -479,7 +481,7 @@ impl Registers
 		self.r12 = msg_args.a5;
 		self.r13 = msg_args.a6;
 		self.r14 = msg_args.a7;
-		self.r15 = msg_args.a8;
+		self.r15 = msg_args.a8;*/
 		self
 	}
 }

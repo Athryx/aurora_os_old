@@ -27,6 +27,14 @@ bitflags!
 
 bitflags!
 {
+	pub struct ConnectOptions: u32
+	{
+		const PID = 1;
+	}
+}
+
+bitflags!
+{
 	pub struct MsgOptions: u32
 	{
 		const PID = 1;
