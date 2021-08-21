@@ -296,7 +296,8 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 		a7: vals.a8,
 		a8: vals.a9,
 	};
-	unimplemented! ();
+
+	connection.send_message (&args, blocking)
 }
 
 #[derive(Debug)]
@@ -354,13 +355,19 @@ impl ConnectionMap
 }
 
 #[derive(Debug)]
+struct ConnInner
+{
+	init_handler: Option<DomainHandler>,
+	wating_thread: Option<MemOwner<Thread>>,
+}
+
+#[derive(Debug)]
 pub struct Connection
 {
 	domain: usize,
 	pids: usize,
 	pidr: usize,
-	init_handler: Option<DomainHandler>,
-	wating_thread: Option<MemOwner<Thread>>,
+	data: Futex<ConnInner>,
 }
 
 impl Connection
@@ -371,14 +378,44 @@ impl Connection
 			domain,
 			pids: pids,
 			pidr: handler.pid (),
-			init_handler: Some(handler),
-			wating_thread: None,
+			data: Futex::new (ConnInner {
+				init_handler: Some(handler),
+				wating_thread: None,
+			}),
 		})
 	}
 
 	pub fn domain (&self) -> usize
 	{
 		self.domain
+	}
+
+	pub fn other (&self, pid: usize) -> usize
+	{
+		if pid == self.pids
+		{
+			self.pidr
+		}
+		else if pid == self.pidr
+		{
+			self.pids
+		}
+		else
+		{
+			panic! ("process is not part of connection it is messaging on");
+		}
+	}
+
+	pub fn send_message (&self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
+	{
+		assert! (args.domain == self.domain);
+
+		let process = proc_c ();
+		let other_pid = self.other (process.pid ());
+		let plock = proc_list.lock ();
+		let other_process = plock.get (&other_pid).ok_or (SysErr::MsgTerm)?.clone ();
+
+		unimplemented! ();
 	}
 }
 
