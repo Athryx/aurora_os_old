@@ -15,7 +15,7 @@ use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGaurd, MemOwner, UniqueMut, UniqueRef, UniquePtr, AtomicU128, mlayout_of};
 use crate::time::timer;
 use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
-use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c};
+use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c, ConnPid};
 
 // TODO: implement support for growing stack
 #[derive(Debug)]
@@ -100,19 +100,20 @@ pub enum ThreadState
 	Running,
 	Ready,
 	Destroy,
+	Waiting,
 	// nsecs to sleep
 	Sleep(u64),
 	// tid to join with
 	Join(usize),
 	// virtual address currently waiting on
 	FutexBlock(usize),
-	// connection id we are waiting for a reply from
-	Listening(usize),
+	// connection cpid we are waiting for a reply from
+	Listening(ConnPid),
 }
 
 impl ThreadState
 {
-	pub fn from_u128 (num: u128) -> Self
+	/*pub fn from_u128 (num: u128) -> Self
 	{
 		/*let n = num as u64;
 		let id = num.wrapping_shr (64) as u64;
@@ -131,7 +132,7 @@ impl ThreadState
 		{
 			transmute::<u128, Self> (num)
 		}
-	}
+	}*/
 
 	// is the data structure for storing this thread local to the process
 	pub fn is_proc_local (&self) -> bool
@@ -166,7 +167,7 @@ impl ThreadState
 		}
 	}
 
-	pub fn as_u128 (&self) -> u128
+	/*pub fn as_u128 (&self) -> u128
 	{
 		/*let (id, num) = match self
 		{
@@ -184,7 +185,7 @@ impl ThreadState
 		{
 			transmute::<Self, u128> (*self)
 		}
-	}
+	}*/
 }
 
 #[derive(Debug)]
@@ -233,7 +234,8 @@ pub struct Thread
 	name: String,
 
 	// TODO: find a better solution
-	state: AtomicU128,
+	//state: AtomicU128,
+	state: IMutex<ThreadState>,
 	run_time: AtomicU64,
 
 	pub regs: IMutex<Registers>,
@@ -301,7 +303,8 @@ impl Thread
 			process,
 			tid,
 			name,
-			state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			//state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			state: IMutex::new (ThreadState::Ready),
 			run_time: AtomicU64::new (0),
 			regs: IMutex::new (regs),
 			stack: Futex::new (stack),
@@ -331,7 +334,8 @@ impl Thread
 			process,
 			tid,
 			name,
-			state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			//state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			state: IMutex::new (ThreadState::Ready),
 			run_time: AtomicU64::new (0),
 			regs: IMutex::new (regs),
 			stack: Futex::new (stack),
@@ -371,12 +375,14 @@ impl Thread
 
 	pub fn state (&self) -> ThreadState
 	{
-		ThreadState::from_u128 (self.state.load ())
+		//ThreadState::from_u128 (self.state.load ())
+		*self.state.lock ()
 	}
 
 	pub fn set_state (&self, state: ThreadState)
 	{
-		self.state.store (state.as_u128 ())
+		//self.state.store (state.as_u128 ())
+		*self.state.lock () = state;
 	}
 
 	pub fn conn_data (&self) -> FutexGaurd<ConnData>
@@ -387,6 +393,11 @@ impl Thread
 	pub fn rcv_regs (&self) -> &Futex<Result<Registers, SysErr>>
 	{
 		&self.msg_recieve_regs
+	}
+
+	pub fn msg_rcv (&self, args: &MsgArgs)
+	{
+		unimplemented! ();
 	}
 
 	// panic safety: this can't be called on any running thread

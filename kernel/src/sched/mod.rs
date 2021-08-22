@@ -232,10 +232,11 @@ fn thread_cleaner ()
 	}
 }
 
+// FIXME: find way to dealloc these when unneeded
 #[derive(Debug)]
 struct ConnTreeNode
 {
-	id: Cell<usize>,
+	id: Cell<ConnPid>,
 	list: LinkedList<Thread>,
 
 	bf: Cell<i8>,
@@ -254,7 +255,7 @@ impl ConnTreeNode
 		let ptr = mem.as_ptr () as *mut Self;
 
 		let out = ConnTreeNode {
-			id: Cell::new (0),
+			id: Cell::new (ConnPid::new (0, 0)),
 			list: LinkedList::new (),
 			bf: Cell::new (0),
 			parent: Cell::new (null ()),
@@ -279,7 +280,7 @@ impl ConnTreeNode
 
 unsafe impl Send for ConnTreeNode {}
 
-crate::impl_tree_node! (usize, ConnTreeNode, parent, left, right, id, bf);
+crate::impl_tree_node! (ConnPid, ConnTreeNode, parent, left, right, id, bf);
 
 #[derive(Debug)]
 pub struct ThreadList
@@ -288,7 +289,7 @@ pub struct ThreadList
 	ready: LinkedList<Thread>,
 	destroy: LinkedList<Thread>,
 	sleep: LinkedList<Thread>,
-	conn_wait: AvlTree<usize, ConnTreeNode>,
+	conn_wait: AvlTree<ConnPid, ConnTreeNode>,
 }
 
 impl ThreadList
@@ -505,8 +506,6 @@ pub fn proc_c () -> Arc<Process>
 
 pub fn init () -> Result<(), Err>
 {
-	assert! (core::mem::size_of::<ThreadState> () <= 16, "ThreadState is to big to fit in an AtomicU128");
-
 	// allow execute disable in pages
 	let efer_msr = rdmsr (EFER_MSR);
 	wrmsr (EFER_MSR, efer_msr | EFER_EXEC_DISABLE);

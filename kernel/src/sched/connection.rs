@@ -379,13 +379,13 @@ impl ConnectionMap
 		self.data.get (self.get_index (conn_id).ok ()?).map (|cme| &cme.conn)
 	}
 
-	pub fn get_ext (&self, conn_id: usize) -> Option<&Arc<Connection>>
+	pub fn get_ext (&self, cpid: ConnPid) -> Option<&Arc<Connection>>
 	{
-		for cpid in self.data.iter ()
+		for cme in self.data.iter ()
 		{
-			if cpid.other_cpid ().conn_id () == conn_id
+			if cme.other_cpid () == cpid
 			{
-				return Some(&cpid.conn);
+				return Some(&cme.conn);
 			}
 		}
 		None
@@ -396,11 +396,10 @@ impl ConnectionMap
 struct ConnInner
 {
 	init_handler: Option<DomainHandler>,
-	wating_thread: Option<MemOwner<Thread>>,
+	wating_thread: bool,
 }
 
-// FIXME: this is an awful name for this structure, and so are all the methods named pid that return this
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConnPid
 {
 	pid: usize,
@@ -448,7 +447,7 @@ impl Connection
 			cpidr,
 			data: Futex::new (ConnInner {
 				init_handler: Some(handler),
-				wating_thread: None,
+				wating_thread: false,
 			}),
 		})
 	}
@@ -509,12 +508,42 @@ impl Connection
 
 	pub fn send_message (&self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
 	{
-		assert! (args.domain == self.domain);
+		assert_eq! (args.domain, self.domain);
 
 		let process = proc_c ();
-		let other_pid = self.other (process.pid ());
+		let cpid = self.this (process.pid ());
+
+		let other_cpid = self.other (process.pid ());
 		let plock = proc_list.lock ();
-		let other_process = plock.get (&other_pid.pid ()).ok_or (SysErr::MsgTerm)?.clone ();
+		let other_process = plock.get (&other_cpid.pid ()).ok_or (SysErr::MsgTerm)?.clone ();
+		drop (plock);
+
+		if let None = other_process.connections ().lock ().get_int (other_cpid.conn_id ())
+		{
+			return Err(SysErr::InvlId);
+		}
+
+		let mut inner = self.data.lock ();
+		// handle sending message
+		if inner.wating_thread
+		{
+			inner.wating_thread = false;
+			let mut thread_list = tlist.lock ();
+			let thread = unsafe { thread_list[ThreadState::Listening(self.cpids)].get (0).unwrap ().unbound () };
+			thread.msg_rcv (args);
+			Thread::move_to (thread, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+		}
+		else
+		{
+			let handler = match inner.init_handler
+			{
+				Some(handler) => {
+					inner.init_handler = None;
+					handler
+				},
+				None => *other_process.domains ().lock ().get (self.domain).ok_or (SysErr::MsgTerm)?,
+			};
+		}
 
 		unimplemented! ();
 	}

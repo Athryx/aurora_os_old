@@ -212,6 +212,11 @@ pub extern "C" fn connect (vals: &mut SyscallVals)
 		}
 	};
 
+	if !handler.options ().public
+	{
+		sysret! (vals, SysErr::InvlId.num (), 0);
+	}
+
 	let process = proc_c ();
 	let plock = proc_list.lock ();
 	let other_process = match plock.get (&handler.pid ())
