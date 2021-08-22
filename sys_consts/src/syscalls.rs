@@ -2,6 +2,8 @@
 
 pub const INFO: u32 = 0;
 
+pub const SPAWN: u32 = 1;
+
 pub const THREAD_NEW: u32 = 2;
 pub const THREAD_BLOCK: u32 = 3;
 
@@ -23,10 +25,17 @@ pub const PORT_UNMAP: u32 = 15;
 
 pub const SALLOC: u32 = 16;
 pub const SDEALLOC: u32 = 17;
-pub const SMEM_SIZE: u32 = 18;
+pub const SMAP: u32 = 18;
+pub const SUNMAP: u32 = 19;
+pub const SMEM_SIZE: u32 = 20;
 
-pub const MPROTECT: u32 = 19;
+pub const MPROTECT: u32 = 21;
 
-pub const REG: u32 = 20;
-pub const MSG: u32 = 21;
-pub const MSG_RETURN: u32 = 22;
+pub const REG: u32 = 22;
+pub const CONNECT: u32 = 23;
+pub const DISCONNECT: u32 = 24;
+pub const CONN_INFO: u32 = 25;
+pub const MSG: u32 = 26;
+pub const MSG_RETURN: u32 = 27;
+
+pub const PRINT_DEBUG: u32 = 28;

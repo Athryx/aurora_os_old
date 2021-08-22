@@ -1,5 +1,7 @@
 TODO:
 more descriptive error values
+error values are written in kernel, just not described well heare
+slightly more consistant names
 
 decide if vfs should go in kernel or not
 if it does, can probably remove the info syscall and just use a proc like filesystem
@@ -38,7 +40,7 @@ message handler abi:
 rax: flags
 rbx: sender pid
 rcx: unused
-rdx: domain
+rdx: cid
 rbp: unused
 rsp: unused
 rsi: arg 1
@@ -52,20 +54,36 @@ r13: arg 6
 r14: arg 7
 r15: arg 8
 
+more details about this abi under msg syscall
 
-0: info
+
+0: fn info ()
 
 
-2: fn thread_new (rip: usize) -> (tid: usize, err: usize)
+// TODO: specify ProcStartData
+1: fn spawn (addr: usize, len: usize, psdata: *const ProcStartData) -> (err: SysErr, pid: usize)
+spawns a new process
+{addr} points to the start of the memory containing the elf executable to be loaded, {len} is the length of the elf executable in bytes
+{psdata} contains additional data for the process, and the information in it will be mapped into the new process' memory
+the exact data in the ProcStartData structure is TBD, but it will likely have things like command line arguments, stdio smid, uid, etc.
+spawn can only be called by a superuser process
+
+return value:
+err:
+syserr code
+pid:
+pid of new process
+
+
+2: fn thread_new (rip: usize) -> (err: SysErr, tid: usize)
 creates a new thread and returns its id
 the thread function should not return, it should call thread_block with destroy in order to terminate itself
 
 return value:
+err:
+syserr code
 tid:
 thread id
-err:
-0: success
-1: error, could not create thread, value in .0 is garbage
 
 
 3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize)
@@ -75,6 +93,7 @@ reason:
 0: yield, sets thread to running state and switches to another thread, if available
 if no threads other than the idle thread are ready to run, the current thread will continue to run
 1: destroy, switches to another thread and terminates the current thread
+if another thread is waiting on this thread for a message reply, than that thread is unblocked
 2: sleep, will sleep until {nsec} nanoseconds after boot
 3: join, will block until thread with id {thread_id} terminates
 any other number will do nothing
@@ -107,7 +126,7 @@ memory zone or into a non shared memory zone
 10: set_thread_properties
 
 
-11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (mem: usize, len: usize, err: usize)
+11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (err: SysErr, mem: usize, len: usize)
 allocates, rellocates, or frees memory pointed to by mem
 
 if {mem} == 0:
@@ -152,23 +171,22 @@ bit 4 (realloc_exact):
 specifieng this option could lead to wasted physical memory
 
 return value:
+err:
+syserr code
 mem:
 pointer to start of memory, or 0 if all memory was freed or there was an error
 len:
 length of memory allocated in pages, this is guarenteed to ba at least {len} pages long,
 but it could be longer than specified, unless the realloc_exact option is specified
-err:
-0: success
-1: failure
 
 
-12: fn mmio_map (phys_addr: usize, n: usize) -> usize
+12: fn mmio_map (phys_addr: usize, n: usize) -> (err: SysErr, addr: usize)
 maps n pages starting at physical address phys_addr into the calling process's address space
 only superuser or iopriv processes can call mmap
 
 return value:
-0: mmap was called with insufficent privallages or the requested memory zone is not memory mapped io
-any other value: virtual address of mapped region
+err: syserr code
+addr: virtual address of mapped region
 
 
 13: fn mmio_unmap (virt_addr: usize)
@@ -176,13 +194,12 @@ unmaps memory previously mapped by mmap
 only superuser or iopriv processes can call munmap
 
 
-14: fn port_map (port: usize) -> usize
+14: fn port_map (port: usize) -> SysErr
 allows the process to use port {port}
 only superuser or iopriv processes can call munmap
 
 return value:
-0: success
-1: failure
+syserr code
 
 
 15: fn port_unmap (port: usize)
@@ -190,24 +207,53 @@ the process can no longer use port {port}
 only superuser or iopriv processes can call munmap
 
 
-16: fn salloc (pages: usize) -> usize
+16: fn salloc (pages: usize) -> (err: SysErr, smid: usize)
 allocate shared memory to be shared with msg
+returns the shared memory id (smid) that can be mapped with smap or shared with msg
+NOTE: smids are process local, so they must be shared with msg, and they cannot be shared using other shared memory
+
+options:
+bit 0 (read):
+allows reading of shared memory
+
+bit 1 (write):
+allows writing to shared memory
+
+bit 2 (exec):
+allows executing instrcutions from shared memory
+
+return value:
+err: syserr code
+smid: shared memory id
 
 
-17: fn sdealloc (addr: usize)
+17: fn sdealloc (smid: usize)
 free shared memory allocated by salloc or recieved by another process
-removes the shared memory from current address space, and once all processes that had it
-free it, shared memory is deallocated from physical memory
+unmaps the shared memory if it has not yet been unmapped, and it invalidates {smid}
+once all processess that had the shared memory free it, the shared memory is deallocated from physical memory
 
 
-18: fn smem_size (addr: usize) -> usize
-returns the size of shared memory at {addr} in pages
-returns 0 if there is no shared memory at {addr}
+18: fn smap (smid: usize) -> (err: SysErr, addr: usize, pages: usize)
+mappes the shared memory with id {smid}
+
+return value:
+err: syserr code
+addr: address of shared memory
+pages: length of shared memory region in pages
 
 
-19: mprotect (addr: usize) -> usize
+19: fn sunmap (smid: usize)
+unmaps the shared memory with id {smid}
+
+
+20: fn smem_size (smid: usize) -> usize
+returns the size of shared memory at {smid} in pages
+returns 0 if there is no shared memory with id {smid}
+
+
+21: fn mprotect (addr: usize) -> usize
 sets the read, write, and execute permissions on a chunk of memory
-mprotect cannot be called on shared memory after it has already been shared
+mprotect cannot be called on shared memory
 
 options:
 bit 0 (read):
@@ -224,62 +270,138 @@ return valus:
 1: failure
 
 
-20: fn reg (domain: usize, rip: usize, | gid: usize) -> usize
+22: fn reg (domain: usize, rip: usize, | gid: usize) -> SysErr
 register function at instrcution pointer {rip} to handle messages with domain {domain}
 
 options:
 bit 0 (reg_block):
 0: will spawn a new thread to handle the message
-1: will block the current thread and switch to a temporary stack to handle the message
-use msg_return to leave this temporary stack
+1: will block the current thread and switch to a new stack
+can exit this stack and restore state by calling msg_return
 
 bit 1 (reg_default):
 0: reg registers function only for specified domain
 1: reg registers function to respond to all domains that don't have an individual function registered to handle them
 
-bit 2 (reg_public):
-TODO: explain application modules and trees better
-0: private, domain cannot be messaged from an application not in the same module in the application tree
-1: public, domain can be messaged from outside the application module, assuming parent application modules are public
+bit 2 (reg_global):
+0: local, registers handler to respond to messages sent by pid
+1: global, registers handler to respond to messages sent by executable name
 
-bit 3 (reg_group):
+bit 3 (reg_public):
+0: private, processes can only message this domain when replying to a connection which was listening asynchronously
+1: public, and process can message this domain
+
+bit 4 (reg_remove):
+0: reg behaves normally
+1: reg removes the registered handler if any are registered
+
+bit 5 (reg_group):
 0: ignore gid argument
 1: applications must be member of group specified by {gid} to message this domain
-repated calls with {rip} == 0  and reg_group bit set will allow multiple groups to access this domain
+repated calls with {rip} == 0 and reg_group bit set will allow multiple groups to access this domain
 
 return value:
-0: success
-1: failure
+syserr code:
+InvlPriv:
+could not register handler for domain under executable name because another process already registered a handler
 
-21: fn msg (eid: *const c_char | pid: usize, domain: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> usize
-send a message to another process
+
+23: fn connect (exec_name: *const char | pid: usize, exec_name_len: usize |, domain: usize) -> (err: SysErr, cid: usize)
+open a connection with another process (can not open connection to self)
 
 options:
-bit 0 (msg_pid):
-0: send message to all processes with executable id specified in arg
-1: send message to process with pid
+bit 0 (connect_pid):
+0: open connection with domain handler registered for {exec_name}
+1: open connection with domain handler registered for process with pid {pid}
 
+return value:
+cid: connection id
+err: syserr code
+
+
+24: fn disconnect (cid: usize)
+close connection with cid {cid}
+
+
+25: conn_info (cid: usize)
+
+
+26: fn msg (cid: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> SysErr
+send a message to another process (process cannot message itself)
+note: this syscall returns using the message handler api
+the first msg sent will call the DomainHandler registered at the time of calling connect
+if the other process asynchronously awaits reply, subsequent replies will use the processess locally registered handler at the time of calling msg
+
+options:
 bit 1 (msg_block):
 0: do not wait for reply from other process
 if the other process replies, the handler registered for the reply domain will be called
 1: block until other process replies
 if the other process replies, the data will be put in this processes registers
 
-bit 4-7 (smem_transfer_mask):
-transfers shared memory pointed to by a certain register to other process
-the recieving process has the memory mapped in their address space, and recieves a pointer to the memory in the respective register
-the calling process also recieves the size of the shared memory in the next register
-this means that the argument adjacent to the sending process is not sent
-bit 4 set: transfers a1
-bit 5 set: transfers a3
-bit 6 set: transfers a5
-bit 7 set: transfers a7
+bit 8-15 (smem_transfer_mask):
+transfers shared memory references by smid in a certain register to other process
+the recieving process recieves an smid that can be mapped with smap
+bit 8 set: transfers a1
+bit 9 set: transfers a2
+bit 10 set: transfers a3
+bit 11 set: transfers a4
+bit 12 set: transfers a5
+bit 13 set: transfers a6
+bit 14 set: transfers a7
+bit 15 set: transfers a8
 
 return value:
-0: success
-1: no process with eid or pid exists
+this syscall returns using the message handler api if it is called with msg_reply flag set
+if it is not called with msg_reply, it will return msg_return_value normaly, wich is a syserr code
+
+message handler abi:
+rax: flags
+rbx: sender pid
+rcx: unused
+rdx: domain
+rbp: unused
+rsp: unused
+rsi: arg 1
+rdi: arg 2
+r8: arg 3
+r9: arg 4
+r10: unused
+r11: unused
+r12: arg 5
+r13: arg 6
+r14: arg 7
+r15: arg 8
+
+options:
+bits 0-7 (msg_return_value):
+syserr code
+it is not specified if original registers are preserved
+
+bit 8-15 (smem_transfer_mask):
+this bitmask specifies which args contain smids
+bit 8 set: arg 1 has smid
+bit 9 set: arg 2 has smid
+bit 10 set: arg 3 has smid
+bit 11 set: arg 4 has smid
+bit 12 set: arg 5 has smid
+bit 13 set: arg 6 has smid
+bit 14 set: arg 7 has smid
+bit 15 set: arg 8 has smid
 
 
-22: fn msg_return ()
-returns off the message stack, and back to the regular stack, and restores all original registers
-causes any other threads waiting for a reply to unblock
+27: fn msg_return () -> SysErr
+returns of msg stack
+
+
+28: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
+prints the characters specified in the arguments to the debug console
+this syscall is only for debugging until I write a terminal emulator
+each argument is a combination of 8 bit characters to print to the screen
+the order the characters are printed is as follows:
+lower number arguments are printed before higher numbered arguments (a1 before a2 before a3, etc)
+least significant bytes in each argument are printed first (a1 bits 0-7, a1 bits 8-15, a1 bits 16-23, etc)
+
+options:
+bits 0-7 (debug_print_num):
+specifies the number of characters to print (max 80 on 64 bit system)

@@ -14,6 +14,7 @@
 #![feature(map_first_last)]
 #![feature(stmt_expr_attributes)]
 #![feature(map_try_insert)]
+#![feature(const_mut_refs)]
 
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
@@ -142,6 +143,12 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 	Ok(())
 }
 
+struct Test
+{
+	a: usize,
+	b: u8,
+}
+
 #[no_mangle]
 pub extern "C" fn _start (boot_info_addr: usize) -> !
 {
@@ -154,7 +161,7 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	println! ("epoch v0.0.1");
 
-	sti_safe ();
+	sti ();
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
@@ -172,7 +179,7 @@ use util::*;
 #[derive(Debug)]
 struct TreeTest
 {
-	key: usize,
+	key: Cell<usize>,
 	val: usize,
 	left: Cell<*const Self>,
 	right: Cell<*const Self>,
@@ -182,17 +189,20 @@ struct TreeTest
 
 impl TreeTest
 {
-	fn new () -> MemCell<Self>
+	fn new () -> MemOwner<Self>
 	{
 		let out = Box::new (TreeTest {
-			key: 0,
+			key: Cell::new (0),
 			val: 0,
 			left: Cell::new (null ()),
 			right: Cell::new (null ()),
 			parent: Cell::new (null ()),
 			bf: Cell::new (0),
 		});
-		MemCell::new (Box::leak (out) as *mut _)
+		unsafe
+		{
+			MemOwner::from_raw (Box::leak (out) as *mut _)
+		}
 	}
 }
 
@@ -200,7 +210,7 @@ impl Display for TreeTest
 {
 	fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result
 	{
-		write! (f, "{}:{}", self.key, self.bf.get ()).unwrap ();
+		write! (f, "{}:{}", self.key.get (), self.bf.get ()).unwrap ();
 		Ok(())
 	}
 }
@@ -286,12 +296,12 @@ fn test ()
 
 	unsafe
 	{
-		join_tid = proc_c ().new_thread (test_thread_1, Some("alloc_test_thread".to_string ())).unwrap ();
+		join_tid = proc_c ().new_thread (test_thread_1 as usize, Some("alloc_test_thread".to_string ())).unwrap ();
 	}
-	proc_c ().new_thread (test_thread_2, Some("join_test_thread".to_string ())).unwrap ();
+	proc_c ().new_thread (test_thread_2 as usize, Some("join_test_thread".to_string ())).unwrap ();
 	for _ in 0..10
 	{
-		proc_c ().new_thread (test_alloc_thread, Some("alloc_test_thread".to_string ())).unwrap ();
+		proc_c ().new_thread (test_alloc_thread as usize, Some("alloc_test_thread".to_string ())).unwrap ();
 	}
 	/*unsafe
 	{
@@ -340,6 +350,7 @@ fn test_thread_1 ()
 		let a9 = zm.orealloc (a9, 1).unwrap ();
 		eprintln! ("{:#?}", a9);
 		let a11 = zm.oalloc (1).unwrap ();
+		// FIXME: fails occaisionally
 		eprintln! ("{:#?}", a11);
 		zm.dealloc (a2);
 		zm.dealloc (a3);

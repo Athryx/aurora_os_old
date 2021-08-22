@@ -1,6 +1,6 @@
 #![feature(asm)]
 
-use std::os::epoch::sys::{realloc, ReallocOptions};
+use std::os::epoch::sys::{realloc, ReallocOptions, print_debug};
 
 mod uses;
 
@@ -17,6 +17,13 @@ fn main ()
 		let (addr, size) = realloc (addr, 2 * 4096, 0, options).unwrap ();
 		let (addr, size) = realloc (addr, 4 * 4096, 0x46000, options).unwrap ();
 		let (addr, size) = realloc (addr, 5 * 4096, 0x46000, options).unwrap ();
+
+		loop
+		{
+			//println! ("Hello, World!");
+			println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
+		}
+
 		asm!(
 			"lbl:",
 			"mov rax, 0",

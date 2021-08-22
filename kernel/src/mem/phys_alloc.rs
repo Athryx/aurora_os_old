@@ -2,11 +2,12 @@ use spin::{Mutex};
 use core::cmp::{min, max};
 use core::sync::atomic::{Ordering, AtomicUsize};
 use crate::uses::*;
-use crate::util::{LinkedList, Node, MemCell, UniqueRef, Futex};
+use crate::util::{LinkedList, Node, MemOwner, UniqueRef, Futex};
 use crate::mb2::{BootInfo, MemoryRegionType};
 use super::PAGE_SIZE;
 use super::PhysRange;
 use super::virt_alloc::FrameAllocator;
+use core::cell::Cell;
 
 const MAX_ORDER: usize = 32;
 pub const MAX_ZONES: usize = 4;
@@ -206,17 +207,15 @@ impl BuddyAllocator
 
 		if self.olist[order].len () != 0 || self.split_order (order + 1)
 		{
-			let node_cell = self.olist[order].pop_front ().unwrap ();
-			let mut node = node_cell.borrow_mut ();
-			node.size = node.size.wrapping_shr (1);
+			let node = self.olist[order].pop_front ().unwrap ();
+			node.set_size (node.size ().wrapping_shr (1));
 
-			let addr = node.addr () ^ node.size;
-			let node2 = unsafe { Node::new (addr, node.size) };
+			let addr = node.addr () ^ node.size ();
+			let node2 = unsafe { Node::new (addr, node.size ()) };
 
 			self.olist[order - 1].push_front (node2);
 
-			drop (node);
-			self.olist[order - 1].push_front (node_cell);
+			self.olist[order - 1].push_front (node);
 
 			return true;
 		}
@@ -224,22 +223,20 @@ impl BuddyAllocator
 		false
 	}
 
-	fn insert_node (&mut self, mut node_cell: MemCell<Node>)
+	fn insert_node (&mut self, mut node: MemOwner<Node>)
 	{
-		let mut order = self.get_order (node_cell.borrow ().size);
+		let mut order = self.get_order (node.size ());
 
 		loop
 		{
-			let node = node_cell.borrow_mut ();
-
-			let addr2 = node.addr () ^ node.size;
-			if addr2 < node.addr () || addr2 > self.start || addr2 + node.size > self.meta_start as usize || self.is_alloced (addr2)
+			let addr2 = node.addr () ^ node.size ();
+			if addr2 < node.addr () || addr2 > self.start || addr2 + node.size () > self.meta_start as usize || self.is_alloced (addr2)
 			{
 				break;
 			}
 			let node2 = unsafe { UniqueRef::new ((addr2 as *const Node).as_ref ().unwrap ()) };
 
-			if node.size != node2.size
+			if node.size () != node2.size ()
 			{
 				break;
 			}
@@ -247,18 +244,17 @@ impl BuddyAllocator
 			let node2 = self.olist[order].remove_node (node2);
 
 			// make borrow checker happy
-			let mut node = if addr2 < node.addr ()
+			node = if addr2 < node.addr ()
 			{
-				drop (node);
-				node_cell = node2;
-				node_cell.borrow_mut ()
+				//node = node2;
+				node2
 			}
 			else
 			{
 				node
 			};
 
-			node.size <<= 1;
+			node.set_size (node.size () << 1);
 			order += 1;
 
 			if order == self.max_order
@@ -267,7 +263,7 @@ impl BuddyAllocator
 			}
 		}
 
-		self.olist[order].push_front (node_cell);
+		self.olist[order].push_front (node);
 	}
 
 	fn order_expand_cap (&self, mem: Allocation) -> usize
@@ -330,12 +326,11 @@ impl BuddyAllocator
 		}
 
 		// list is guarunteed to contain a node
-		let node_cell = self.olist[order].pop_front ().unwrap ();
-		let node = node_cell.borrow ();
-		let out = Allocation::new (node.addr (), node.size);
+		let node = self.olist[order].pop_front ().unwrap ();
+		let out = Allocation::new (node.addr (), node.size ());
 
 		self.set_is_alloced (node.addr (), true);
-		self.free_space -= node.size;
+		self.free_space -= node.size ();
 
 		Some(out)
 	}
@@ -447,7 +442,7 @@ impl BuddyAllocator
 		self.set_is_alloced (addr, false);
 
 		let node = Node::new (addr, mem.len ());
-		self.free_space += node.borrow ().size;
+		self.free_space += node.size ();
 
 		self.insert_node (node);
 	}
@@ -457,7 +452,7 @@ impl BuddyAllocator
 pub struct ZoneManager
 {
 	zones: RefCell<[Option<Futex<BuddyAllocator>>; MAX_ZONES]>,
-	zlen: RefCell<usize>,
+	zlen: Cell<usize>,
 	selnum: AtomicUsize,
 }
 
@@ -469,14 +464,14 @@ impl ZoneManager
 			//zones: init_array! (Option<Mutex<BuddyAllocator>>, MAX_ZONES, None),
 			// TODO: make this automatically follow MAX_ZONES
 			zones: RefCell::new ([None, None, None, None]),
-			zlen: RefCell::new (0),
+			zlen: Cell::new (0),
 			selnum: AtomicUsize::new (0),
 		}
 	}
 
 	pub unsafe fn init (&self, boot_info: &BootInfo)
 	{
-		let mut zlen = self.zlen.borrow_mut ();
+		let mut zlen = self.zlen.get ();
 
 		for region in &*boot_info.memory_map
 		{
@@ -485,33 +480,52 @@ impl ZoneManager
 				let start = mem.addr ();
 				let end = mem.addr () + mem.size ();
 
-				if *zlen >= MAX_ZONES
+				if zlen >= MAX_ZONES
 				{
 					panic! ("MAX_ZONES is not big enough to store an allocator for all the physical memory zones");
 				}
 
-				self.zones.borrow_mut ()[*zlen] = Some(Futex::new (BuddyAllocator::new (
+				self.zones.borrow_mut ()[zlen] = Some(Futex::new (BuddyAllocator::new (
 					phys_to_virt (start),
 					phys_to_virt (end),
 					PAGE_SIZE)));
 
-				*zlen += 1;
+				zlen += 1;
 			}
 		}
+
+		self.zlen.set (zlen);
 	}
 
-	fn get_allocer (&self) -> usize
+	fn allocer_action<F> (&self, mut f: F) -> Option<Allocation>
+		where F: FnMut(&mut BuddyAllocator) -> Option<Allocation>
 	{
-		// I don't really know what the ordering part means, but I think relaxed is good
 		let selnum = self.selnum.fetch_add (1, Ordering::Relaxed);
-		selnum % *self.zlen.borrow ()
+		let start = selnum % self.zlen.get ();
+
+		let mut i = start;
+		let mut flag = true;
+
+		while i != start || flag
+		{
+			if let Some(mut allocation) = f (&mut self.zones.borrow ()[i].as_ref ().unwrap ().lock ())
+			{
+				allocation.zindex = i;
+				return Some(allocation);
+			}
+
+			flag = false;
+
+			i += 1;
+			i %= self.zlen.get ();
+		}
+
+		None
 	}
 
 	pub fn alloc (&self, size: usize) -> Option<Allocation>
 	{
-		let i = self.get_allocer ();
-		self.zones.borrow ()[i].as_ref ().unwrap ().lock ()
-			.alloc (size).map (|mut a| { a.zindex = i; a } )
+		self.allocer_action(|allocer: &mut BuddyAllocator| allocer.alloc (size))
 	}
 
 	pub fn allocz (&self, size: usize) -> Option<Allocation>
@@ -523,9 +537,7 @@ impl ZoneManager
 
 	pub fn oalloc (&self, order: usize) -> Option<Allocation>
 	{
-		let i = self.get_allocer ();
-		self.zones.borrow ()[i].as_ref ().unwrap ().lock ()
-			.oalloc (order).map (|mut a| { a.zindex = i; a } )
+		self.allocer_action(|allocer: &mut BuddyAllocator| allocer.oalloc (order))
 	}
 
 	pub fn oallocz (&self, order: usize) -> Option<Allocation>
@@ -568,7 +580,7 @@ unsafe impl FrameAllocator for ZoneManager
 	unsafe fn dealloc_frame (&self, frame: Allocation)
 	{
 		let zones = self.zones.borrow ();
-		for i in 0..*self.zlen.borrow ()
+		for i in 0..self.zlen.get ()
 		{
 			let mut z = zones[i].as_ref ().unwrap ().lock ();
 			if z.contains (frame)

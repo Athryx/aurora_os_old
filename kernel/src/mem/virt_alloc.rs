@@ -1,10 +1,10 @@
 use core::ops::Bound::{Excluded, Unbounded};
-use spin::{Mutex, MutexGuard};
 use bitflags::bitflags;
 use alloc::collections::BTreeMap;
 use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
+use crate::util::{Futex, FutexGaurd, optac, copy_to_heap};
 use super::phys_alloc::{Allocation, ZoneManager, zm};
 use super::error::MemErr;
 use super::*;
@@ -862,8 +862,8 @@ impl Iterator for PageMappingIterator
 #[derive(Debug)]
 pub struct VirtMapper<T: FrameAllocator + 'static>
 {
-	virt_map: Mutex<BTreeMap<VirtRange, VirtLayout>>,
-	cr3: Mutex<PageTablePointer>,
+	virt_map: Futex<BTreeMap<VirtRange, VirtLayout>>,
+	cr3: Futex<PageTablePointer>,
 	// in order to avoid race condition
 	cr3_addr: usize,
 	frame_allocer: &'static T,
@@ -881,8 +881,8 @@ impl<T: FrameAllocator> VirtMapper<T>
 			pml4_table.as_mut ().unwrap ().set (511, *HIGHER_HALF_PAGE_POINTER);
 		}
 		VirtMapper {
-			virt_map: Mutex::new (BTreeMap::new ()),
-			cr3: Mutex::new (pml4_table),
+			virt_map: Futex::new (BTreeMap::new ()),
+			cr3: Futex::new (pml4_table),
 			cr3_addr: pml4_table.0,
 			frame_allocer,
 		}
@@ -920,13 +920,44 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 	}
 
-	fn contains (btree: &mut MutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange) -> bool
+	pub fn range_map<F, U> (&self, virt_zone: VirtRange, f: F) -> Option<U>
+		where F: FnOnce(&[u8]) -> Option<U>
+	{
+		let btree = self.virt_map.lock ();
+		let mut prev_iter = btree.range (..virt_zone);
+		let prev = prev_iter.next_back ();
+
+		let mut next_iter = btree.range (virt_zone..);
+		let next = next_iter.next ();
+
+		if optac (prev, |p| p.0.full_contains_range (virt_zone)) || optac (next, |n| n.0.full_contains_range (virt_zone))
+		{
+			return f (unsafe { virt_zone.as_slice () });
+		}
+
+		if prev.is_some () && next.is_some ()
+		{
+			let prev = prev.unwrap ().0;
+			let next = next.unwrap ().0;
+			if let Some(range) = prev.merge (*next)
+			{
+				if range.full_contains_range (virt_zone)
+				{
+					return f (unsafe { virt_zone.as_slice () });
+				}
+			}
+		}
+
+		None
+	}
+
+	fn contains (btree: &mut FutexGaurd<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange) -> bool
 	{
 		btree.get (&virt_zone).is_some ()
 	}
 
 	// find virt range of size size
-	fn find_range (btree: &MutexGuard<BTreeMap<VirtRange, VirtLayout>>, size: usize) -> Option<VirtRange>
+	fn find_range (btree: &FutexGaurd<BTreeMap<VirtRange, VirtLayout>>, size: usize) -> Option<VirtRange>
 	{
 		// leave page at 0 empty so null pointers will page fault
 		let mut laddr = PAGE_SIZE;
@@ -955,7 +986,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 	// if there is interference to left and right of virt_zone, returns none
 	// pass with inclusive true to ensure virt_zone is not already inserted
 	// if it is inserted, pass with inclusive false
-	fn free_space (btree: &MutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange, exclude: Option<VirtRange>) -> Option<(usize, usize)>
+	fn free_space (btree: &FutexGaurd<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange, exclude: Option<VirtRange>) -> Option<(usize, usize)>
 	{
 		let mut prev_iter = btree.range (..virt_zone);
 		let mut prev = prev_iter.next_back ();

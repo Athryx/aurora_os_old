@@ -1,9 +1,8 @@
 use concat_idents::concat_idents;
 use crate::uses::*;
-use crate::sched::{Registers, thread_res_c};
+use crate::sched::{Registers, thread_c};
 use crate::gdt;
 use crate::kdata;
-use crate::arch::x64::{cli_inc, sti_inc};
 
 pub const PICM_OFFSET: u8 = 32;
 pub const PICS_OFFSET: u8 = 40;
@@ -240,12 +239,6 @@ impl Handler
 #[no_mangle]
 extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) -> Option<&Registers>
 {
-	// the only ones where interrupt disable matters, the rest I don't know if they do disable interrupts or not
-	//if vec == IRQ_TIMER || vec == INT_SCHED
-	{
-		cli_inc ();
-	}
-
 	let vec = vec as usize;
 
 	// set call_rsp and call_save_rsp in regs data structure which are not set by assembly
@@ -255,7 +248,7 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		regs.call_save_rsp = data.call_save_rsp;
 	}
 
-	*thread_res_c ().regs.lock () = *regs;
+	*thread_c ().regs.lock () = *regs;
 
 	let mut out = None;
 
@@ -286,10 +279,22 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
 	}
-
-	//if vec as u8 == IRQ_TIMER || vec as u8 == INT_SCHED
+	else
 	{
-		sti_inc ();
+		let thread = thread_c ();
+		let mut rcv_regs = thread.rcv_regs ().lock ();
+
+		if let Ok(regs) = *rcv_regs
+		{
+			// don't need to set regs because these will be set at next interrupt
+			use crate::sched::out_regs;
+			unsafe
+			{
+				out_regs = regs;
+				out = Some(&out_regs);
+			}
+			*rcv_regs = Err(SysErr::Unknown);
+		}
 	}
 
 	out

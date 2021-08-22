@@ -14,13 +14,19 @@ pub mod options;
 pub enum SysErr
 {
 	Ok = 0,
-	OutOfMem = 1,
-	InvlVirtMem = 2,
-	InvlPtr = 3,
-	InvlVirtAddr = 4,
-	InvlArgs = 5,
-	InvlPriv = 6,
-	Unknown = 7,
+	MsgResp = 1,
+	MsgUnreach = 2,
+	MsgTerm = 3,
+	OutOfMem = 4,
+	InvlVirtMem = 5,
+	InvlPtr = 6,
+	InvlVirtAddr = 7,
+	InvlArgs = 8,
+	InvlPriv = 9,
+	InvlId = 10,
+	InvlString = 11,
+	InvlOp = 12,
+	Unknown = 13,
 }
 
 impl SysErr
@@ -40,22 +46,28 @@ impl SysErr
 		}
 	}
 
-	pub fn num (&self) -> usize
+	pub const fn num (&self) -> usize
 	{
 		*self as usize
 	}
 
-	pub fn as_str (&self) -> &'static str
+	pub const fn as_str (&self) -> &'static str
 	{
 		match self
 		{
 			Self::Ok => "no error",
+			Self::MsgResp => "blocking message sent, and a response was recieved",
+			Self::MsgUnreach => "cannot send message, no waiting thread or registered domain handler",
+			Self::MsgTerm => "cannot send message, connection terminated",
 			Self::OutOfMem => "out of memory",
 			Self::InvlVirtMem => "virtual memory collision",
 			Self::InvlPtr => "invalid pointer",
-			Self::InvlVirtAddr => "nan canonical pointer",
+			Self::InvlVirtAddr => "non canonical pointer",
 			Self::InvlArgs => "invalid arguments",
 			Self::InvlPriv => "insufficent priveledge",
+			Self::InvlId => "invalid identifier",
+			Self::InvlString => "invalid utf-8 string",
+			Self::InvlOp => "invalid operation",
 			Self::Unknown => "unknown error",
 		}
 	}

@@ -1,5 +1,5 @@
 use crate::uses::*;
-use crate::util::{LinkedList, MemCell, UniqueRef, UniqueMut, UniquePtr, Futex};
+use crate::util::{LinkedList, MemOwner, UniqueRef, UniqueMut, UniquePtr, Futex};
 use crate::impl_list_node;
 use spin::Mutex;
 use core::mem;
@@ -9,8 +9,6 @@ use core::cell::{Cell, RefCell};
 use core::cmp::max;
 use super::PAGE_SIZE;
 use super::phys_alloc::{zm, Allocation};
-
-// TODO: I don't need all this interior mutability and shared references now that I am using MemCell
 
 const INITIAL_HEAP_SIZE: usize = PAGE_SIZE * 8;
 const HEAP_INC_SIZE: usize = PAGE_SIZE * 4;
@@ -50,7 +48,7 @@ struct Node
 
 impl Node
 {
-	unsafe fn new (addr: usize, size: usize) -> MemCell<Self>
+	unsafe fn new (addr: usize, size: usize) -> MemOwner<Self>
 	{
 		let ptr = addr as *mut Node;
 
@@ -61,7 +59,7 @@ impl Node
 		};
 		ptr.write (out);
 
-		MemCell::new (ptr)
+		MemOwner::from_raw (ptr)
 	}
 
 	unsafe fn resize (&self, size: usize, align: usize) -> ResizeResult
@@ -131,7 +129,7 @@ struct HeapZone
 impl HeapZone
 {
 	// size is aligned up to page size
-	unsafe fn new (size: usize) -> Option<MemCell<Self>>
+	unsafe fn new (size: usize) -> Option<MemOwner<Self>>
 	{
 		let size = align_up (size, PAGE_SIZE);
 		let mem = zm.alloc (size)?;
@@ -151,7 +149,7 @@ impl HeapZone
 
 		ptr.write (out);
 
-		Some(MemCell::new (ptr))
+		Some(MemOwner::from_raw (ptr))
 	}
 
 	fn free_space (&self) -> usize
@@ -229,8 +227,7 @@ impl HeapZone
 		let addr = ptr as usize;
 		let size = align_up (layout.size (), max (CHUNK_SIZE, layout.align ()));
 
-		let cnode_cell = Node::new (addr, size);
-		let cnode = cnode_cell.borrow ();
+		let cnode = Node::new (addr, size);
 		let (pnode, nnode) = self.get_prev_next_node (addr);
 
 		// TODO: make less ugly
@@ -246,14 +243,12 @@ impl HeapZone
 			}
 			else
 			{
-				drop (cnode);
-				self.list.insert_after (cnode_cell, pnode)
+				self.list.insert_after (cnode, pnode)
 			}
 		}
 		else
 		{
-			drop (cnode);
-			self.list.push_front (cnode_cell)
+			self.list.push_front (cnode)
 		};
 
 		if let Some(nnode) = nnode
@@ -330,6 +325,7 @@ impl LinkedListAllocator
 
 		// allocate new heapzone because there was no space in any others
 		let size_inc = max (HEAP_INC_SIZE, size + max (align, CHUNK_SIZE) + INITIAL_CHUNK_SIZE);
+		rprintln! ("{}", size_inc);
 		let zone = match HeapZone::new (size_inc)
 		{
 			Some(n) => n,

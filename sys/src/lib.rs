@@ -82,6 +82,15 @@ pub unsafe fn realloc (mem: usize, size: usize, at_addr: usize, options: Realloc
 	}
 }
 
+pub fn print_debug (bytes: &[u8; 10 * core::mem::size_of::<usize> ()], n: u32)
+{
+	let arr: &[usize; 10] = unsafe { core::mem::transmute(bytes) };
+	unsafe
+	{
+		syscall! (PRINT_DEBUG, n, arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], arr[6], arr[7], arr[8], arr[9]);
+	}
+}
+
 // need to use rcx because rbx is reserved by llvm
 // FIXME: ugly
 #[macro_export]
