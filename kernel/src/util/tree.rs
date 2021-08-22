@@ -514,7 +514,7 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 			},
 		}
 
-		Some(unsafe { MemOwner::new (node.as_ptr ()) })
+		Some(unsafe { MemOwner::from_raw (node.as_ptr ()) })
 	}
 
 	pub fn get (&self, key: &K) -> Option<UniqueRef<V>>

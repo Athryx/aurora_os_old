@@ -201,7 +201,7 @@ impl TreeTest
 		});
 		unsafe
 		{
-			MemOwner::new (Box::leak (out) as *mut _)
+			MemOwner::from_raw (Box::leak (out) as *mut _)
 		}
 	}
 }

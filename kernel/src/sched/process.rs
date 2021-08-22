@@ -33,33 +33,22 @@ pub struct FutexTreeNode
 
 impl FutexTreeNode
 {
-	const LAYOUT: Layout = mlayout_of::<Self> ();
-
 	pub fn new () -> MemOwner<Self>
 	{
-		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for FutexTreeNode");
-		let ptr = mem.as_ptr () as *mut Self;
-		let out = FutexTreeNode {
+		MemOwner::new (FutexTreeNode {
 			addr: Cell::new (0),
 			list: LinkedList::new (),
 			parent: Cell::new (null ()),
 			left: Cell::new (null ()),
 			right: Cell::new (null ()),
 			bf: Cell::new (0),
-		};
-
-		unsafe
-		{
-			ptr::write (ptr, out);
-			MemOwner::new (ptr)
-		}
+		})
 	}
 
 	// Safety: MemOwner must point to a valid FutexTreeNode
 	pub unsafe fn dealloc (this: MemOwner<Self>)
 	{
-		let ptr = NonNull::new (this.ptr_mut ()).unwrap ().cast ();
-		Global.deallocate (ptr, Self::LAYOUT);
+		this.dealloc ();
 	}
 }
 
@@ -394,6 +383,7 @@ impl Process
 
 		for i in 0..count
 		{
+			// FIXME: bug, sometimes indexes with invalid state
 			match list[ThreadState::FutexBlock(addr)].pop_front ()
 			{
 				Some(tpointer) => {

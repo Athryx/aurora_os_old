@@ -284,7 +284,6 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 	};
 
 	let args = MsgArgs {
-		options: SysErr::Ok.num () as u32,
 		sender_pid: process.pid (),
 		domain: connection.domain (),
 		a1: vals.a2,
@@ -509,7 +508,6 @@ impl Connection
 		assert_eq! (args.domain, self.domain);
 
 		let process = proc_c ();
-		let cpid = self.this (process.pid ());
 
 		let other_cpid = self.other (process.pid ());
 		let plock = proc_list.lock ();
@@ -523,7 +521,7 @@ impl Connection
 
 		let mut inner = self.data.lock ();
 		// handle sending message
-		let mut thread_list = tlist.lock ();
+		let thread_list = tlist.lock ();
 		let thread = unsafe { thread_list[ThreadState::Listening(self.cpids)].get (0).map (|ptr| ptr.unbound ()) };
 		drop (thread_list);
 
@@ -533,7 +531,7 @@ impl Connection
 				thread.msg_rcv (args);
 	
 				let mut thread_list = tlist.lock ();
-				Thread::move_to (thread, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+				Thread::move_to (thread, ThreadState::Waiting(thread_c ().tuid ()), Some(&mut thread_list), None).unwrap ();
 			},
 			None => {
 				let handler = match inner.init_handler
@@ -556,7 +554,7 @@ impl Connection
 						match other_process.get_thread (tid)
 						{
 							Some(thread) => {
-								thread.push_conn_state (args);
+								thread.push_conn_state (args)?;
 							},
 							None => {
 								other_process.domains ().lock ().remove (other_process.pid (), Some(self.domain));
@@ -572,7 +570,6 @@ impl Connection
 		{
 			let new_state = ThreadState::Listening(self.cpids);
 			tlist.ensure (new_state);
-			// FIXME: race condition
 			drop (inner);
 			thread_c ().block (new_state);
 			*thread_c ().rcv_regs ().lock ()
@@ -587,7 +584,6 @@ impl Connection
 #[derive(Debug, Clone, Copy)]
 pub struct MsgArgs
 {
-	pub options: u32,
 	pub sender_pid: usize,
 	pub domain: usize,
 	pub a1: usize,

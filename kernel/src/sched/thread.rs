@@ -101,6 +101,8 @@ pub enum ThreadState
 	Running,
 	Ready,
 	Destroy,
+	// waiting for thread to call int_sched
+	Waiting(Tuid),
 	// nsecs to sleep
 	Sleep(u64),
 	// tid to join with
@@ -225,12 +227,40 @@ impl ConnData
 	}
 }*/
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Tuid
+{
+	pid: usize,
+	tid: usize,
+}
+
+impl Tuid
+{
+	pub fn new (pid: usize, tid: usize) -> Tuid
+	{
+		Tuid {
+			pid,
+			tid,
+		}
+	}
+
+	pub fn pid (&self) -> usize
+	{
+		self.pid
+	}
+
+	pub fn tid (&self) -> usize
+	{
+		self.tid
+	}
+}
+
 // TODO: should probably merge into one type with Thread
 // all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
 pub struct Thread
 {
 	process: Weak<Process>,
-	tid: usize,
+	tuid: Tuid,
 	name: String,
 
 	// TODO: find a better solution
@@ -243,7 +273,7 @@ pub struct Thread
 	kstack: Option<Stack>,
 
 	conn_data: Futex<Vec<ConnSaveState>>,
-	msg_recieve_regs: Futex<Result<Registers, SysErr>>,
+	msg_recieve_regs: IMutex<Result<Registers, SysErr>>,
 
 	prev: AtomicPtr<Self>,
 	next: AtomicPtr<Self>,
@@ -251,20 +281,6 @@ pub struct Thread
 
 impl Thread
 {
-	const LAYOUT: Layout = mlayout_of::<Self> ();
-
-	fn create (tnode: Self) -> MemOwner<Self>
-	{
-		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ThreadLNode");
-		let ptr = mem.as_ptr () as *mut Self;
-
-		unsafe
-		{
-			ptr::write (ptr, tnode);
-			MemOwner::new (ptr)
-		}
-	}
-
 	pub fn new (process: Weak<Process>, tid: usize, name: String, regs: Registers) -> Result<MemOwner<Self>, Err>
 	{
 		Self::new_stack_size (process, tid, name, regs, Stack::DEFAULT_SIZE, Stack::DEFAULT_KERNEL_SIZE)
@@ -297,9 +313,9 @@ impl Thread
 		regs.apply_priv (uid);
 		regs.apply_stack (&stack);
 
-		Ok(Self::create (Thread {
+		Ok(MemOwner::new (Thread {
 			process,
-			tid,
+			tuid: Tuid::new (proc.pid (), tid),
 			name,
 			//state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
 			state: IMutex::new (ThreadState::Ready),
@@ -308,7 +324,7 @@ impl Thread
 			stack: Futex::new (stack),
 			kstack,
 			conn_data: Futex::new (Vec::new ()),
-			msg_recieve_regs: Futex::new (Err(SysErr::Unknown)),
+			msg_recieve_regs: IMutex::new (Err(SysErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 		}))
@@ -319,16 +335,16 @@ impl Thread
 	pub fn from_stack (process: Weak<Process>, tid: usize, name: String, mut regs: Registers, range: VirtRange) -> Result<MemOwner<Self>, Err>
 	{
 		// TODO: this hass to be ensured in smp
-		let _proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
+		let proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
 
 		let stack = Stack::no_alloc_new (range);
 
 		regs.apply_priv (PrivLevel::Kernel);
 		regs.apply_stack (&stack);
 
-		Ok(Self::create (Thread {
+		Ok(MemOwner::new (Thread {
 			process,
-			tid,
+			tuid: Tuid::new (proc.pid (), tid),
 			name,
 			//state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
 			state: IMutex::new (ThreadState::Ready),
@@ -337,7 +353,7 @@ impl Thread
 			stack: Futex::new (stack),
 			kstack: None,
 			conn_data: Futex::new (Vec::new ()),
-			msg_recieve_regs: Futex::new (Err(SysErr::Unknown)),
+			msg_recieve_regs: IMutex::new (Err(SysErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
 		}))
@@ -359,9 +375,14 @@ impl Thread
 		self.process.upgrade ()
 	}
 
+	pub fn tuid (&self) -> Tuid
+	{
+		self.tuid
+	}
+
 	pub fn tid (&self) -> usize
 	{
-		self.tid
+		self.tuid.tid ()
 	}
 
 	pub fn name (&self) -> &str
@@ -386,14 +407,24 @@ impl Thread
 		self.conn_data.lock ()
 	}*/
 
-	pub fn rcv_regs (&self) -> &Futex<Result<Registers, SysErr>>
+	pub fn rcv_regs (&self) -> &IMutex<Result<Registers, SysErr>>
 	{
 		&self.msg_recieve_regs
 	}
 
 	pub fn msg_rcv (&self, args: &MsgArgs)
 	{
-		unimplemented! ();
+		let mut regs = *self.regs.lock ();
+		regs.apply_msg_args (args);
+		*self.msg_recieve_regs.lock () = Ok(regs);
+
+		if let ThreadState::Listening(_) = self.state ()
+		{
+			// FIXME: ugly
+			let ptr = UniqueRef::new (self);
+			let mut thread_list = tlist.lock ();
+			Thread::move_to (ptr, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+		}
 	}
 
 	pub fn push_conn_state (&self, args: &MsgArgs) -> Result<(), SysErr>
@@ -598,17 +629,16 @@ impl Thread
 	// NOTE: don't call with any IMutexs locked
 	// TODO: make safer
 	// safety: must call with no other references pointing to self existing
-	pub unsafe fn dealloc (&self)
+	pub unsafe fn dealloc (this: MemOwner<Self>)
 	{
 		// FIXME: smp reace condition if process is freed after initial thread () call
-		if let Some(process) = self.process ()
+		if let Some(process) = this.process ()
 		{
-			process.remove_thread (self.tid).expect ("thread should have been in process");
+			process.remove_thread (this.tid ()).expect ("thread should have been in process");
 		}
 
-		ptr::drop_in_place (self as *const Self as *mut Self);
-		let ptr = NonNull::new (self as *const Self as *mut Self).unwrap ().cast ();
-		Global.deallocate (ptr, Self::LAYOUT);
+		ptr::drop_in_place (this.ptr_mut ());
+		this.dealloc ();
 	}
 }
 
@@ -637,7 +667,7 @@ impl fmt::Debug for Thread
 	{
 		f.debug_struct ("Thread")
 			.field ("process", &self.process ())
-			.field ("tid", &self.tid)
+			.field ("tuid", &self.tuid)
 			.field ("name", &self.name)
 			.field ("state", &self.state)
 			.field ("run_time", &self.run_time)

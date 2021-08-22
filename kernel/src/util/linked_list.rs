@@ -116,7 +116,7 @@ impl Node
 		};
 		ptr.write (out);
 
-		MemOwner::new (ptr)
+		MemOwner::from_raw (ptr)
 	}
 
 	pub fn size (&self) -> usize
@@ -146,8 +146,8 @@ impl<T: ListNode> LinkedList<T>
 	pub const fn new () -> Self
 	{
 		LinkedList {
-			start: 0 as *mut T,
-			end: 0 as *mut T,
+			start: null_mut (),
+			end: null_mut (),
 			len: 0,
 		}
 	}
@@ -194,7 +194,7 @@ impl<T: ListNode> LinkedList<T>
 		let out;
 		unsafe
 		{
-			out = MemOwner::new (self.end as *mut _);
+			out = MemOwner::from_raw (self.end as *mut _);
 			let out_ref = self.end.as_ref ().unwrap ();
 			if self.len > 1
 			{
@@ -243,7 +243,7 @@ impl<T: ListNode> LinkedList<T>
 		let out;
 		unsafe
 		{
-			out = MemOwner::new (self.start as *mut _);
+			out = MemOwner::from_raw (self.start as *mut _);
 			let out_ref = self.start.as_ref ().unwrap ();
 			if self.len > 1
 			{
@@ -382,7 +382,7 @@ impl<T: ListNode> LinkedList<T>
 
 		unsafe
 		{
-			MemOwner::new (node.ptr () as *mut T)
+			MemOwner::from_raw (node.ptr () as *mut T)
 		}
 	}
 
@@ -411,6 +411,36 @@ impl<T: ListNode> LinkedList<T>
 			self.end = new_ptr;
 			new.set_next (null ());
 		}
+	}
+
+	// appends all elements from other linked list to this linked list
+	pub fn append (&mut self, other: &mut LinkedList<T>)
+	{
+		if other.len () == 0
+		{
+			return;
+		}
+
+		if self.len () == 0
+		{
+			self.start = other.start;
+			self.end = other.end;
+			self.len = other.len;
+		}
+		else
+		{
+			unsafe
+			{
+				self.end.as_ref ().unwrap ().set_next (other.start);
+				other.start.as_ref ().unwrap ().set_prev (self.end);
+			}
+	
+			self.end = other.end;
+		}
+
+		other.start = null_mut ();
+		other.end = null_mut ();
+		other.len = 0;
 	}
 
 	pub fn get (&self, index: usize) -> Option<UniqueRef<T>>

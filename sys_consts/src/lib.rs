@@ -46,12 +46,12 @@ impl SysErr
 		}
 	}
 
-	pub fn num (&self) -> usize
+	pub const fn num (&self) -> usize
 	{
 		*self as usize
 	}
 
-	pub fn as_str (&self) -> &'static str
+	pub const fn as_str (&self) -> &'static str
 	{
 		match self
 		{

@@ -16,7 +16,7 @@ use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
 pub use process::Process;
-pub use thread::{Thread, ThreadState, Stack};
+pub use thread::{Thread, ThreadState, Stack, Tuid};
 pub use domain::*;
 pub use connection::*;
 pub use namespace::{Namespace, namespace_map};
@@ -53,7 +53,7 @@ static last_switch_nsec: AtomicU64 = AtomicU64::new (0);
 
 // TODO: make this cpu local data
 // FIXME: this is a bad way to return registers, and won't be safe with smp
-static mut out_regs: Registers = Registers::new (0, 0, 0);
+pub static mut out_regs: Registers = Registers::zero ();
 
 // These interrupt handlers, and all other timer interrupt handlers must not:
 // lock any reguler mutexes or spinlocks (only IMutex)
@@ -97,6 +97,19 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 {
 	lock ();
+
+	let mut thread_list = tlist.lock ();
+	let tuid = thread_list[ThreadState::Running].g (0).tuid ();
+	if let Some(wait_list) = thread_list.get_mut (ThreadState::Waiting(tuid))
+	{
+		// FIXME: ugly
+		for thread in unsafe { unbound_mut (wait_list).iter () }
+		{
+			Thread::move_to (thread, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+		}
+	}
+
+	drop (thread_list);
 
 	let out = schedule (regs, timer.nsec ());
 
@@ -232,6 +245,45 @@ fn thread_cleaner ()
 	}
 }
 
+// TODO: combine with conn tree node with generics
+// FIXME: find way to dealloc these when unneeded
+#[derive(Debug)]
+struct WaitTreeNode
+{
+	id: Cell<Tuid>,
+	list: LinkedList<Thread>,
+
+	bf: Cell<i8>,
+	parent: Cell<*const Self>,
+	left: Cell<*const Self>,
+	right: Cell<*const Self>,
+}
+
+impl WaitTreeNode
+{
+	pub fn new () -> MemOwner<Self>
+	{
+		MemOwner::new (WaitTreeNode {
+			id: Cell::new (Tuid::new (0, 0)),
+			list: LinkedList::new (),
+			bf: Cell::new (0),
+			parent: Cell::new (null ()),
+			left: Cell::new (null ()),
+			right: Cell::new (null ()),
+		})
+	}
+
+	// Safety: MemOwner must point to a valid FutexTreeNode
+	pub unsafe fn dealloc (this: MemOwner<Self>)
+	{
+		this.dealloc ();
+	}
+}
+
+unsafe impl Send for WaitTreeNode {}
+
+crate::impl_tree_node! (Tuid, WaitTreeNode, parent, left, right, id, bf);
+
 // FIXME: find way to dealloc these when unneeded
 #[derive(Debug)]
 struct ConnTreeNode
@@ -247,34 +299,22 @@ struct ConnTreeNode
 
 impl ConnTreeNode
 {
-	const LAYOUT: Layout = mlayout_of::<Self> ();
-
 	pub fn new () -> MemOwner<Self>
 	{
-		let mem = Global.allocate (Self::LAYOUT).expect ("out of memory for ConnTreeNode");
-		let ptr = mem.as_ptr () as *mut Self;
-
-		let out = ConnTreeNode {
+		MemOwner::new (ConnTreeNode {
 			id: Cell::new (ConnPid::new (0, 0)),
 			list: LinkedList::new (),
 			bf: Cell::new (0),
 			parent: Cell::new (null ()),
 			left: Cell::new (null ()),
 			right: Cell::new (null ()),
-		};
-
-		unsafe
-		{
-			ptr::write (ptr, out);
-			MemOwner::new (ptr)
-		}
+		})
 	}
 
 	// Safety: MemOwner must point to a valid FutexTreeNode
 	pub unsafe fn dealloc (this: MemOwner<Self>)
 	{
-		let ptr = NonNull::new (this.ptr_mut ()).unwrap ().cast ();
-		Global.deallocate (ptr, Self::LAYOUT);
+		this.dealloc ();
 	}
 }
 
@@ -289,6 +329,7 @@ pub struct ThreadList
 	ready: LinkedList<Thread>,
 	destroy: LinkedList<Thread>,
 	sleep: LinkedList<Thread>,
+	wait: AvlTree<Tuid, WaitTreeNode>,
 	conn_wait: AvlTree<ConnPid, ConnTreeNode>,
 }
 
@@ -301,6 +342,7 @@ impl ThreadList
 			ready: LinkedList::new (),
 			destroy: LinkedList::new (),
 			sleep: LinkedList::new (),
+			wait: AvlTree::new (),
 			conn_wait: AvlTree::new (),
 		}
 	}
@@ -313,6 +355,7 @@ impl ThreadList
 			ThreadState::Ready => Some(&self.ready),
 			ThreadState::Destroy => Some(&self.destroy),
 			ThreadState::Sleep(_) => Some(&self.sleep),
+			ThreadState::Waiting(tuid) => Some(unsafe { unbound (&self.wait.get (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound (&self.conn_wait.get (&id)?.list) }),
 			_ => None
 		}
@@ -326,6 +369,7 @@ impl ThreadList
 			ThreadState::Ready => Some(&mut self.ready),
 			ThreadState::Destroy => Some(&mut self.destroy),
 			ThreadState::Sleep(_) => Some(&mut self.sleep),
+			ThreadState::Waiting(tuid) => Some(unsafe { unbound_mut (&mut self.wait.get_mut (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound_mut (&mut self.conn_wait.get_mut (&id)?.list) }),
 			_ => None
 		}
@@ -366,8 +410,23 @@ impl ThreadListGuard
 
 	pub fn ensure (&self, state: ThreadState)
 	{
+		// TODO: put both these branches into a function
 		match state
 		{
+			ThreadState::Waiting(tuid) => {
+				if self.lock ().wait.get (&tuid).is_none ()
+				{
+					let node = WaitTreeNode::new ();
+					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
+					if let Err(val) = self.lock ().wait.insert (tuid, node)
+					{
+						unsafe
+						{
+							WaitTreeNode::dealloc (val);
+						}
+					}
+				}
+			},
 			ThreadState::Listening(conn_id) => {
 				if self.lock ().conn_wait.get (&conn_id).is_none ()
 				{
@@ -481,7 +540,7 @@ impl Registers
 
 	pub const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
 	{
-		self.rax = msg_args.options as usize;
+		self.rax = SysErr::MsgResp.num ();
 		self.rbx = msg_args.sender_pid;
 		self.rdx = msg_args.domain;
 		self.rsi = msg_args.a1;

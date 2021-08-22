@@ -59,7 +59,7 @@ impl Node
 		};
 		ptr.write (out);
 
-		MemOwner::new (ptr)
+		MemOwner::from_raw (ptr)
 	}
 
 	unsafe fn resize (&self, size: usize, align: usize) -> ResizeResult
@@ -149,7 +149,7 @@ impl HeapZone
 
 		ptr.write (out);
 
-		Some(MemOwner::new (ptr))
+		Some(MemOwner::from_raw (ptr))
 	}
 
 	fn free_space (&self) -> usize

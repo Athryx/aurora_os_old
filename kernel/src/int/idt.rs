@@ -279,6 +279,23 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
 	}
+	else
+	{
+		let thread = thread_c ();
+		let mut rcv_regs = thread.rcv_regs ().lock ();
+
+		if let Ok(regs) = *rcv_regs
+		{
+			// don't need to set regs because these will be set at next interrupt
+			use crate::sched::out_regs;
+			unsafe
+			{
+				out_regs = regs;
+				out = Some(&out_regs);
+			}
+			*rcv_regs = Err(SysErr::Unknown);
+		}
+	}
 
 	out
 }
