@@ -16,7 +16,7 @@ use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
 pub use process::Process;
-pub use thread::{Thread, ThreadState};
+pub use thread::{Thread, ThreadState, Stack};
 pub use domain::*;
 pub use connection::*;
 pub use namespace::{Namespace, namespace_map};
@@ -418,12 +418,12 @@ pub struct Registers
 
 impl Registers
 {
-	const fn zero () -> Self
+	pub const fn zero () -> Self
 	{
 		Self::new (0, 0, 0)
 	}
 
-	const fn new (rflags: usize, cs: u16, ss: u16) -> Self
+	pub const fn new (rflags: usize, cs: u16, ss: u16) -> Self
 	{
 		Registers {
 			rax: 0,
@@ -451,26 +451,35 @@ impl Registers
 		}
 	}
 
-	const fn from_priv (plevel: PrivLevel) -> Self
+	pub const fn from_rip (rip: usize) -> Self
 	{
-		match plevel
-		{
-			PrivLevel::Kernel => Registers::new (0x202, 0x08, 0x10),
-			PrivLevel::SuperUser => Registers::new (0x202, 0x23, 0x1b),
-			// FIXME: temporarily setting IOPL to 3 for testing
-			PrivLevel::IOPriv => Registers::new (0x3202, 0x23, 0x1b),
-			PrivLevel::User(_) => Registers::new (0x202, 0x23, 0x1b),
-		}
+		let mut out = Self::zero ();
+		out.rip = rip;
+		out
 	}
 
-	const fn from_msg_args (plevel: PrivLevel, msg_args: &MsgArgs) -> Self
+	pub fn from_stack (stack: &Stack) -> Self
 	{
-		let mut out = Registers::from_priv (plevel);
+		let mut out = Self::zero ();
+		out.apply_stack (stack);
+		out
+	}
+
+	pub const fn from_priv (plevel: PrivLevel) -> Self
+	{
+		let mut out = Self::zero ();
+		out.apply_priv (plevel);
+		out
+	}
+
+	pub const fn from_msg_args (msg_args: &MsgArgs) -> Self
+	{
+		let mut out = Registers::zero ();
 		out.apply_msg_args (msg_args);
 		out
 	}
 
-	const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
+	pub const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
 	{
 		self.rax = msg_args.options as usize;
 		self.rbx = msg_args.sender_pid;
@@ -483,6 +492,42 @@ impl Registers
 		self.r13 = msg_args.a6;
 		self.r14 = msg_args.a7;
 		self.r15 = msg_args.a8;
+		self
+	}
+
+	pub fn apply_stack (&mut self, stack: &Stack) -> &mut Self
+	{
+		self.rsp = stack.top () - 8;
+		self.rbp = 0;
+		self
+	}
+
+	pub const fn apply_priv (&mut self, plevel: PrivLevel) -> &mut Self
+	{
+		match plevel
+		{
+			PrivLevel::Kernel => {
+				self.rflags = 0x202;
+				self.cs = 0x08;
+				self.ss = 0x10;
+			},
+			PrivLevel::SuperUser => {
+				self.rflags = 0x202;
+				self.cs = 0x23;
+				self.ss = 0x1b;
+			},
+			PrivLevel::IOPriv => {
+				// FIXME: temporarily setting IOPL to 3 for testing
+				self.rflags = 0x3202;
+				self.cs = 0x23;
+				self.ss = 0x1b;
+			},
+			PrivLevel::User(_) => {
+				self.rflags = 0x202;
+				self.cs = 0x23;
+				self.ss = 0x1b;
+			},
+		}
 		self
 	}
 }
@@ -515,7 +560,7 @@ pub fn init () -> Result<(), Err>
 	kernel_proc.new_thread (thread_cleaner as usize, Some("thread_cleaner".to_string ()))?;
 
 	// rip will be set on first context switch
-	let idle_thread = Thread::from_stack (Arc::downgrade (&kernel_proc), kernel_proc.next_tid (), "idle_thread".to_string (), 0, *INIT_STACK)?;
+	let idle_thread = Thread::from_stack (Arc::downgrade (&kernel_proc), kernel_proc.next_tid (), "idle_thread".to_string (), Registers::zero (), *INIT_STACK)?;
 	idle_thread.set_state (ThreadState::Running);
 	tlist.lock ()[ThreadState::Running].push (unsafe { idle_thread.clone () });
 

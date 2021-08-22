@@ -396,7 +396,6 @@ impl ConnectionMap
 struct ConnInner
 {
 	init_handler: Option<DomainHandler>,
-	wating_thread: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -447,7 +446,6 @@ impl Connection
 			cpidr,
 			data: Futex::new (ConnInner {
 				init_handler: Some(handler),
-				wating_thread: false,
 			}),
 		})
 	}
@@ -525,27 +523,64 @@ impl Connection
 
 		let mut inner = self.data.lock ();
 		// handle sending message
-		if inner.wating_thread
+		let mut thread_list = tlist.lock ();
+		let thread = unsafe { thread_list[ThreadState::Listening(self.cpids)].get (0).map (|ptr| ptr.unbound ()) };
+		drop (thread_list);
+
+		match thread
 		{
-			inner.wating_thread = false;
-			let mut thread_list = tlist.lock ();
-			let thread = unsafe { thread_list[ThreadState::Listening(self.cpids)].get (0).unwrap ().unbound () };
-			thread.msg_rcv (args);
-			Thread::move_to (thread, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+			Some(thread) => {
+				thread.msg_rcv (args);
+	
+				let mut thread_list = tlist.lock ();
+				Thread::move_to (thread, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+			},
+			None => {
+				let handler = match inner.init_handler
+				{
+					Some(handler) => {
+						inner.init_handler = None;
+						handler
+					},
+					None => *other_process.domains ().lock ().get (self.domain).ok_or (SysErr::MsgUnreach)?,
+				};
+		
+				match handler.options ().block_mode
+				{
+					BlockMode::NonBlocking => {
+						let mut regs = Registers::from_msg_args (args);
+						regs.rip = handler.rip ();
+						other_process.new_thread_regs (regs, Some(format! ("domain_handler_{}", self.domain))).or (Err(SysErr::MsgUnreach))?;
+					},
+					BlockMode::Blocking(tid) => {
+						match other_process.get_thread (tid)
+						{
+							Some(thread) => {
+								thread.push_conn_state (args);
+							},
+							None => {
+								other_process.domains ().lock ().remove (other_process.pid (), Some(self.domain));
+								return Err(SysErr::MsgTerm);
+							},
+						}
+					},
+				}
+			},
+		}
+
+		if blocking
+		{
+			let new_state = ThreadState::Listening(self.cpids);
+			tlist.ensure (new_state);
+			// FIXME: race condition
+			drop (inner);
+			thread_c ().block (new_state);
+			*thread_c ().rcv_regs ().lock ()
 		}
 		else
 		{
-			let handler = match inner.init_handler
-			{
-				Some(handler) => {
-					inner.init_handler = None;
-					handler
-				},
-				None => *other_process.domains ().lock ().get (self.domain).ok_or (SysErr::MsgTerm)?,
-			};
+			Err(SysErr::Ok)
 		}
-
-		unimplemented! ();
 	}
 }
 

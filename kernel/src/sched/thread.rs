@@ -8,6 +8,7 @@ use core::mem::transmute;
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::sync::{Arc, Weak};
+use sys_consts::SysErr;
 use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
 use crate::mem::{PAGE_SIZE, VirtRange};
@@ -100,7 +101,6 @@ pub enum ThreadState
 	Running,
 	Ready,
 	Destroy,
-	Waiting,
 	// nsecs to sleep
 	Sleep(u64),
 	// tid to join with
@@ -206,7 +206,7 @@ impl ConnSaveState
 	}
 }
 
-#[derive(Debug)]
+/*#[derive(Debug)]
 pub struct ConnData
 {
 	// current connection that is being responded to
@@ -223,7 +223,7 @@ impl ConnData
 			states: BTreeMap::new (),
 		}
 	}
-}
+}*/
 
 // TODO: should probably merge into one type with Thread
 // all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
@@ -242,7 +242,7 @@ pub struct Thread
 	stack: Futex<Stack>,
 	kstack: Option<Stack>,
 
-	conn_data: Futex<ConnData>,
+	conn_data: Futex<Vec<ConnSaveState>>,
 	msg_recieve_regs: Futex<Result<Registers, SysErr>>,
 
 	prev: AtomicPtr<Self>,
@@ -265,20 +265,18 @@ impl Thread
 		}
 	}
 
-	pub fn new (process: Weak<Process>, tid: usize, name: String, rip: usize) -> Result<MemOwner<Self>, Err>
+	pub fn new (process: Weak<Process>, tid: usize, name: String, regs: Registers) -> Result<MemOwner<Self>, Err>
 	{
-		Self::new_stack_size (process, tid, name, rip, Stack::DEFAULT_SIZE, Stack::DEFAULT_KERNEL_SIZE)
+		Self::new_stack_size (process, tid, name, regs, Stack::DEFAULT_SIZE, Stack::DEFAULT_KERNEL_SIZE)
 	}
 
 	// kstack_size only applies for ring 3 processes, for ring 0 stack_size is used as the stack size, but the stack is still a kernel stack
 	// does not put thread inside scheduler queue
-	pub fn new_stack_size (process: Weak<Process>, tid: usize, name: String, rip: usize, stack_size: usize, kstack_size: usize) -> Result<MemOwner<Self>, Err>
+	pub fn new_stack_size (process: Weak<Process>, tid: usize, name: String, mut regs: Registers, stack_size: usize, kstack_size: usize) -> Result<MemOwner<Self>, Err>
 	{
 		let proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
 		let mapper = &proc.addr_space;
 		let uid = proc.uid ();
-
-		let mut regs = Registers::from_priv (uid);
 
 		let stack = match uid
 		{
@@ -296,8 +294,8 @@ impl Thread
 			},
 		};
 
-		regs.rip = rip;
-		regs.rsp = stack.top () - 8;
+		regs.apply_priv (uid);
+		regs.apply_stack (&stack);
 
 		Ok(Self::create (Thread {
 			process,
@@ -309,7 +307,7 @@ impl Thread
 			regs: IMutex::new (regs),
 			stack: Futex::new (stack),
 			kstack,
-			conn_data: Futex::new (ConnData::new ()),
+			conn_data: Futex::new (Vec::new ()),
 			msg_recieve_regs: Futex::new (Err(SysErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
@@ -318,17 +316,15 @@ impl Thread
 
 	// only used for kernel idle thread
 	// uid is assumed kernel
-	pub fn from_stack (process: Weak<Process>, tid: usize, name: String, rip: usize, range: VirtRange) -> Result<MemOwner<Self>, Err>
+	pub fn from_stack (process: Weak<Process>, tid: usize, name: String, mut regs: Registers, range: VirtRange) -> Result<MemOwner<Self>, Err>
 	{
 		// TODO: this hass to be ensured in smp
 		let _proc = &process.upgrade ().expect ("somehow Thread::new ran in a destroyed process");
 
-		let mut regs = Registers::from_priv (PrivLevel::Kernel);
-
 		let stack = Stack::no_alloc_new (range);
 
-		regs.rip = rip;
-		regs.rsp = stack.top () - 8;
+		regs.apply_priv (PrivLevel::Kernel);
+		regs.apply_stack (&stack);
 
 		Ok(Self::create (Thread {
 			process,
@@ -340,7 +336,7 @@ impl Thread
 			regs: IMutex::new (regs),
 			stack: Futex::new (stack),
 			kstack: None,
-			conn_data: Futex::new (ConnData::new ()),
+			conn_data: Futex::new (Vec::new ()),
 			msg_recieve_regs: Futex::new (Err(SysErr::Unknown)),
 			prev: AtomicPtr::new (null_mut ()),
 			next: AtomicPtr::new (null_mut ()),
@@ -385,10 +381,10 @@ impl Thread
 		*self.state.lock () = state;
 	}
 
-	pub fn conn_data (&self) -> FutexGaurd<ConnData>
+	/*pub fn conn_data (&self) -> FutexGaurd<ConnData>
 	{
 		self.conn_data.lock ()
-	}
+	}*/
 
 	pub fn rcv_regs (&self) -> &Futex<Result<Registers, SysErr>>
 	{
@@ -400,9 +396,57 @@ impl Thread
 		unimplemented! ();
 	}
 
+	pub fn push_conn_state (&self, args: &MsgArgs) -> Result<(), SysErr>
+	{
+		let new_stack = match Stack::user_new (Stack::DEFAULT_SIZE, &self.process ().unwrap ().addr_space)
+		{
+			Ok(stack) => stack,
+			Err(_) => return Err(SysErr::OutOfMem),
+		};
+
+		let regs = *self.regs.lock ();
+		let mut new_regs = regs;
+		new_regs.apply_msg_args (args).apply_stack (&new_stack);
+
+		// shouldn't be race condition, because these are all leaf locks
+		let mut rcv_regs = self.msg_recieve_regs.lock ();
+		let mut conn_state = self.conn_data.lock ();
+		let mut stack = self.stack.lock ();
+
+		let old_stack = core::mem::replace (&mut *stack, new_stack);
+
+		let save_state = ConnSaveState::new (regs, old_stack);
+		conn_state.push (save_state);
+
+		*rcv_regs = Ok(new_regs);
+
+		Ok(())
+	}
+
+	pub fn pop_conn_state (&self) -> Result<(), SysErr>
+	{
+		let mut rcv_regs = self.msg_recieve_regs.lock ();
+		let mut conn_state = self.conn_data.lock ();
+		let mut stack = self.stack.lock ();
+
+		let save_state = conn_state.pop ().ok_or (SysErr::InvlOp)?;
+		*rcv_regs = Ok(save_state.regs);
+		let old_stack = core::mem::replace (&mut *stack, save_state.stack);
+
+		drop (rcv_regs);
+		drop (conn_state);
+		drop (stack);
+
+		unsafe
+		{
+			old_stack.dealloc (&self.process ().unwrap ().addr_space);
+		}
+		Ok(())
+	}
+
 	// panic safety: this can't be called on any running thread
 	// do not call with conn_data locked
-	pub fn switch_conn_state (&self, conn_data: &mut ConnData, conn_id: Option<usize>, args: &MsgArgs) -> Option<Registers>
+	/*pub fn switch_conn_state (&self, conn_data: &mut ConnData, conn_id: Option<usize>, args: &MsgArgs) -> Option<Registers>
 	{
 		assert! (thread_c ().ptr () != self as *const _);
 
@@ -422,7 +466,8 @@ impl Thread
 					Ok(stack) => stack,
 					Err(_) => return None,
 				};
-				let mut new_regs = Registers::from_msg_args (self.process ().unwrap ().uid (), args);
+				let mut new_regs = Registers::from_msg_args (args);
+				new_regs.apply_priv (self.process ().unwrap ().uid ());
 				new_regs.rsp = new_stack.top () - 8;
 				let new_state = ConnSaveState::new (new_regs, new_stack);
 				conn_data.states.insert (conn_id, new_state);
@@ -430,7 +475,7 @@ impl Thread
 				Some(new_regs)
 			},
 		}
-	}
+	}*/
 
 	// returns false if failed to remove
 	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemOwner<Thread>, T>
@@ -505,6 +550,7 @@ impl Thread
 		}
 	}
 
+	// only call on currently running thread
 	pub fn block (&self, state: ThreadState)
 	{
 		match state

@@ -15,16 +15,18 @@ pub enum SysErr
 {
 	Ok = 0,
 	MsgResp = 1,
-	MsgTerm = 2,
-	OutOfMem = 3,
-	InvlVirtMem = 4,
-	InvlPtr = 5,
-	InvlVirtAddr = 6,
-	InvlArgs = 7,
-	InvlPriv = 8,
-	InvlId = 9,
-	InvlString = 10,
-	Unknown = 11,
+	MsgUnreach = 2,
+	MsgTerm = 3,
+	OutOfMem = 4,
+	InvlVirtMem = 5,
+	InvlPtr = 6,
+	InvlVirtAddr = 7,
+	InvlArgs = 8,
+	InvlPriv = 9,
+	InvlId = 10,
+	InvlString = 11,
+	InvlOp = 12,
+	Unknown = 13,
 }
 
 impl SysErr
@@ -55,7 +57,8 @@ impl SysErr
 		{
 			Self::Ok => "no error",
 			Self::MsgResp => "blocking message sent, and a response was recieved",
-			Self::MsgTerm => "blocking message sent, and the recipipient thread terminated",
+			Self::MsgUnreach => "cannot send message, no waiting thread or registered domain handler",
+			Self::MsgTerm => "cannot send message, connection terminated",
 			Self::OutOfMem => "out of memory",
 			Self::InvlVirtMem => "virtual memory collision",
 			Self::InvlPtr => "invalid pointer",
@@ -64,6 +67,7 @@ impl SysErr
 			Self::InvlPriv => "insufficent priveledge",
 			Self::InvlId => "invalid identifier",
 			Self::InvlString => "invalid utf-8 string",
+			Self::InvlOp => "invalid operation",
 			Self::Unknown => "unknown error",
 		}
 	}

@@ -340,10 +340,18 @@ impl Process
 
 	// returns tid in ok
 	// locks thread list
+	// for backwards compatability
 	pub fn new_thread (&self, thread_func: usize, name: Option<String>) -> Result<usize, Err>
 	{
+		self.new_thread_regs (Registers::from_rip (thread_func), name)
+	}
+
+	// returns tid in ok
+	// locks thread list
+	pub fn new_thread_regs (&self, regs: Registers, name: Option<String>) -> Result<usize, Err>
+	{
 		let tid = self.next_tid ();
-		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name (), tid)), thread_func)?;
+		let thread = Thread::new (self.self_ref.clone (), tid, name.unwrap_or_else (|| format! ("{}-thread{}", self.name (), tid)), regs)?;
 		if self.insert_thread (unsafe { thread.clone () })
 		{
 			tlist.lock ()[ThreadState::Ready].push (thread);
