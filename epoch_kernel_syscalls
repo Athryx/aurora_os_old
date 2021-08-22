@@ -276,7 +276,8 @@ register function at instrcution pointer {rip} to handle messages with domain {d
 options:
 bit 0 (reg_block):
 0: will spawn a new thread to handle the message
-1: will spawn a new thread to handle the message, and will block the current thread until the other thread terminates
+1: will block the current thread and switch to a new stack
+can exit this stack and restore state by calling msg_return
 
 bit 1 (reg_default):
 0: reg registers function only for specified domain
@@ -389,7 +390,11 @@ bit 14 set: arg 7 has smid
 bit 15 set: arg 8 has smid
 
 
-27: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
+27: fn msg_return () -> SysErr
+returns of msg stack
+
+
+28: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
 prints the characters specified in the arguments to the debug console
 this syscall is only for debugging until I write a terminal emulator
 each argument is a combination of 8 bit characters to print to the screen

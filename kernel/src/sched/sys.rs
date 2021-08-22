@@ -280,3 +280,12 @@ pub extern "C" fn msg (vals: &mut SyscallVals)
 		},
 	}
 }
+
+pub extern "C" fn msg_return (vals: &mut SyscallVals)
+{
+	match thread_c ().pop_conn_state ()
+	{
+		Ok(_) => sysret! (vals, SysErr::Ok.num ()),
+		Err(err) => sysret! (vals, err.num ()),
+	}
+}

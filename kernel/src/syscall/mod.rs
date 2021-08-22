@@ -1,6 +1,6 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{spawn, thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, connect, disconnect, conn_info, msg};
+use crate::sched::sys::{spawn, thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, connect, disconnect, conn_info, msg, msg_return};
 use crate::mem::sys::realloc;
 use crate::util::io::sys_print_debug;
 
@@ -16,7 +16,7 @@ extern "C"
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
-static syscalls: [SyscallFunc; 28] = [
+static syscalls: [SyscallFunc; 29] = [
 	sys_nop,
 	spawn,
 	thread_new,
@@ -44,6 +44,7 @@ static syscalls: [SyscallFunc; 28] = [
 	disconnect,
 	conn_info,
 	msg,
+	msg_return,
 	sys_print_debug,
 ];
 

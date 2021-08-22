@@ -36,5 +36,6 @@ pub const CONNECT: u32 = 23;
 pub const DISCONNECT: u32 = 24;
 pub const CONN_INFO: u32 = 25;
 pub const MSG: u32 = 26;
+pub const MSG_RETURN: u32 = 27;
 
-pub const PRINT_DEBUG: u32 = 27;
+pub const PRINT_DEBUG: u32 = 28;
