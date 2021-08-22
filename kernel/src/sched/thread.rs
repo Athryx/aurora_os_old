@@ -115,27 +115,6 @@ pub enum ThreadState
 
 impl ThreadState
 {
-	/*pub fn from_u128 (num: u128) -> Self
-	{
-		/*let n = num as u64;
-		let id = num.wrapping_shr (64) as u64;
-
-		match id
-		{
-			0 => Self::Running,
-			1 => Self::Ready,
-			2 => Self::Destroy,
-			3 => Self::Sleep(n),
-			4 => Self::Join(n as usize),
-			5 => Self::FutexBlock(n as usize),
-			_ => panic! ("invalid num passed to ThreadState::from_u128"),
-		}*/
-		unsafe
-		{
-			transmute::<u128, Self> (num)
-		}
-	}*/
-
 	// is the data structure for storing this thread local to the process
 	pub fn is_proc_local (&self) -> bool
 	{
@@ -168,26 +147,6 @@ impl ThreadState
 			_ => None,
 		}
 	}
-
-	/*pub fn as_u128 (&self) -> u128
-	{
-		/*let (id, num) = match self
-		{
-			Self::Running => (0, 0),
-			Self::Ready => (1, 0),
-			Self::Destroy => (2, 0),
-			Self::Sleep(nsec) => (3, *nsec),
-			Self::Join(tid) => (4, *tid as u64),
-			Self::FutexBlock(addr) => (5, *addr as u64),
-		};
-
-		((id as u128) << 64) | (num as u128)*/
-
-		unsafe
-		{
-			transmute::<Self, u128> (*self)
-		}
-	}*/
 }
 
 #[derive(Debug)]
@@ -207,25 +166,6 @@ impl ConnSaveState
 		}
 	}
 }
-
-/*#[derive(Debug)]
-pub struct ConnData
-{
-	// current connection that is being responded to
-	pub conn_id: Option<usize>,
-	states: BTreeMap<Option<usize>, ConnSaveState>
-}
-
-impl ConnData
-{
-	pub fn new () -> Self
-	{
-		ConnData {
-			conn_id: None,
-			states: BTreeMap::new (),
-		}
-	}
-}*/
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Tuid
@@ -402,11 +342,6 @@ impl Thread
 		*self.state.lock () = state;
 	}
 
-	/*pub fn conn_data (&self) -> FutexGaurd<ConnData>
-	{
-		self.conn_data.lock ()
-	}*/
-
 	pub fn rcv_regs (&self) -> &IMutex<Result<Registers, SysErr>>
 	{
 		&self.msg_recieve_regs
@@ -474,39 +409,6 @@ impl Thread
 		}
 		Ok(())
 	}
-
-	// panic safety: this can't be called on any running thread
-	// do not call with conn_data locked
-	/*pub fn switch_conn_state (&self, conn_data: &mut ConnData, conn_id: Option<usize>, args: &MsgArgs) -> Option<Registers>
-	{
-		assert! (thread_c ().ptr () != self as *const _);
-
-		let old_conn_id = conn_data.conn_id;
-		conn_data.states.get_mut (&old_conn_id).unwrap ().regs = *self.regs.lock ();
-
-		conn_data.conn_id = conn_id;
-		match conn_data.states.get_mut (&conn_id)
-		{
-			Some(conn_state) => {
-				let mut new_regs = conn_state.regs;
-				Some(*new_regs.apply_msg_args (args))
-			},
-			None => {
-				let new_stack = match Stack::user_new (Stack::DEFAULT_SIZE, &self.process ().unwrap ().addr_space)
-				{
-					Ok(stack) => stack,
-					Err(_) => return None,
-				};
-				let mut new_regs = Registers::from_msg_args (args);
-				new_regs.apply_priv (self.process ().unwrap ().uid ());
-				new_regs.rsp = new_stack.top () - 8;
-				let new_state = ConnSaveState::new (new_regs, new_stack);
-				conn_data.states.insert (conn_id, new_state);
-
-				Some(new_regs)
-			},
-		}
-	}*/
 
 	// returns false if failed to remove
 	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemOwner<Thread>, T>
