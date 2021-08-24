@@ -249,6 +249,22 @@ pub extern "C" fn connect (vals: &mut SyscallVals)
 
 pub extern "C" fn disconnect (vals: &mut SyscallVals)
 {
+	let cid = vals.a1;
+	let process = proc_c ();
+	let connection = match process.connections ().lock ().remove (cid)
+	{
+		Some(connection) => connection,
+		None => sysret! (vals, SysErr::InvlId.num ()),
+	};
+
+	let cpid = connection.other (process.pid ());
+	let plock = proc_list.lock ();
+	if let Some(process) = plock.get (&cpid.pid ())
+	{
+		process.connections ().lock ().remove (cpid.conn_id ());
+	}
+
+	sysret! (vals, SysErr::Ok.num ());
 }
 
 pub extern "C" fn conn_info (vals: &mut SyscallVals)

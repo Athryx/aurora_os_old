@@ -136,6 +136,7 @@ pub struct Process
 	threads: Mutex<BTreeMap<usize, MemOwner<Thread>>>,
 
 	domains: Futex<DomainMap>,
+	// NOTE: don't lock proc_list while this is locked
 	connections: Futex<ConnectionMap>,
 
 	pub tlproc: IMutex<ThreadListProcLocal>,

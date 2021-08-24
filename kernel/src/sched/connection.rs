@@ -106,10 +106,10 @@ impl ConnectionMap
 		}
 	}
 
-	/*pub fn remove (&mut self, id: usize) -> Option<Arc<Connection>>
+	pub fn remove (&mut self, conn_id: usize) -> Option<Arc<Connection>>
 	{
-		self.data.remove (&id)
-	}*/
+		Some(self.data.remove (self.get_index (conn_id).ok ()?).conn)
+	}
 
 	pub fn get_int (&self, conn_id: usize) -> Option<&Arc<Connection>>
 	{
@@ -248,9 +248,7 @@ impl Connection
 		let process = proc_c ();
 
 		let other_cpid = self.other (process.pid ());
-		let plock = proc_list.lock ();
-		let other_process = plock.get (&other_cpid.pid ()).ok_or (SysErr::MsgTerm)?.clone ();
-		drop (plock);
+		let other_process = proc_get (other_cpid.pid ()).ok_or (SysErr::MsgTerm)?;
 
 		if let None = other_process.connections ().lock ().get_int (other_cpid.conn_id ())
 		{

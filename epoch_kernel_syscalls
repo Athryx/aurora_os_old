@@ -319,8 +319,11 @@ cid: connection id
 err: syserr code
 
 
-24: fn disconnect (cid: usize)
+24: fn disconnect (cid: usize) -> SysErr
 close connection with cid {cid}
+
+return value:
+InvlId: no connection with cid {cid} exists
 
 
 25: conn_info (cid: usize)

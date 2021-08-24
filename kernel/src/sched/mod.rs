@@ -608,6 +608,11 @@ pub fn proc_c () -> Arc<Process>
 	thread_c ().process ().unwrap ()
 }
 
+pub fn proc_get (pid: usize) -> Option<Arc<Process>>
+{
+	proc_list.lock ().get (&pid).map (|proc| proc.clone ())
+}
+
 pub fn init () -> Result<(), Err>
 {
 	// allow execute disable in pages
