@@ -14,6 +14,16 @@ bitflags!
 
 bitflags!
 {
+	pub struct SallocOptions: u32
+	{
+		const READ = 1;
+		const WRITE = 1 << 1;
+		const EXEC = 1 << 2;
+	}
+}
+
+bitflags!
+{
 	pub struct RegOptions: u32
 	{
 		const BLOCK = 1;

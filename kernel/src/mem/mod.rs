@@ -10,6 +10,7 @@ use crate::mb2::BootInfo;
 pub mod phys_alloc;
 pub mod virt_alloc;
 pub mod kernel_heap;
+pub mod shared_mem;
 pub mod error;
 pub mod sys;
 

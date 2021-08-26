@@ -347,6 +347,7 @@ impl Connection
 
 impl Drop for Connection
 {
+	// FIXME: free memory used in scheduler que to store waiting thread
 	fn drop (&mut self)
 	{
 		if let Some(thread) = self.get_waiting_thread ()

@@ -1,9 +1,11 @@
 use crate::uses::*;
+use sys_consts::options::*;
 use crate::sysret;
 use crate::syscall::{SyscallVals, SysErr};
 use super::{PAGE_SIZE, VirtRange};
 use super::phys_alloc::zm;
 use super::virt_alloc::{VirtLayoutElement, VirtLayout, PageMappingFlags, AllocType};
+use super::shared_mem::*;
 use super::error::MemErr;
 use crate::sched::proc_c;
 
@@ -159,4 +161,39 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			}
 		}
 	}
+}
+
+pub extern "C" fn mprotect (vals: &mut SyscallVals)
+{
+}
+
+pub extern "C" fn salloc (vals: &mut SyscallVals)
+{
+	let size = vals.a1 * PAGE_SIZE;
+	let options = SMemFlags::from_bits_truncate (vals.options as u8);
+
+	let smem = match SharedMem::new (size, options)
+	{
+		Some(smem) => smem,
+		None => sysret! (vals, SysErr::OutOfMem.num (), 0),
+	};
+
+	let smid = proc_c ().smem ().lock ().insert (smem);
+	sysret! (vals, SysErr::Ok.num (), smid);
+}
+
+pub extern "C" fn sdealloc (vals: &mut SyscallVals)
+{
+}
+
+pub extern "C" fn smap (vals: &mut SyscallVals)
+{
+}
+
+pub extern "C" fn sunmap (vals: &mut SyscallVals)
+{
+}
+
+pub extern "C" fn smem_info (vals: &mut SyscallVals)
+{
 }

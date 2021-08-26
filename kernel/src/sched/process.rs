@@ -9,6 +9,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
+use crate::mem::shared_mem::SMemMap;
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, mlayout_of};
 use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
@@ -138,6 +139,7 @@ pub struct Process
 	domains: Futex<DomainMap>,
 	// NOTE: don't lock proc_list while this is locked
 	connections: Futex<ConnectionMap>,
+	smem: Futex<SMemMap>,
 
 	pub tlproc: IMutex<ThreadListProcLocal>,
 
@@ -159,6 +161,7 @@ impl Process
 			threads: Mutex::new (BTreeMap::new ()),
 			domains: Futex::new (DomainMap::new ()),
 			connections: Futex::new (ConnectionMap::new (pid)),
+			smem: Futex::new (SMemMap::new ()),
 			tlproc: IMutex::new (ThreadListProcLocal::new ()),
 			addr_space: VirtMapper::new (&zm),
 		})
@@ -270,6 +273,11 @@ impl Process
 	pub fn connections (&self) -> &Futex<ConnectionMap>
 	{
 		&self.connections
+	}
+
+	pub fn smem (&self) -> &Futex<SMemMap>
+	{
+		&self.smem
 	}
 
 	pub fn insert_connection (&self, connection: Arc<Connection>)

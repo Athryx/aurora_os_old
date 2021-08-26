@@ -1,7 +1,7 @@
 use crate::uses::*;
 use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
 use crate::sched::sys::{spawn, thread_new, thread_block, futex_block, futex_unblock, futex_move, reg, connect, disconnect, conn_info, msg, msg_return};
-use crate::mem::sys::realloc;
+use crate::mem::sys::{realloc, salloc, sdealloc, smap, sunmap, smem_info, mprotect};
 use crate::util::io::sys_print_debug;
 
 pub use sys_consts::SysErr;
@@ -22,23 +22,30 @@ static syscalls: [SyscallFunc; 29] = [
 	thread_new,
 	thread_block,
 	sys_nop,
+	// TODO: exit
 	sys_nop,
 	futex_block,
 	futex_unblock,
 	futex_move,
+	// TODO: set_proc_properties
 	sys_nop,
+	// TODO: set_thread_properties
 	sys_nop,
 	realloc,
+	// TODO: mmio_map
 	sys_nop,
+	// TODO: mmio_unmap
 	sys_nop,
+	// TODO: port_map
 	sys_nop,
+	// TODO: port_unmap
 	sys_nop,
-	sys_nop,
-	sys_nop,
-	sys_nop,
-	sys_nop,
-	sys_nop,
-	sys_nop,
+	salloc,
+	sdealloc,
+	smap,
+	sunmap,
+	smem_info,
+	mprotect,
 	reg,
 	connect,
 	disconnect,

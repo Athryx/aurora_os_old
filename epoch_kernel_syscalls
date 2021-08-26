@@ -246,7 +246,7 @@ pages: length of shared memory region in pages
 unmaps the shared memory with id {smid}
 
 
-20: fn smem_size (smid: usize) -> usize
+20: fn smem_info (smid: usize) -> usize
 returns the size of shared memory at {smid} in pages
 returns 0 if there is no shared memory with id {smid}
 
