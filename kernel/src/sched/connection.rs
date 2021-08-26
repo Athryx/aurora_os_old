@@ -263,6 +263,15 @@ impl Connection
 		pid == self.cpids.pid ()
 	}
 
+	// locks thread_list
+	pub fn get_waiting_thread (&self) -> Option<UniqueRef<Thread>>
+	{
+		unsafe
+		{
+			tlist.lock ()[ThreadState::Listening(self.cpids)].get (0).map (|ptr| ptr.unbound ())
+		}
+	}
+
 	pub fn send_message (&self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
 	{
 		assert_eq! (args.domain, self.domain);
@@ -278,12 +287,9 @@ impl Connection
 		}
 
 		let mut inner = self.data.lock ();
-		// handle sending message
-		let thread_list = tlist.lock ();
-		let thread = unsafe { thread_list[ThreadState::Listening(self.cpids)].get (0).map (|ptr| ptr.unbound ()) };
-		drop (thread_list);
 
-		match thread
+		// handle sending message
+		match self.get_waiting_thread ()
 		{
 			Some(thread) => {
 				thread.msg_rcv (args);
@@ -335,6 +341,20 @@ impl Connection
 		else
 		{
 			Err(SysErr::Ok)
+		}
+	}
+}
+
+impl Drop for Connection
+{
+	fn drop (&mut self)
+	{
+		if let Some(thread) = self.get_waiting_thread ()
+		{
+			*thread.rcv_regs ().lock () = Err(SysErr::MsgTerm);
+
+			let mut thread_list = tlist.lock ();
+			Thread::move_to (thread, ThreadState::Waiting(thread_c ().tuid ()), Some(&mut thread_list), None).unwrap ();
 		}
 	}
 }
