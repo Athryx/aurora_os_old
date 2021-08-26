@@ -5,6 +5,7 @@ use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
 use super::*;
 use super::phys_alloc::{zm, Allocation};
+use super::virt_alloc::{PageMappingFlags, VirtLayoutElement, VirtLayout, AllocType};
 
 bitflags!
 {
@@ -47,12 +48,39 @@ impl SharedMem
 			id: next_smid.fetch_add (1, Ordering::Relaxed),
 		}))
 	}
+
+	// returns a virtual layout that can be mapped by the virtual memory mapper
+	pub fn virt_layout (&self) -> VirtLayout
+	{
+		let elem = VirtLayoutElement::from_range (self.mem.as_phys_zone (), PageMappingFlags::from_shared_flags (self.flags));
+		VirtLayout::from (vec![elem], AllocType::Shared)
+	}
+}
+
+#[derive(Debug)]
+pub struct SMemMapEntry
+{
+	smem: Arc<SharedMem>,
+	pub virt_mem: Option<VirtRange>,
+}
+
+impl SMemMapEntry
+{
+	pub fn smem (&self) -> &Arc<SharedMem>
+	{
+		&self.smem
+	}
+
+	pub fn into_smem (self) -> Arc<SharedMem>
+	{
+		self.smem
+	}
 }
 
 #[derive(Debug)]
 pub struct SMemMap
 {
-	data: BTreeMap<usize, Arc<SharedMem>>,
+	data: BTreeMap<usize, SMemMapEntry>,
 	next_id: usize,
 }
 
@@ -70,16 +98,20 @@ impl SMemMap
 	{
 		let id = self.next_id;
 		self.next_id += 1;
-		self.data.insert (id, smem);
+		let entry = SMemMapEntry {
+			smem,
+			virt_mem: None,
+		};
+		self.data.insert (id, entry);
 		id
 	}
 
-	pub fn get (&self, id: usize) -> Option<&Arc<SharedMem>>
+	pub fn get (&self, id: usize) -> Option<&SMemMapEntry>
 	{
 		self.data.get (&id)
 	}
 
-	pub fn remove (&mut self, id: usize) -> Option<Arc<SharedMem>>
+	pub fn remove (&mut self, id: usize) -> Option<SMemMapEntry>
 	{
 		self.data.remove (&id)
 	}

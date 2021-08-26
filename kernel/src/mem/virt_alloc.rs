@@ -6,6 +6,7 @@ use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
 use crate::util::{Futex, FutexGaurd, optac, copy_to_heap};
 use super::phys_alloc::{Allocation, ZoneManager, zm};
+use super::shared_mem::SMemFlags;
 use super::error::MemErr;
 use super::*;
 
@@ -98,6 +99,27 @@ bitflags!
 
 impl PageMappingFlags
 {
+	pub fn from_shared_flags (flags: SMemFlags) -> Self
+	{
+		let mut out = PageMappingFlags::USER;
+		if flags.contains (SMemFlags::READ)
+		{
+			out |= PageMappingFlags::READ;
+		}
+
+		if flags.contains (SMemFlags::WRITE)
+		{
+			out |= PageMappingFlags::READ;
+		}
+
+		if flags.contains (SMemFlags::EXEC)
+		{
+			out |= PageMappingFlags::READ;
+		}
+
+		out
+	}
+
 	fn exists (&self) -> bool
 	{
 		self.intersects (PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::EXEC)
@@ -387,6 +409,17 @@ impl VirtLayoutElement
 			{
 				mem.len ()
 			},
+			flags: PageTableFlags::from_mapping_flags (flags),
+			mapping_flags: flags,
+		}
+	}
+
+	pub fn from_range (phys_range: PhysRange, flags: PageMappingFlags) -> Self
+	{
+		let phys_range = phys_range.aligned ();
+		VirtLayoutElement {
+			phys_data: VirtLayoutElementType::Mem(phys_range),
+			map_size: phys_range.size (),
 			flags: PageTableFlags::from_mapping_flags (flags),
 			mapping_flags: flags,
 		}

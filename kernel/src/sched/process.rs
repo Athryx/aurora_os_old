@@ -9,7 +9,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
-use crate::mem::shared_mem::SMemMap;
+use crate::mem::shared_mem::{SMemMap, SharedMem};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, mlayout_of};
 use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
@@ -275,14 +275,32 @@ impl Process
 		&self.connections
 	}
 
+	pub fn insert_connection (&self, connection: Arc<Connection>)
+	{
+		self.connections.lock ().insert (connection);
+	}
+
 	pub fn smem (&self) -> &Futex<SMemMap>
 	{
 		&self.smem
 	}
 
-	pub fn insert_connection (&self, connection: Arc<Connection>)
+	pub fn insert_smem (&self, smem: Arc<SharedMem>) -> usize
 	{
-		self.connections.lock ().insert (connection);
+		self.smem.lock ().insert (smem)
+	}
+
+	pub fn remove_smem (&self, smid: usize) -> Option<Arc<SharedMem>>
+	{
+		let entry = self.smem.lock ().remove (smid)?;
+		if let Some(vmem) = entry.virt_mem
+		{
+			unsafe
+			{
+				self.addr_space.unmap (vmem, AllocType::Shared).unwrap ();
+			}
+		}
+		Some(entry.into_smem ())
 	}
 
 	pub fn get_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
