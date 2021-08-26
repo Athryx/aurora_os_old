@@ -149,15 +149,16 @@ impl Process
 	// NOTE: must insert into process list before making a thread
 	pub fn new (uid: PrivLevel, name: String) -> Arc<Self>
 	{
+		let pid = NEXT_PID.fetch_add (1, Ordering::Relaxed);
 		Arc::new_cyclic (|weak| Self {
-			pid: NEXT_PID.fetch_add (1, Ordering::Relaxed),
+			pid,
 			name: Namespace::new (name),
 			self_ref: weak.clone (),
 			uid,
 			next_tid: AtomicUsize::new (0),
 			threads: Mutex::new (BTreeMap::new ()),
 			domains: Futex::new (DomainMap::new ()),
-			connections: Futex::new (ConnectionMap::new ()),
+			connections: Futex::new (ConnectionMap::new (pid)),
 			tlproc: IMutex::new (ThreadListProcLocal::new ()),
 			addr_space: VirtMapper::new (&zm),
 		})
@@ -273,7 +274,7 @@ impl Process
 
 	pub fn insert_connection (&self, connection: Arc<Connection>)
 	{
-		self.connections.lock ().insert (connection, self.pid);
+		self.connections.lock ().insert (connection);
 	}
 
 	pub fn get_thread (&self, tid: usize) -> Option<MemOwner<Thread>>

@@ -62,15 +62,17 @@ pub struct ConnectionMap
 {
 	data: Vec<ConnMapEntry>,
 	next_id: usize,
+	pid: usize,
 }
 
 impl ConnectionMap
 {
-	pub fn new () -> Self
+	pub fn new (pid: usize) -> Self
 	{
 		ConnectionMap {
 			data: Vec::new (),
 			next_id: 0,
+			pid,
 		}
 	}
 
@@ -89,9 +91,9 @@ impl ConnectionMap
 	// TODO: handle connections being closed
 	// returns true if connection inserted into map
 	// connection is connection to insert, pid is pid that this connection map is part of, in order to know which is the internal and extarnal ids
-	pub fn insert (&mut self, connection: Arc<Connection>, pid: usize) -> bool
+	pub fn insert (&mut self, connection: Arc<Connection>) -> bool
 	{
-		let sender = connection.is_sender (pid);
+		let sender = connection.is_sender (self.pid);
 		match self.get_index (connection.cpid (sender).conn_id ())
 		{
 			Ok(_) => false,
@@ -126,6 +128,26 @@ impl ConnectionMap
 			}
 		}
 		None
+	}
+}
+
+impl Drop for ConnectionMap
+{
+	fn drop (&mut self)
+	{
+		while let Some(connection) = self.data.pop ()
+		{
+			let other_cpid = connection.other_cpid ();
+			let other_pid = other_cpid.pid ();
+			let other_cid = other_cpid.conn_id ();
+			match proc_get (other_pid)
+			{
+				Some(proc) => {
+					proc.connections ().lock ().remove (other_cid);
+				},
+				None => continue,
+			}
+		}
 	}
 }
 
