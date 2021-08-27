@@ -57,7 +57,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 				match proc_c ().addr_space.map (layout)
 				{
 					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
-					Err(_) => sysret! (vals, SysErr::OutOfMem.num (), 0, 0),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -68,8 +68,8 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			{
 				match proc_c ().addr_space.map_at (layout, virt_zone)
 				{
-					Ok(virt_range) => sysret! (vals, SysErr::Ok.num (), virt_range.as_usize (), virt_range.size () / PAGE_SIZE),
-					Err(_) => sysret! (vals, SysErr::OutOfMem.num (), 0, 0),
+					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -82,16 +82,16 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => sysret! (vals, SysErr::InvlPtr.num (), 0, 0),
+			None => sysret! (vals, 0, 0, SysErr::InvlPtr.num ()),
 		};
 
 		match unsafe { mapper.unmap (virt_zone, AllocType::VirtMem) }
 		{
 			Ok(layout) => {
 				unsafe { layout.dealloc () };
-				sysret! (vals, SysErr::Ok.num (), 0, 0);
+				sysret! (vals, 0, 0, 0);
 			},
-			Err(_) => sysret! (vals, SysErr::Unknown.num (), 0, 0),
+			Err(_) => sysret! (vals, 0, 0, SysErr::Unknown.num ()),
 		}
 	}
 	else
@@ -102,7 +102,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 		let virt_zone = match mapper.get_mapped_range (VirtAddr::new_truncate (addr as u64))
 		{
 			Some(range) => range,
-			None => sysret! (vals, SysErr::InvlPtr.num (), 0, 0),
+			None => sysret! (vals, 0, 0, SysErr::InvlPtr.num ()),
 		};
 
 		// closure type annotation needed, compiler complains for some reason if I don't have it
@@ -144,8 +144,8 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			{
 				match proc_c ().addr_space.remap (virt_zone, AllocType::VirtMem, realloc_func)
 				{
-					Ok(virt_range) => sysret! (vals, SysErr::Ok.num (), virt_range.as_usize (), virt_range.size () / PAGE_SIZE),
-					Err(_) => sysret! (vals, SysErr::OutOfMem.num (), 0, 0),
+					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -155,8 +155,8 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			{
 				match proc_c ().addr_space.remap_at (virt_zone, at_vaddr, AllocType::VirtMem, realloc_func)
 				{
-					Ok(virt_range) => sysret! (vals, SysErr::Ok.num (), virt_range.as_usize (), virt_range.size () / PAGE_SIZE),
-					Err(_) => sysret! (vals, SysErr::OutOfMem.num (), 0, 0),
+					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
+					Err(_) => sysret! (vals, 0, 0, SysErr::OutOfMem.num ()),
 				}
 			}
 		}
@@ -184,31 +184,15 @@ pub extern "C" fn salloc (vals: &mut SyscallVals)
 
 pub extern "C" fn sdealloc (vals: &mut SyscallVals)
 {
-	let smid = vals.a1;
-	if let None = proc_c ().remove_smem (smid)
-	{
-		sysret! (vals, SysErr::InvlId.num ());
-	}
-	else
-	{
-		sysret! (vals, SysErr::Ok.num ());
-	}
 }
 
 pub extern "C" fn smap (vals: &mut SyscallVals)
 {
-	let smid = vals.a1;
-	match proc_c ().map_smem (smid)
-	{
-		Ok(vmem) => sysret! (vals, SysErr::Ok.num (), vmem.as_usize (), vmem.size () / PAGE_SIZE),
-		Err(err) => sysret! (vals, err.num (), 0, 0),
-	}
+
 }
 
 pub extern "C" fn sunmap (vals: &mut SyscallVals)
 {
-	let smid = vals.a1;
-	sysret! (vals, proc_c ().unmap_smem (smid).num ());
 }
 
 pub extern "C" fn smem_info (vals: &mut SyscallVals)

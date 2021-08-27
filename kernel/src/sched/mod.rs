@@ -540,7 +540,7 @@ impl Registers
 
 	pub const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
 	{
-		self.rax = SysErr::MsgResp.num ();
+		self.rax = SysErr::MsgResp.num () | (msg_args.smem_mask as usize) << 8;
 		self.rbx = msg_args.sender_pid;
 		self.rdx = msg_args.domain;
 		self.rsi = msg_args.a1;

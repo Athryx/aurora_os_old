@@ -111,6 +111,11 @@ impl SMemMap
 		self.data.get (&id)
 	}
 
+	pub fn get_mut (&mut self, id: usize) -> Option<&mut SMemMapEntry>
+	{
+		self.data.get_mut (&id)
+	}
+
 	pub fn remove (&mut self, id: usize) -> Option<SMemMapEntry>
 	{
 		self.data.remove (&id)

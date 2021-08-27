@@ -494,8 +494,9 @@ impl VirtLayoutElement
 
 		match self.phys_data
 		{
-			VirtLayoutElementType::AllocedMem(mem) => Some(mem.as_phys_zone ()),
-			VirtLayoutElementType::Mem(mem) => Some(mem),
+			// they should already be aligned, so new is fine
+			VirtLayoutElementType::AllocedMem(mem) => Some(PhysRange::new (virt_to_phys (mem.addr ()), self.map_size)),
+			VirtLayoutElementType::Mem(mem) => Some(PhysRange::new (mem.addr (), self.map_size)),
 			VirtLayoutElementType::Empty(_) => None,
 		}
 	}

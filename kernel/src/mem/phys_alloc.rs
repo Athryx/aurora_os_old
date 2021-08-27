@@ -34,6 +34,11 @@ impl Allocation
 		}
 	}
 
+	pub fn addr (&self) -> VirtAddr
+	{
+		self.ptr
+	}
+
 	pub fn as_mut_ptr<T> (&mut self) -> *mut T
 	{
 		self.ptr.as_mut_ptr ()
@@ -67,6 +72,19 @@ impl Allocation
 	pub fn as_phys_zone (&self) -> PhysRange
 	{
 		PhysRange::new (virt_to_phys (self.ptr), self.len)
+	}
+
+	// returns number of bytes copied
+	pub fn copy_from_mem (&mut self, other: &Self) -> usize
+	{
+		let size = min (self.len (), other.len ());
+		unsafe
+		{
+			let dst: &mut [u8] = core::slice::from_raw_parts_mut (self.as_mut_ptr (), size);
+			let src: &[u8] = core::slice::from_raw_parts (other.as_ptr (), size);
+			dst.copy_from_slice (src);
+		}
+		size
 	}
 }
 
@@ -525,7 +543,7 @@ impl ZoneManager
 
 	pub fn alloc (&self, size: usize) -> Option<Allocation>
 	{
-		self.allocer_action(|allocer: &mut BuddyAllocator| allocer.alloc (size))
+		self.allocer_action (|allocer: &mut BuddyAllocator| allocer.alloc (size))
 	}
 
 	pub fn allocz (&self, size: usize) -> Option<Allocation>
@@ -537,7 +555,7 @@ impl ZoneManager
 
 	pub fn oalloc (&self, order: usize) -> Option<Allocation>
 	{
-		self.allocer_action(|allocer: &mut BuddyAllocator| allocer.oalloc (order))
+		self.allocer_action (|allocer: &mut BuddyAllocator| allocer.oalloc (order))
 	}
 
 	pub fn oallocz (&self, order: usize) -> Option<Allocation>
@@ -550,18 +568,40 @@ impl ZoneManager
 	// TODO: support reallocating to a different zone if new size doesn't fit
 	pub unsafe fn realloc (&self, mem: Allocation, size: usize) -> Option<Allocation>
 	{
-		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().realloc (mem, size).map (|mut out| {
+		let new_mem = self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().realloc (mem, size).map (|mut out| {
 			out.zindex = mem.zindex;
 			out
-		})
+		});
+
+		if let None = new_mem
+		{
+			let mut out = self.alloc (size)?;
+			out.copy_from_mem (&mem);
+			Some(out)
+		}
+		else
+		{
+			new_mem
+		}
 	}
 
 	pub unsafe fn orealloc (&self, mem: Allocation, order: usize) -> Option<Allocation>
 	{
-		self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().orealloc (mem, order).map (|mut out| {
+		let new_mem = self.zones.borrow ()[mem.zindex].as_ref ().unwrap ().lock ().orealloc (mem, order).map (|mut out| {
 			out.zindex = mem.zindex;
 			out
-		})
+		});
+
+		if let None = new_mem
+		{
+			let mut out = self.oalloc (order)?;
+			out.copy_from_mem (&mem);
+			Some(out)
+		}
+		else
+		{
+			new_mem
+		}
 	}
 
 	pub unsafe fn dealloc (&self, mem: Allocation)

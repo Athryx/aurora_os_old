@@ -223,27 +223,41 @@ bit 2 (exec):
 allows executing instrcutions from shared memory
 
 return value:
-err: syserr code
+syserr code:
+OutOfMem: not enough memory to allocate shared memory
 smid: shared memory id
 
 
-17: fn sdealloc (smid: usize)
+17: fn sdealloc (smid: usize) -> SysErr
 free shared memory allocated by salloc or recieved by another process
 unmaps the shared memory if it has not yet been unmapped, and it invalidates {smid}
 once all processess that had the shared memory free it, the shared memory is deallocated from physical memory
+
+return value:
+syserr code:
+InvlId: no shared memory with id {smid} exists
 
 
 18: fn smap (smid: usize) -> (err: SysErr, addr: usize, pages: usize)
 mappes the shared memory with id {smid}
 
 return value:
-err: syserr code
+syserr code:
+InvlId: no shared memory with id {smid} exists
+InvlOp: shared memory with id {smid} is already mapped
+InvlVirtMem: not enough virtual memory to map shared memory
+
 addr: address of shared memory
 pages: length of shared memory region in pages
 
 
-19: fn sunmap (smid: usize)
+19: fn sunmap (smid: usize) -> SysErr
 unmaps the shared memory with id {smid}
+
+return value:
+syserr code:
+InvlId: no shared memory with id {smid} exists
+InvlOp: shared memory with id {smid} is not mapped
 
 
 20: fn smem_info (smid: usize) -> usize
@@ -323,6 +337,7 @@ err: syserr code
 close connection with cid {cid}
 
 return value:
+syserr code:
 InvlId: no connection with cid {cid} exists
 
 

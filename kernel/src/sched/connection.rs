@@ -10,7 +10,6 @@ use super::*;
 pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 {
 	let options = MsgOptions::from_bits_truncate (vals.options);
-	let blocking = options.contains (MsgOptions::BLOCK);
 
 	let process = proc_c ();
 
@@ -21,7 +20,8 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 		None => return Err(SysErr::InvlId),
 	};
 
-	let args = MsgArgs {
+	let mut args = MsgArgs {
+		smem_mask: 0,
 		sender_pid: process.pid (),
 		domain: connection.domain (),
 		a1: vals.a2,
@@ -34,7 +34,7 @@ pub fn msg (vals: &SyscallVals) -> Result<Registers, SysErr>
 		a8: vals.a9,
 	};
 
-	connection.send_message (&args, blocking)
+	connection.send_message (&mut args, options)
 }
 
 #[derive(Debug)]
@@ -146,6 +146,135 @@ impl Drop for ConnectionMap
 					proc.connections ().lock ().remove (other_cid);
 				},
 				None => continue,
+			}
+		}
+	}
+}
+
+#[derive(Debug)]
+struct SMemMover<'a, 'b>
+{
+	data: Vec<usize>,
+	proc_send: &'a Arc<Process>,
+	proc_rcv: &'b Arc<Process>,
+	success: bool,
+}
+
+impl<'a, 'b> SMemMover<'a, 'b>
+{
+	// FIXME: technically recieveing process could use connections for a short time even if msg fails
+	// this isn't a huge issue though
+	fn new (args: &mut MsgArgs, options: MsgOptions, proc_send: &'a Arc<Process>, proc_rcv: &'b Arc<Process>) -> Self
+	{
+		let mut out = SMemMover {
+			data: Vec::new (),
+			proc_send,
+			proc_rcv,
+			success: false,
+		};
+		out.move_smem (args, options);
+		out
+	}
+
+	fn confirm_success (&mut self)
+	{
+		self.success = true;
+	}
+
+	fn move_one (&mut self, smid: usize) -> Option<usize>
+	{
+		let smem = self.proc_send.get_smem (smid)?;
+		let smid = self.proc_rcv.insert_smem (smem);
+		self.data.push (smid);
+		Some(smid)
+	}
+
+	fn move_smem (&mut self, args: &mut MsgArgs, options: MsgOptions)
+	{
+		// FIXME: ugly
+		if options.contains (MsgOptions::SMEM1)
+		{
+			if let Some(new_smid) = self.move_one (args.a1)
+			{
+				args.a1 = new_smid;
+				args.smem_mask |= 1;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM2)
+		{
+			if let Some(new_smid) = self.move_one (args.a2)
+			{
+				args.a2 = new_smid;
+				args.smem_mask |= 1 << 1;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM3)
+		{
+			if let Some(new_smid) = self.move_one (args.a3)
+			{
+				args.a3 = new_smid;
+				args.smem_mask |= 1 << 2;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM4)
+		{
+			if let Some(new_smid) = self.move_one (args.a4)
+			{
+				args.a4 = new_smid;
+				args.smem_mask |= 1 << 3;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM5)
+		{
+			if let Some(new_smid) = self.move_one (args.a5)
+			{
+				args.a5 = new_smid;
+				args.smem_mask |= 1 << 4;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM6)
+		{
+			if let Some(new_smid) = self.move_one (args.a6)
+			{
+				args.a6 = new_smid;
+				args.smem_mask |= 1 << 5;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM7)
+		{
+			if let Some(new_smid) = self.move_one (args.a7)
+			{
+				args.a7 = new_smid;
+				args.smem_mask |= 1 << 6;
+			}
+		}
+
+		if options.contains (MsgOptions::SMEM8)
+		{
+			if let Some(new_smid) = self.move_one (args.a8)
+			{
+				args.a8 = new_smid;
+				args.smem_mask |= 1 << 7;
+			}
+		}
+	}
+}
+
+impl<'a, 'b> Drop for SMemMover<'a, 'b>
+{
+	fn drop (&mut self)
+	{
+		if !self.success
+		{
+			for smid in self.data.iter ()
+			{
+				self.proc_rcv.remove_smem (*smid);
 			}
 		}
 	}
@@ -272,7 +401,7 @@ impl Connection
 		}
 	}
 
-	pub fn send_message (&self, args: &MsgArgs, blocking: bool) -> Result<Registers, SysErr>
+	pub fn send_message (&self, args: &mut MsgArgs, options: MsgOptions) -> Result<Registers, SysErr>
 	{
 		assert_eq! (args.domain, self.domain);
 
@@ -292,6 +421,8 @@ impl Connection
 		match self.get_waiting_thread ()
 		{
 			Some(thread) => {
+				let mut mv = SMemMover::new (args, options, &process, &other_process);
+				mv.confirm_success ();
 				thread.msg_rcv (args);
 	
 				let mut thread_list = tlist.lock ();
@@ -310,15 +441,19 @@ impl Connection
 				match handler.options ().block_mode
 				{
 					BlockMode::NonBlocking => {
+						let mut mv = SMemMover::new (args, options, &process, &other_process);
 						let mut regs = Registers::from_msg_args (args);
 						regs.rip = handler.rip ();
 						other_process.new_thread_regs (regs, Some(format! ("domain_handler_{}", self.domain))).or (Err(SysErr::MsgUnreach))?;
+						mv.confirm_success ();
 					},
 					BlockMode::Blocking(tid) => {
 						match other_process.get_thread (tid)
 						{
 							Some(thread) => {
+								let mut mv = SMemMover::new (args, options, &process, &other_process);
 								thread.push_conn_state (args)?;
+								mv.confirm_success ();
 							},
 							None => {
 								other_process.domains ().lock ().remove (other_process.pid (), Some(self.domain));
@@ -330,7 +465,7 @@ impl Connection
 			},
 		}
 
-		if blocking
+		if options.contains (MsgOptions::BLOCK)
 		{
 			let new_state = ThreadState::Listening(self.cpids);
 			tlist.ensure (new_state);
@@ -363,6 +498,7 @@ impl Drop for Connection
 #[derive(Debug, Clone, Copy)]
 pub struct MsgArgs
 {
+	pub smem_mask: u8,
 	pub sender_pid: usize,
 	pub domain: usize,
 	pub a1: usize,

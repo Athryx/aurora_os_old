@@ -442,6 +442,54 @@ impl<K: Ord, V: TreeNode<Key = K>> AvlTree<K, V>
 		}
 	}
 
+	// pops of any node it finds
+	// TODO: make a better way of doing this
+	pub fn pop (&mut self) -> Option<MemOwner<V>>
+	{
+		if self.root.is_null ()
+		{
+			return None;
+		}
+
+		let mut out = unsafe { self.root.as_ref ().unwrap () };
+
+		loop
+		{
+			if !out.left ().is_null ()
+			{
+				out = unsafe { out.left_ref () };
+			}
+			else if !out.right ().is_null ()
+			{
+				out = unsafe { out.right_ref () };
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		self.len -= 1;
+
+		match out.parent_type ()
+		{
+			ParentType::Root => self.root = null (),
+			ParentType::LeftOf(parent) => {
+				parent.set_left (null ());
+				parent.inc_balance (1);
+			},
+			ParentType::RightOf(parent) => {
+				parent.set_right (null ());
+				parent.inc_balance (-1);
+			},
+		}
+
+		unsafe
+		{
+			Some(MemOwner::from_raw (out as *const V))
+		}
+	}
+
 	pub fn remove (&mut self, key: &K) -> Option<MemOwner<V>>
 	{
 		match self.search (key)

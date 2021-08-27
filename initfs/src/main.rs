@@ -10,6 +10,12 @@ fn main ()
 {
 	unsafe
 	{
+		loop
+		{
+			//println! ("Hello, World!");
+			println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
+		}
+
 		let options = ReallocOptions::READ | ReallocOptions::WRITE | ReallocOptions::EXEC;
 		let (addr, size) = realloc (0, 4096, 0, options).unwrap ();
 		let (addr2, size2) = realloc (0, 4 * 4096, 0x47000, options).unwrap ();
@@ -17,12 +23,6 @@ fn main ()
 		let (addr, size) = realloc (addr, 2 * 4096, 0, options).unwrap ();
 		let (addr, size) = realloc (addr, 4 * 4096, 0x46000, options).unwrap ();
 		let (addr, size) = realloc (addr, 5 * 4096, 0x46000, options).unwrap ();
-
-		loop
-		{
-			//println! ("Hello, World!");
-			println! ("dfweoifuwFPUWEPFIOUWEFIUWOIPFUSIPOCUOPFIUPOCVUOSPCUOISFUOIWSFUCOPISFUOPIfupasoufioweufopivuoiwevuawivuopsupoievuoisvsdvsdvkdljskvjdfv");
-		}
 
 		asm!(
 			"lbl:",

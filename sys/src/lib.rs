@@ -70,7 +70,7 @@ pub fn thread_block (state: ThreadState)
 
 pub unsafe fn realloc (mem: usize, size: usize, at_addr: usize, options: ReallocOptions) -> Result<(usize, usize), SysErr>
 {
-	let (mem, len, err) = syscall! (REALLOC, options.bits (), mem, size / PAGE_SIZE, at_addr);
+	let (err, mem, len) = syscall! (REALLOC, options.bits (), mem, size / PAGE_SIZE, at_addr);
 
 	if err == 0
 	{

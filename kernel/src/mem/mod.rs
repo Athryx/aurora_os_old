@@ -144,7 +144,7 @@ impl PhysRange
 		let addr2 = (addr + size).align_up (PageSize::K4 as u64);
 		PhysRange {
 			addr: addr.align_down (PageSize::K4 as u64),
-			size: (addr2 - addr) as usize,
+			size: align_up ((addr2 - addr) as usize, PageSize::K4 as usize),
 		}
 	}
 
@@ -399,7 +399,7 @@ impl VirtRange
 		let addr2 = (addr + size).align_up (PageSize::K4 as u64);
 		VirtRange {
 			addr: addr.align_down (PageSize::K4 as u64),
-			size: (addr2 - addr) as usize,
+			size: align_up ((addr2 - addr) as usize, PageSize::K4 as usize),
 		}
 	}
 

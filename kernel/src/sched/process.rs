@@ -7,11 +7,12 @@ use core::ptr::NonNull;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
+use crate::mem::VirtRange;
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::mem::shared_mem::{SMemMap, SharedMem};
 use crate::upriv::PrivLevel;
-use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, mlayout_of};
+use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, UniqueMut, mlayout_of};
 use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
@@ -112,7 +113,7 @@ impl Index<ThreadState> for ThreadListProcLocal
 
 	fn index (&self, state: ThreadState) -> &Self::Output
 	{
-		self.get (state).expect ("attempted to index ThreadState with invalid state")
+		self.get (state).expect ("attempted to index ThreadListProcLocal with invalid state")
 	}
 }
 
@@ -120,7 +121,7 @@ impl IndexMut<ThreadState> for ThreadListProcLocal
 {
 	fn index_mut (&mut self, state: ThreadState) -> &mut Self::Output
 	{
-		self.get_mut (state).expect ("attempted to index ThreadState with invalid state")
+		self.get_mut (state).expect ("attempted to index ThreadListProcLocal with invalid state")
 	}
 }
 
@@ -179,11 +180,11 @@ impl Process
 
 		let base_flag = if uid.as_cpu_priv ().is_ring3 ()
 		{
-			PageMappingFlags::USER | PageMappingFlags::READ
+			PageMappingFlags::USER | PageMappingFlags::READ | PageMappingFlags::EXACT_SIZE
 		}
 		else
 		{
-			PageMappingFlags::READ
+			PageMappingFlags::READ | PageMappingFlags::EXACT_SIZE
 		};
 
 		for section in sections.iter ()
@@ -203,7 +204,7 @@ impl Process
 			// allocate section backing memory
 			// guarenteed to be aligned
 			let vrange = section.virt_range;
-			let mut mem  = zm.allocz (vrange.size ())
+			let mut mem = zm.allocz (vrange.size ())
 				.ok_or_else (|| Err::new ("not enough memory to load executable"))?;
 
 			// copy section data over to memory
@@ -215,7 +216,7 @@ impl Process
 			memslice.copy_from_slice (section.data);
 
 			// construct virtaddr layout
-			let v_elem = VirtLayoutElement::from_mem (mem, section.virt_range.size (), flags);
+			let v_elem = VirtLayoutElement::from_mem (mem, vrange.size (), flags);
 			let vec = vec![v_elem];
 
 			let layout = VirtLayout::from (vec, AllocType::Protected);
@@ -285,6 +286,11 @@ impl Process
 		&self.smem
 	}
 
+	pub fn get_smem (&self, smid: usize) -> Option<Arc<SharedMem>>
+	{
+		Some(self.smem.lock ().get (smid)?.smem ().clone ())
+	}
+
 	pub fn insert_smem (&self, smem: Arc<SharedMem>) -> usize
 	{
 		self.smem.lock ().insert (smem)
@@ -301,6 +307,59 @@ impl Process
 			}
 		}
 		Some(entry.into_smem ())
+	}
+
+	pub fn map_smem (&self, smid: usize) -> Result<VirtRange, SysErr>
+	{
+		let mut slock = self.smem.lock ();
+		let entry = slock.get_mut (smid);
+		match entry
+		{
+			Some(entry) => {
+				if let None = entry.virt_mem
+				{
+					let vlayout = entry.smem ().virt_layout ();
+					unsafe
+					{
+						// do this to use the from trait
+						let out = self.addr_space.map (vlayout)?;
+						entry.virt_mem = Some(out);
+						Ok(out)
+					}
+
+				}
+				else
+				{
+					Err(SysErr::InvlOp)
+				}
+			},
+			None => Err(SysErr::InvlId),
+		}
+	}
+
+	pub fn unmap_smem (&self, smid: usize) -> SysErr
+	{
+		let mut slock = self.smem.lock ();
+		let entry = slock.get_mut (smid);
+		match entry
+		{
+			Some(entry) => {
+				if let Some(vmem) = entry.virt_mem
+				{
+					unsafe
+					{
+						self.addr_space.unmap (vmem, AllocType::Shared).unwrap ();
+					}
+					entry.virt_mem = None;
+					SysErr::Ok
+				}
+				else
+				{
+					SysErr::InvlOp
+				}
+			},
+			None => SysErr::InvlId,
+		}
 	}
 
 	pub fn get_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
@@ -457,9 +516,9 @@ impl Drop for Process
 		loop
 		{
 			let mut tlproc = self.tlproc.lock ();
-			let tpointer = match tlproc[ThreadState::FutexBlock(0)].pop_front ()
+			let list = match tlproc.futex.pop ()
 			{
-				Some(thread) => thread,
+				Some(list) => list,
 				None => break,
 			};
 
@@ -467,9 +526,19 @@ impl Drop for Process
 			// avoid race condition with dealloc
 			drop (tlproc);
 
+			let mut list_mut = unsafe { UniqueMut::from_ptr (list.ptr_mut ()) };
+
+			while let Some(thread) = list_mut.list.pop ()
+			{
+				unsafe
+				{
+					thread.dealloc ()
+				}
+			}
+
 			unsafe
 			{
-				tpointer.dealloc ();
+				list.dealloc ();
 			}
 		}
 	}
