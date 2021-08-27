@@ -56,7 +56,7 @@ pub extern "C" fn realloc (vals: &mut SyscallVals)
 			{
 				match proc_c ().addr_space.map (layout)
 				{
-					Ok(virt_range) => sysret! (vals, virt_range.as_usize (), virt_range.size () / PAGE_SIZE, 0),
+					Ok(virt_range) => sysret! (vals, SysErr::Ok.num (), virt_range.as_usize (), virt_range.size () / PAGE_SIZE),
 					Err(_) => sysret! (vals, SysErr::OutOfMem.num (), 0, 0),
 				}
 			}
