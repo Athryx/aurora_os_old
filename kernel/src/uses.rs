@@ -9,14 +9,11 @@ pub use alloc::format;
 pub use crate::util::misc::*;
 pub use crate::util::{Err, Error};
 pub use sys_consts::SysErr;
-// probably should remove this from uses
-pub use crate::arch::x64::CPUPrivLevel;
 pub use crate::{print, println, eprint, eprintln, rprint, rprintln, init_array};
 pub use lazy_static::lazy_static;
 pub use x86_64::{PhysAddr, VirtAddr};
-use crate::arch::x64;
 
 pub fn d ()
 {
-	x64::bochs_break ();
+	crate::arch::x64::bochs_break ();
 }

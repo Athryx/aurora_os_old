@@ -134,13 +134,3 @@ pub fn fetch_data<T: UserData> (ptr: *const T) -> Option<T>
 		}
 	})
 }
-
-pub fn fetch_cstring (ptr: *const u8) -> Option<String>
-{
-	if !aligned_nonnull (ptr)
-	{
-		return None;
-	}
-
-	unimplemented! ();
-}

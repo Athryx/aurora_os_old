@@ -159,37 +159,6 @@ pub fn sti_hlt ()
 	}
 }
 
-// note: this is supposed to be a cpu local var when smp is a thing,
-// so there is no need for special synchronization, simple usize will do
-static mut cli_count: usize = 1;
-
-/*#[inline]
-pub fn cli_safe ()
-{
-	cli ();
-	unsafe { cli_count = cli_count.saturating_add (1); }
-}
-
-#[inline]
-pub fn sti_safe ()
-{
-	unsafe { cli_count = cli_count.saturating_sub (1); }
-	if unsafe { cli_count == 0 }
-	{
-		sti ();
-	}
-}
-
-pub fn cli_inc ()
-{
-	unsafe { cli_count = cli_count.saturating_add (1) }
-}
-
-pub fn sti_inc ()
-{
-	unsafe { cli_count = cli_count.saturating_sub (1) }
-}*/
-
 pub fn is_int_enabled () -> bool
 {
 	get_flags () & RFLAGS_INT != 0

@@ -1,8 +1,9 @@
-use concat_idents::concat_idents;
 use crate::uses::*;
+use concat_idents::concat_idents;
 use crate::sched::{Registers, thread_c};
 use crate::gdt;
 use crate::kdata;
+use crate::arch::x64::CPUPrivLevel;
 
 pub const PICM_OFFSET: u8 = 32;
 pub const PICS_OFFSET: u8 = 40;
@@ -272,7 +273,6 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 	{
 		d ();
 		let mut tss = gdt::tss.lock ();
-		//gdt::tss.lock ().rsp0 = regs.call_rsp as _;
 		tss.rsp0 = regs.call_rsp as _;
 		rprintln! ("tss.rsp0: {:x}", #[allow(unused_unsafe)] unsafe { tss.rsp0 });
 		let mut data = kdata::gs_data.lock ();
