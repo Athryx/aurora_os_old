@@ -47,6 +47,7 @@ dependencies = [
  "concat-idents",
  "lazy_static",
  "spin",
+ "sys",
  "volatile",
 ]
 

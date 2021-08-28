@@ -7,5 +7,6 @@
 pub mod atomic;
 pub mod cell;
 pub mod futex;
+pub mod misc;
 
 mod uses;

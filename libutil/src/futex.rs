@@ -3,6 +3,38 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, AtomicIsize, Ordering};
 use core::ops::{Deref, DerefMut};
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
+use sys::{futex_block, futex_unblock};
+
+#[cfg(not(feature = "kernel"))]
+#[derive(Debug)]
+pub struct UBlocker();
+
+#[cfg(not(feature = "kernel"))]
+impl Blocker for UBlocker
+{
+	fn block (addr: usize)
+	{
+		futex_block (addr);
+	}
+
+	fn unblock (addr: usize)
+	{
+		futex_unblock (addr, 1);
+	}
+}
+
+#[cfg(not(feature = "kernel"))]
+pub type Futex<T> = FutexImpl<T, UBlocker>;
+#[cfg(not(feature = "kernel"))]
+pub type FutexGuard<'a, T> = FutexImplGuard<'a, T, UBlocker>;
+
+#[cfg(not(feature = "kernel"))]
+pub type RWFutex<T> = RWFutexImpl<T, UBlocker>;
+#[cfg(not(feature = "kernel"))]
+pub type RWFutexReadGuard<'a, T> = RWFutexImplReadGuard<'a, T, UBlocker>;
+#[cfg(not(feature = "kernel"))]
+pub type RWFutexWriteGuard<'a, T> = RWFutexImplWriteGuard<'a, T, UBlocker>;
+
 
 pub trait Blocker
 {

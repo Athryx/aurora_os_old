@@ -3,15 +3,18 @@ more descriptive error values
 error values are written in kernel, just not described well heare
 slightly more consistant names
 
-decide if vfs should go in kernel or not
-if it does, can probably remove the info syscall and just use a proc like filesystem
-also decide if files should be like unix or not (thinking no)
-
 pledge like syscall
 
 syscall to get groups that pid is part of
-
 figure out how user permissions would work
+
+asynrchronously recieve messages for multithreaded servers
+
+IMPLEMANTATION ISSUES:
+futex syscalls do not translate over shared memory
+info syscalls unimpleted
+io syscalls unimpleted
+realloc does not correctly follow all flags
 
 
 syscall abi:

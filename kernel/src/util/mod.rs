@@ -30,6 +30,7 @@ pub use futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard}
 pub mod ptr;
 pub use ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 
+// TODO: figure out how to move to user space
 mod mem;
 pub use mem::MemOwner;
 

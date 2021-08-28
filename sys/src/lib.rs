@@ -69,6 +69,20 @@ pub fn thread_block (state: ThreadState)
 	}
 }
 
+pub fn futex_block (addr: usize)
+{
+	unsafe
+	{
+		syscall! (FUTEX_BLOCK, 0, addr);
+	}
+}
+
+pub fn futex_unblock (addr: usize, n: usize) -> usize
+{
+	let (num, _) = unsafe { syscall! (FUTEX_UNBLOCK, 0, addr, n) };
+	num
+}
+
 pub unsafe fn realloc (mem: usize, size: usize, at_addr: usize, options: ReallocOptions) -> Result<(usize, usize), SysErr>
 {
 	let (err, mem, len) = syscall! (REALLOC, options.bits (), mem, size / PAGE_SIZE, at_addr);
