@@ -9,84 +9,12 @@ use super::PhysRange;
 use super::virt_alloc::FrameAllocator;
 use core::cell::Cell;
 
+pub use libutil::mem::Allocation;
+
 const MAX_ORDER: usize = 32;
 pub const MAX_ZONES: usize = 4;
 
 pub static zm: ZoneManager = ZoneManager::new ();
-
-#[derive(Debug, Clone, Copy)]
-pub struct Allocation
-{
-	ptr: VirtAddr,
-	len: usize,
-	zindex: usize,
-}
-
-impl Allocation
-{
-	// NOTE: panics if addr is not canonical
-	pub fn new (addr: usize, len: usize) -> Self
-	{
-		Allocation {
-			ptr: VirtAddr::new (addr as _),
-			len,
-			zindex: 0,
-		}
-	}
-
-	pub fn addr (&self) -> VirtAddr
-	{
-		self.ptr
-	}
-
-	pub fn as_mut_ptr<T> (&mut self) -> *mut T
-	{
-		self.ptr.as_mut_ptr ()
-	}
-
-	pub fn as_ptr<T> (&self) -> *const T
-	{
-		self.ptr.as_ptr ()
-	}
-
-	pub fn as_slice (&self) -> &[u8]
-	{
-		unsafe { core::slice::from_raw_parts (self.as_ptr (), self.len) }
-	}
-
-	pub fn as_mut_slice (&mut self) -> &mut [u8]
-	{
-		unsafe { core::slice::from_raw_parts_mut (self.as_mut_ptr (), self.len) }
-	}
-
-	pub fn as_usize (&self) -> usize
-	{
-		self.ptr.as_u64 () as usize
-	}
-
-	pub fn len (&self) -> usize
-	{
-		self.len
-	}
-
-	pub fn as_phys_zone (&self) -> PhysRange
-	{
-		PhysRange::new (virt_to_phys (self.ptr), self.len)
-	}
-
-	// returns number of bytes copied
-	pub fn copy_from_mem (&mut self, other: &Self) -> usize
-	{
-		let size = min (self.len (), other.len ());
-		unsafe
-		{
-			let dst: &mut [u8] = core::slice::from_raw_parts_mut (self.as_mut_ptr (), size);
-			let src: &[u8] = core::slice::from_raw_parts (other.as_ptr (), size);
-			dst.copy_from_slice (src);
-		}
-		size
-	}
-}
 
 #[derive(Debug)]
 pub struct Node
@@ -123,7 +51,7 @@ impl Node
 	}
 }
 
-crate::impl_list_node! (Node, prev, next);
+libutil::impl_list_node! (Node, prev, next);
 
 #[derive(Debug)]
 pub struct BuddyAllocator
@@ -671,3 +599,11 @@ unsafe impl FrameAllocator for ZoneManager
 
 unsafe impl Send for ZoneManager {}
 unsafe impl Sync for ZoneManager {}
+
+pub fn init (boot_info: &BootInfo)
+{
+	unsafe
+	{
+		zm.init (boot_info);
+	}
+}

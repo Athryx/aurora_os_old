@@ -2,7 +2,7 @@ use crate::uses::*;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use alloc::alloc::{Global, Allocator};
-use crate::util::mlayout_of;
+use crate::misc::mlayout_of;
 
 #[derive(Debug)]
 pub struct MemOwner<T> (*const T);
@@ -18,7 +18,7 @@ impl<T> MemOwner<T>
 
 		unsafe
 		{
-			ptr::write (ptr, data);
+			core::ptr::write (ptr, data);
 			Self::from_raw (ptr)
 		}
 	}

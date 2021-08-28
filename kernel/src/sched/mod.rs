@@ -282,7 +282,7 @@ impl WaitTreeNode
 
 unsafe impl Send for WaitTreeNode {}
 
-crate::impl_tree_node! (Tuid, WaitTreeNode, parent, left, right, id, bf);
+libutil::impl_tree_node! (Tuid, WaitTreeNode, parent, left, right, id, bf);
 
 // FIXME: find way to dealloc these when unneeded
 #[derive(Debug)]
@@ -320,7 +320,7 @@ impl ConnTreeNode
 
 unsafe impl Send for ConnTreeNode {}
 
-crate::impl_tree_node! (ConnPid, ConnTreeNode, parent, left, right, id, bf);
+libutil::impl_tree_node! (ConnPid, ConnTreeNode, parent, left, right, id, bf);
 
 #[derive(Debug)]
 pub struct ThreadList

@@ -52,7 +52,7 @@ impl SharedMem
 	// returns a virtual layout that can be mapped by the virtual memory mapper
 	pub fn virt_layout (&self) -> VirtLayout
 	{
-		let elem = VirtLayoutElement::from_range (self.mem.as_phys_zone (), PageMappingFlags::from_shared_flags (self.flags));
+		let elem = VirtLayoutElement::from_range (self.mem.into (), PageMappingFlags::from_shared_flags (self.flags));
 		VirtLayout::from (vec![elem], AllocType::Shared)
 	}
 }

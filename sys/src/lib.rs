@@ -6,7 +6,7 @@
 use sys_consts::{thread, syscalls::*};
 pub use sys_consts::{SysErr, options::*};
 
-const PAGE_SIZE: usize = 4096;
+pub const PAGE_SIZE: usize = 4096;
 // filler for syscall macro to get right amount of return values
 const F: usize = 0;
 

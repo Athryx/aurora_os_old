@@ -1,34 +1,20 @@
 use crate::uses::*;
-use crate::util::{LinkedList, MemOwner, UniqueRef, UniqueMut, UniquePtr, Futex};
+use crate::{collections::LinkedList, memown::MemOwner, ptr::{UniqueRef, UniqueMut, UniquePtr}};
 use crate::impl_list_node;
-use spin::Mutex;
 use core::mem;
-use core::alloc::{GlobalAlloc, Layout};
+use core::alloc::Layout;
 use core::sync::atomic::AtomicPtr;
-use core::cell::{Cell, RefCell};
+use core::cell::Cell;
 use core::cmp::max;
-use super::PAGE_SIZE;
-use super::phys_alloc::{zm, Allocation};
+use sys::PAGE_SIZE;
+use crate::{alloc, dealloc};
+use super::Allocation;
 
 const INITIAL_HEAP_SIZE: usize = PAGE_SIZE * 8;
 const HEAP_INC_SIZE: usize = PAGE_SIZE * 4;
 const CHUNK_SIZE: usize = 1 << log2_up_const (mem::size_of::<Node> ());
 // TODO: make not use 1 extra space in some scenarios
 const INITIAL_CHUNK_SIZE: usize = align_up (mem::size_of::<HeapZone> (), CHUNK_SIZE);
-
-#[global_allocator]
-static ALLOCATOR: GlobalAllocator = GlobalAllocator::new ();
-
-#[alloc_error_handler]
-fn alloc_error_handler (layout: Layout) -> !
-{
-	panic! ("allocation error: {:?}", layout);
-}
-
-pub fn init ()
-{
-	ALLOCATOR.init ();
-}
 
 #[derive(Debug, Clone, Copy)]
 enum ResizeResult
@@ -132,7 +118,7 @@ impl HeapZone
 	unsafe fn new (size: usize) -> Option<MemOwner<Self>>
 	{
 		let size = align_up (size, PAGE_SIZE);
-		let mem = zm.alloc (size)?;
+		let mem = alloc (size)?;
 		let size = mem.len ();
 		let ptr = mem.as_usize () as *mut HeapZone;
 
@@ -169,7 +155,7 @@ impl HeapZone
 
 	unsafe fn delete (&mut self)
 	{
-		zm.dealloc (self.mem)
+		dealloc (self.mem);
 	}
 
 	unsafe fn alloc (&mut self, layout: Layout) -> *mut u8
@@ -283,14 +269,14 @@ impl HeapZone
 
 impl_list_node! (HeapZone, prev, next);
 
-struct LinkedListAllocator
+pub struct LinkedListAllocator
 {
 	list: LinkedList<HeapZone>,
 }
 
 impl LinkedListAllocator
 {
-	fn new () -> LinkedListAllocator
+	pub fn new () -> LinkedListAllocator
 	{
 		let node = unsafe { HeapZone::new (INITIAL_HEAP_SIZE)
 			.expect ("failed to allocate pages for kernel heap") };
@@ -302,7 +288,7 @@ impl LinkedListAllocator
 		}
 	}
 
-	unsafe fn alloc (&mut self, layout: Layout) -> *mut u8
+	pub unsafe fn alloc (&mut self, layout: Layout) -> *mut u8
 	{
 		let size = layout.size ();
 		let align = layout.align ();
@@ -325,7 +311,6 @@ impl LinkedListAllocator
 
 		// allocate new heapzone because there was no space in any others
 		let size_inc = max (HEAP_INC_SIZE, size + max (align, CHUNK_SIZE) + INITIAL_CHUNK_SIZE);
-		rprintln! ("{}", size_inc);
 		let zone = match HeapZone::new (size_inc)
 		{
 			Some(n) => n,
@@ -338,7 +323,7 @@ impl LinkedListAllocator
 		zone.alloc (layout)
 	}
 
-	unsafe fn dealloc (&mut self, ptr: *mut u8, layout: Layout)
+	pub unsafe fn dealloc (&mut self, ptr: *mut u8, layout: Layout)
 	{
 		let addr = ptr as usize;
 		assert! (align_of (addr) >= CHUNK_SIZE);
@@ -356,40 +341,3 @@ impl LinkedListAllocator
 		panic! ("invalid pointer passed to dealloc");
 	}
 }
-
-// TODO: add relloc function
-struct GlobalAllocator
-{
-	allocer: Futex<Option<LinkedListAllocator>>,
-}
-
-impl GlobalAllocator
-{
-	const fn new () -> GlobalAllocator
-	{
-		GlobalAllocator {
-			allocer: Futex::new (None),
-		}
-	}
-
-	fn init (&self)
-	{
-		*self.allocer.lock () = Some(LinkedListAllocator::new ());
-	}
-}
-
-unsafe impl GlobalAlloc for GlobalAllocator
-{
-	unsafe fn alloc (&self, layout: Layout) -> *mut u8
-	{
-		self.allocer.lock ().as_mut ().unwrap ().alloc (layout)
-	}
-
-	unsafe fn dealloc (&self, ptr: *mut u8, layout: Layout)
-	{
-		self.allocer.lock ().as_mut ().unwrap ().dealloc (ptr, layout)
-	}
-}
-
-unsafe impl Send for GlobalAllocator {}
-unsafe impl Sync for GlobalAllocator {}

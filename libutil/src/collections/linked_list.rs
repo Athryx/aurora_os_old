@@ -1,7 +1,8 @@
 //use core::ops::{Index, IndexMut};
 use core::fmt::{self, Formatter, Debug};
 use crate::uses::*;
-use crate::util::{MemOwner, UniqueRef, UniqueMut, UniquePtr};
+use crate::memown::MemOwner;
+use crate::ptr::{UniqueRef, UniqueMut, UniquePtr};
 
 // Safety:
 // next_ptr must return pointer value previously set by set_next, same for preve_ptr and set_prev
@@ -67,7 +68,7 @@ macro_rules! impl_list_node
 				self.next_ptr ().as_mut ()
 			}*/
 		}
-		unsafe impl $crate::util::ListNode for $ty
+		unsafe impl $crate::collections::ListNode for $ty
 		{
 			fn next_ptr (&self) -> *const Self
 			{

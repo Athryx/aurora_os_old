@@ -1,7 +1,6 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::fmt::{self, Debug, Formatter};
-use super::{to_heap, from_heap};
 
 // a non locking, synchronous vec
 pub struct NLVec<T> (AtomicPtr<Vec<*const T>>);

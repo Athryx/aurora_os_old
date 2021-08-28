@@ -2,68 +2,28 @@ use crate::uses::*;
 use core::sync::atomic::{AtomicBool, AtomicUsize, AtomicIsize, Ordering};
 use core::ops::{Deref, DerefMut};
 use core::cell::UnsafeCell;
-use core::marker::PhantomData;
-use sys::{futex_block, futex_unblock};
-
-#[cfg(not(feature = "kernel"))]
-#[derive(Debug)]
-pub struct UBlocker();
-
-#[cfg(not(feature = "kernel"))]
-impl Blocker for UBlocker
-{
-	fn block (addr: usize)
-	{
-		futex_block (addr);
-	}
-
-	fn unblock (addr: usize)
-	{
-		futex_unblock (addr, 1);
-	}
-}
-
-#[cfg(not(feature = "kernel"))]
-pub type Futex<T> = FutexImpl<T, UBlocker>;
-#[cfg(not(feature = "kernel"))]
-pub type FutexGuard<'a, T> = FutexImplGuard<'a, T, UBlocker>;
-
-#[cfg(not(feature = "kernel"))]
-pub type RWFutex<T> = RWFutexImpl<T, UBlocker>;
-#[cfg(not(feature = "kernel"))]
-pub type RWFutexReadGuard<'a, T> = RWFutexImplReadGuard<'a, T, UBlocker>;
-#[cfg(not(feature = "kernel"))]
-pub type RWFutexWriteGuard<'a, T> = RWFutexImplWriteGuard<'a, T, UBlocker>;
-
-
-pub trait Blocker
-{
-	fn block (addr: usize);
-	fn unblock (addr: usize);
-}
+use crate::{block, unblock};
 
 #[derive(Debug)]
-pub struct FutexImpl<T, B: Blocker>
+pub struct Futex<T>
 {
 	acquired: AtomicBool,
 	waiting: AtomicUsize,
 	data: UnsafeCell<T>,
-	phantom: PhantomData<B>,
 }
 
-impl<T, B: Blocker> FutexImpl<T, B>
+impl<T> Futex<T>
 {
 	pub const fn new (data: T) -> Self
 	{
-		FutexImpl {
+		Futex {
 			acquired: AtomicBool::new (false),
 			waiting: AtomicUsize::new (0),
 			data: UnsafeCell::new (data),
-			phantom: PhantomData,
 		}
 	}
 
-	pub fn lock (&self) -> FutexImplGuard<T, B>
+	pub fn lock (&self) -> FutexGuard<T>
 	{
 		loop
 		{
@@ -72,13 +32,13 @@ impl<T, B: Blocker> FutexImpl<T, B>
 				Ok(guard) => return guard,
 				Err(_) => {
 					self.waiting.fetch_add (1, Ordering::Relaxed);
-					B::block (self as *const _ as usize);
+					block (self as *const _ as usize);
 				},
 			}
 		}
 	}
 
-	pub fn try_lock (&self) -> Result<FutexImplGuard<T, B>, ()>
+	pub fn try_lock (&self) -> Result<FutexGuard<T>, ()>
 	{
 		let acq = self.acquired.swap (true, Ordering::Relaxed);
 		if acq
@@ -87,7 +47,7 @@ impl<T, B: Blocker> FutexImpl<T, B>
 		}
 		else
 		{
-			Ok(FutexImplGuard::new (self))
+			Ok(FutexGuard::new (self))
 		}
 	}
 
@@ -105,21 +65,21 @@ impl<T, B: Blocker> FutexImpl<T, B>
 	}
 }
 
-unsafe impl<T, B: Blocker> Send for FutexImpl<T, B> {}
-unsafe impl<T, B: Blocker> Sync for FutexImpl<T, B> {}
+unsafe impl<T> Send for Futex<T> {}
+unsafe impl<T> Sync for Futex<T> {}
 
 #[derive(Debug)]
-pub struct FutexImplGuard<'a, T, B: Blocker> (&'a FutexImpl<T, B>);
+pub struct FutexGuard<'a, T> (&'a Futex<T>);
 
-impl <'a, T, B: Blocker> FutexImplGuard<'a, T, B>
+impl <'a, T> FutexGuard<'a, T>
 {
-	pub fn new (futex: &'a FutexImpl<T, B>) -> Self
+	pub fn new (futex: &'a Futex<T>) -> Self
 	{
-		FutexImplGuard(futex) 
+		FutexGuard(futex) 
 	}
 }
 
-impl<T, B: Blocker> Deref for FutexImplGuard<'_, T, B>
+impl<T> Deref for FutexGuard<'_, T>
 {
 	type Target = T;
 
@@ -132,7 +92,7 @@ impl<T, B: Blocker> Deref for FutexImplGuard<'_, T, B>
 	}
 }
 
-impl<T, B: Blocker> DerefMut for FutexImplGuard<'_, T, B>
+impl<T> DerefMut for FutexGuard<'_, T>
 {
 	fn deref_mut (&mut self) -> &mut Self::Target
 	{
@@ -143,7 +103,7 @@ impl<T, B: Blocker> DerefMut for FutexImplGuard<'_, T, B>
 	}
 }
 
-impl<T, B: Blocker> Drop for FutexImplGuard<'_, T, B>
+impl<T> Drop for FutexGuard<'_, T>
 {
 	fn drop (&mut self)
 	{
@@ -162,34 +122,32 @@ impl<T, B: Blocker> Drop for FutexImplGuard<'_, T, B>
 
 		if self.0.waiting.fetch_update (Ordering::Relaxed, Ordering::Relaxed, closure).is_ok ()
 		{
-			B::unblock (self.0 as *const _ as usize);
+			unblock (self.0 as *const _ as usize);
 		}
 	}
 }
 
 #[derive(Debug)]
-pub struct RWFutexImpl<T, B: Blocker>
+pub struct RWFutex<T>
 {
 	// positive is reader count, negative is writer count
 	count: AtomicIsize,
 	waiting: AtomicUsize,
 	data: UnsafeCell<T>,
-	phantom: PhantomData<B>
 }
 
-impl<T, B: Blocker> RWFutexImpl<T, B>
+impl<T> RWFutex<T>
 {
 	pub const fn new (data: T) -> Self
 	{
-		RWFutexImpl {
+		RWFutex {
 			count: AtomicIsize::new (0),
 			waiting: AtomicUsize::new (0),
 			data: UnsafeCell::new (data),
-			phantom: PhantomData,
 		}
 	}
 
-	pub fn read (&self) -> RWFutexImplReadGuard<T, B>
+	pub fn read (&self) -> RWFutexReadGuard<T>
 	{
 		loop
 		{
@@ -198,13 +156,13 @@ impl<T, B: Blocker> RWFutexImpl<T, B>
 				Ok(guard) => return guard,
 				Err(_) => {
 					self.waiting.fetch_add (1, Ordering::Relaxed);
-					B::block (self as *const _ as usize);
+					block (self as *const _ as usize);
 				},
 			}
 		}
 	}
 
-	pub fn write (&self) -> RWFutexImplWriteGuard<T, B>
+	pub fn write (&self) -> RWFutexWriteGuard<T>
 	{
 		loop
 		{
@@ -213,13 +171,13 @@ impl<T, B: Blocker> RWFutexImpl<T, B>
 				Ok(guard) => return guard,
 				Err(_) => {
 					self.waiting.fetch_add (1, Ordering::Relaxed);
-					B::block (self as *const _ as usize);
+					block (self as *const _ as usize);
 				},
 			}
 		}
 	}
 
-	pub fn try_read (&self) -> Result<RWFutexImplReadGuard<T, B>, ()>
+	pub fn try_read (&self) -> Result<RWFutexReadGuard<T>, ()>
 	{
 		let acq = self.count.fetch_update (Ordering::Relaxed, Ordering::Relaxed, |n| {
 			if n >= 0
@@ -233,16 +191,16 @@ impl<T, B: Blocker> RWFutexImpl<T, B>
 		});
 		match acq
 		{
-			Ok(_) => Ok(RWFutexImplReadGuard::new (self)),
+			Ok(_) => Ok(RWFutexReadGuard::new (self)),
 			Err(_) => Err(()),
 		}
 	}
 
-	pub fn try_write (&self) -> Result<RWFutexImplWriteGuard<T, B>, ()>
+	pub fn try_write (&self) -> Result<RWFutexWriteGuard<T>, ()>
 	{
 		if self.count.compare_exchange (0, -1, Ordering::Relaxed, Ordering::Relaxed).is_ok ()
 		{
-			Ok(RWFutexImplWriteGuard::new (self))
+			Ok(RWFutexWriteGuard::new (self))
 		}
 		else
 		{
@@ -264,21 +222,21 @@ impl<T, B: Blocker> RWFutexImpl<T, B>
 	}
 }
 
-unsafe impl<T, B: Blocker> Send for RWFutexImpl<T, B> {}
-unsafe impl<T, B: Blocker> Sync for RWFutexImpl<T, B> {}
+unsafe impl<T> Send for RWFutex<T> {}
+unsafe impl<T> Sync for RWFutex<T> {}
 
 #[derive(Debug)]
-pub struct RWFutexImplReadGuard<'a, T, B: Blocker> (&'a RWFutexImpl<T, B>);
+pub struct RWFutexReadGuard<'a, T> (&'a RWFutex<T>);
 
-impl <'a, T, B: Blocker> RWFutexImplReadGuard<'a, T, B>
+impl <'a, T> RWFutexReadGuard<'a, T>
 {
-	pub fn new (futex: &'a RWFutexImpl<T, B>) -> Self
+	pub fn new (futex: &'a RWFutex<T>) -> Self
 	{
-		RWFutexImplReadGuard(futex) 
+		RWFutexReadGuard(futex) 
 	}
 }
 
-impl<T, B: Blocker> Deref for RWFutexImplReadGuard<'_, T, B>
+impl<T> Deref for RWFutexReadGuard<'_, T>
 {
 	type Target = T;
 
@@ -291,7 +249,7 @@ impl<T, B: Blocker> Deref for RWFutexImplReadGuard<'_, T, B>
 	}
 }
 
-impl<T, B: Blocker> Drop for RWFutexImplReadGuard<'_, T, B>
+impl<T> Drop for RWFutexReadGuard<'_, T>
 {
 	fn drop (&mut self)
 	{
@@ -310,23 +268,23 @@ impl<T, B: Blocker> Drop for RWFutexImplReadGuard<'_, T, B>
 
 		if self.0.waiting.fetch_update (Ordering::Relaxed, Ordering::Relaxed, closure).is_ok ()
 		{
-			B::unblock (self.0 as *const _ as usize);
+			unblock (self.0 as *const _ as usize);
 		}
 	}
 }
 
 #[derive(Debug)]
-pub struct RWFutexImplWriteGuard<'a, T, B: Blocker> (&'a RWFutexImpl<T, B>);
+pub struct RWFutexWriteGuard<'a, T> (&'a RWFutex<T>);
 
-impl <'a, T, B: Blocker> RWFutexImplWriteGuard<'a, T, B>
+impl <'a, T> RWFutexWriteGuard<'a, T>
 {
-	pub fn new (futex: &'a RWFutexImpl<T, B>) -> Self
+	pub fn new (futex: &'a RWFutex<T>) -> Self
 	{
-		RWFutexImplWriteGuard(futex) 
+		RWFutexWriteGuard(futex) 
 	}
 }
 
-impl<T, B: Blocker> Deref for RWFutexImplWriteGuard<'_, T, B>
+impl<T> Deref for RWFutexWriteGuard<'_, T>
 {
 	type Target = T;
 
@@ -339,7 +297,7 @@ impl<T, B: Blocker> Deref for RWFutexImplWriteGuard<'_, T, B>
 	}
 }
 
-impl<T, B: Blocker> DerefMut for RWFutexImplWriteGuard<'_, T, B>
+impl<T> DerefMut for RWFutexWriteGuard<'_, T>
 {
 	fn deref_mut (&mut self) -> &mut Self::Target
 	{
@@ -350,7 +308,7 @@ impl<T, B: Blocker> DerefMut for RWFutexImplWriteGuard<'_, T, B>
 	}
 }
 
-impl<T, B: Blocker> Drop for RWFutexImplWriteGuard<'_, T, B>
+impl<T> Drop for RWFutexWriteGuard<'_, T>
 {
 	fn drop (&mut self)
 	{
@@ -369,7 +327,7 @@ impl<T, B: Blocker> Drop for RWFutexImplWriteGuard<'_, T, B>
 
 		if self.0.waiting.fetch_update (Ordering::Relaxed, Ordering::Relaxed, closure).is_ok ()
 		{
-			B::unblock (self.0 as *const _ as usize);
+			unblock (self.0 as *const _ as usize);
 		}
 	}
 }

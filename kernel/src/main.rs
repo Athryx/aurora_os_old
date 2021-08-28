@@ -39,6 +39,7 @@ mod upriv;
 
 use uses::*;
 use core::panic::PanicInfo;
+use libutil::UtilCalls;
 use mb2::BootInfo;
 use arch::x64::*;
 use sched::*;
@@ -133,7 +134,12 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 
 	kdata::init ();
 
-	mem::init (boot_info);
+	mem::phys_alloc::init (boot_info);
+
+	unsafe
+	{
+		libutil::init (&util::CALLS);
+	}
 
 	syscall::init ();
 
@@ -214,7 +220,7 @@ impl Display for TreeTest
 	}
 }
 
-impl_tree_node! (usize, TreeTest, parent, left, right, key, bf);
+libutil::impl_tree_node! (usize, TreeTest, parent, left, right, key, bf);
 
 // just for test
 static mut join_tid: usize = 0;

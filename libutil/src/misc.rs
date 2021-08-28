@@ -1,5 +1,6 @@
 use crate::uses::*;
 use core::ops::Range;
+use alloc::alloc::Layout;
 
 // must be power of 2 for correct results
 pub const fn align_up (addr: usize, align: usize) -> usize
@@ -158,4 +159,53 @@ pub unsafe fn unbound<'a, 'b, T> (r: &'a T) -> &'b T
 pub unsafe fn unbound_mut<'a, 'b, T> (r: &'a mut T) -> &'b mut T
 {
 	(r as *mut T).as_mut ().unwrap ()
+}
+
+pub fn optac<T, F> (opt: Option<T>, f: F) -> bool
+	where F: FnOnce(T) -> bool
+{
+	match opt
+	{
+		Some(val) => f (val),
+		None => false,
+	}
+}
+
+pub fn optnac<T, F> (opt: Option<T>, f: F) -> bool
+	where F: FnOnce(T) -> bool
+{
+	match opt
+	{
+		Some(val) => f (val),
+		None => true,
+	}
+}
+
+pub fn aligned_nonnull<T> (ptr: *const T) -> bool
+{
+	core::mem::align_of::<T> () == align_of (ptr as usize) && !ptr.is_null ()
+}
+
+pub fn to_heap<V> (object: V) -> *mut V
+{
+	Box::into_raw (Box::new (object))
+}
+
+pub unsafe fn from_heap<V> (ptr: *const V) -> V
+{
+	*Box::from_raw (ptr as *mut _)
+}
+
+// TODO: make this not require defualt
+pub fn copy_to_heap<T: Copy + Default> (slice: &[T]) -> Vec<T>
+{
+	let mut out = Vec::with_capacity (slice.len ());
+	out.resize (slice.len (), T::default ());
+	out.copy_from_slice (slice);
+	out
+}
+
+pub const fn mlayout_of<T> () -> Layout
+{
+	unsafe { Layout::from_size_align_unchecked (size_of::<T> (), core::mem::align_of::<T> ()) }
 }

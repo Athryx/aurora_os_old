@@ -4,17 +4,13 @@ pub mod io;
 
 pub mod misc;
 
-mod linked_list;
-pub use linked_list::{LinkedList, ListNode};
+pub use libutil::collections::{LinkedList, ListNode};
 
-mod tree;
-pub use tree::{AvlTree, TreeNode};
+pub use libutil::collections::{AvlTree, TreeNode};
 
-mod nlvec;
-pub use nlvec::NLVec;
+pub use libutil::collections::NLVec;
 
-mod nlvecmap;
-pub use nlvecmap::NLVecMap;
+pub use libutil::collections::NLVecMap;
 
 // TODO: probably eliminate
 mod error;
@@ -23,15 +19,46 @@ pub use error::{Error, Err};
 mod imutex;
 pub use imutex::{IMutex, IMutexGuard};
 
-mod futex;
-pub use futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
+pub use libutil::futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
 
 // TODO: use macros to make shorter
 pub use libutil::ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 
-// TODO: figure out how to move to user space
-mod mem;
-pub use mem::MemOwner;
+pub use libutil::memown::MemOwner;
+
+use libutil::{UtilCalls, mem::Allocation};
+use crate::sched::{thread_c, proc_c, ThreadState};
+use crate::mem::phys_alloc::zm;
+
+pub static CALLS: Calls = Calls();
+
+pub struct Calls();
+
+impl UtilCalls for Calls
+{
+	fn block (&self, addr: usize)
+	{
+		thread_c ().block (ThreadState::FutexBlock(addr));
+	}
+	
+	fn unblock (&self, addr: usize)
+	{
+		proc_c ().futex_move (addr, ThreadState::Ready, 1);
+	}
+
+	fn alloc (&self, size: usize) -> Option<Allocation>
+	{
+		zm.alloc (size)
+	}
+
+	fn dealloc (&self, mem: Allocation)
+	{
+		unsafe
+		{
+			zm.dealloc (mem);
+		}
+	}
+}
 
 pub fn optac<T, F> (opt: Option<T>, f: F) -> bool
 	where F: FnOnce(T) -> bool

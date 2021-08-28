@@ -2,14 +2,13 @@ use core::cmp::min;
 use core::marker::PhantomData;
 use core::slice;
 use crate::uses::*;
-use crate::mb2::BootInfo;
+use phys_alloc::Allocation;
 
 // unless otherwise stated, all lens in this module are in bytes, not pages
 // TODO: make traits or macros to reduce duplicated code on Phys and Virt versions of all these types
 
 pub mod phys_alloc;
 pub mod virt_alloc;
-pub mod kernel_heap;
 pub mod shared_mem;
 pub mod error;
 pub mod sys;
@@ -291,6 +290,14 @@ impl PhysRange
 			end: self.addr + self.size,
 			life: PhantomData,
 		}
+	}
+}
+
+impl From<Allocation> for PhysRange
+{
+	fn from (mem: Allocation) -> Self
+	{
+		Self::new (virt_to_phys (mem.addr ()), mem.len ())
 	}
 }
 
@@ -576,13 +583,4 @@ impl Iterator for VirtRangeIter<'_>
 		let size = PageSize::from_u64 (size as _);
 		Some(VirtFrame::new (self.start, size))
 	}
-}
-
-pub fn init (boot_info: &BootInfo)
-{
-	unsafe
-	{
-		phys_alloc::zm.init (boot_info);
-	}
-	kernel_heap::init ();
 }

@@ -56,7 +56,7 @@ impl FutexTreeNode
 
 unsafe impl Send for FutexTreeNode {}
 
-crate::impl_tree_node! (usize, FutexTreeNode, parent, left, right, addr, bf);
+libutil::impl_tree_node! (usize, FutexTreeNode, parent, left, right, addr, bf);
 
 #[derive(Debug)]
 pub struct ThreadListProcLocal

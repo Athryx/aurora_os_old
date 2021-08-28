@@ -583,4 +583,4 @@ impl fmt::Debug for Thread
 	}
 }
 
-crate::impl_list_node! (Thread, prev, next);
+libutil::impl_list_node! (Thread, prev, next);

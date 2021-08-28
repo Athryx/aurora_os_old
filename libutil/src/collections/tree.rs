@@ -1,6 +1,6 @@
 use crate::uses::*;
 use core::fmt::{self, Formatter, Display};
-use crate::util::{MemOwner, UniqueRef, UniqueMut};
+use crate::{memown::MemOwner, ptr::{UniqueRef, UniqueMut}};
 
 pub enum ParentType<'a, T>
 {
@@ -294,7 +294,7 @@ pub unsafe trait TreeNode: Sized
 macro_rules! impl_tree_node
 {
 	($k:ty, $v:ty, $parent:ident, $left:ident, $right:ident, $key:ident, $balance:ident) => {
-		unsafe impl $crate::util::TreeNode for $v
+		unsafe impl $crate::collections::TreeNode for $v
 		{
 			type Key = $k;
 

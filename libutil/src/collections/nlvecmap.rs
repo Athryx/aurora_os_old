@@ -1,5 +1,5 @@
 use crate::uses::*;
-use super::{NLVec, to_heap, from_heap};
+use super::NLVec;
 
 #[derive(Debug)]
 struct MapNode<K, V>

@@ -440,7 +440,7 @@ impl VirtLayoutElement
 		let psize = match self.phys_data
 		{
 			VirtLayoutElementType::AllocedMem(mem) => {
-				let prange = mem.as_phys_zone ();
+				let prange = mem.into ();
 				self.phys_data = VirtLayoutElementType::Mem(prange);
 				prange.get_take_size ()
 			}
@@ -472,7 +472,7 @@ impl VirtLayoutElement
 				PhysFrame::new (PhysAddr::new (0), size)
 			},
 			VirtLayoutElementType::AllocedMem(mem) => {
-				let mut prange = mem.as_phys_zone ();
+				let mut prange = PhysRange::from (mem);
 				let frame = prange.take (size)?;
 				self.phys_data = VirtLayoutElementType::Mem(prange);
 				frame
