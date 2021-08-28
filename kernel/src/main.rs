@@ -50,7 +50,6 @@ use mem::*;
 use mem::phys_alloc::zm;
 use alloc::boxed::Box;
 use alloc::collections::*;
-use util::AtomicU128;
 use alloc::vec;
 use upriv::{PrivLevel, IOPRIV_UID};
 
@@ -234,12 +233,12 @@ fn test ()
 		thread_c ().block (ThreadState::Destroy);
 	};
 
-	let atom = AtomicU128::new (0);
+	/*let atom = AtomicU128::new (0);
 	for a in 0..20420
 	{
 		atom.store (a);
 		assert_eq! (atom.load (), a);
-	}
+	}*/
 
 	let mut tree = AvlTree::new ();
 	tree.insert (0, TreeTest::new ()).unwrap ();

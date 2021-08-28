@@ -1,3 +1,3 @@
 //! Extensions to the rust standard library
 
-pub use util::*;
+pub use libutil::*;
