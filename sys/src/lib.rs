@@ -13,15 +13,16 @@ const F: usize = 0;
 pub fn thread_new (thread_func: fn() -> ()) -> Result<usize, SysErr>
 {
 	let rip = thread_func as usize;
-	let (tid, err) = unsafe { syscall! (THREAD_BLOCK, 0, rip, F) };
+	let (err, tid) = unsafe { syscall! (THREAD_BLOCK, 0, rip, F) };
+	let err = SysErr::new (err).unwrap ();
 
-	if err == 0
+	if err == SysErr::Ok
 	{
 		Ok(tid)
 	}
 	else
 	{
-		Err(SysErr::new (err).unwrap ())
+		Err(err)
 	}
 }
 

@@ -21,7 +21,7 @@ pub extern "C" fn spawn (vals: &mut SyscallVals)
 {
 	if proc_c ().uid () != PrivLevel::SuperUser
 	{
-		sysret! (vals, 0, SysErr::InvlPriv.num ());
+		sysret! (vals, SysErr::InvlPriv.num (), 0);
 	}
 
 	let elf_arr = UserArray::from_parts (vals.a1 as *const u8, vals.a2);
@@ -30,28 +30,28 @@ pub extern "C" fn spawn (vals: &mut SyscallVals)
 	let psdata = match fetch_data (psdata_ptr)
 	{
 		Some(data) => data,
-		None => sysret! (vals, 0, SysErr::InvlPtr.num ()),
+		None => sysret! (vals, SysErr::InvlPtr.num (), 0),
 	};
 
 	let name = match psdata.name.try_fetch ()
 	{
 		Some(name) => name,
-		None => sysret! (vals, 0, SysErr::InvlPtr.num ()),
+		None => sysret! (vals, SysErr::InvlPtr.num (), 0),
 	};
 
 	let elf_data = match elf_arr.try_fetch ()
 	{
 		Some(data) => data,
-		None => sysret! (vals, 0, SysErr::InvlPtr.num ()),
+		None => sysret! (vals, SysErr::InvlPtr.num (), 0),
 	};
 
 	let process = match Process::from_elf (&elf_data, PrivLevel::new (psdata.uid), name)
 	{
 		Ok(process) => process,
-		Err(_) => sysret! (vals, 0, SysErr::Unknown.num ()),
+		Err(_) => sysret! (vals, SysErr::Unknown.num (), 0),
 	};
 
-	sysret! (vals, process.pid (), SysErr::Ok.num ());
+	sysret! (vals, SysErr::Ok.num (), process.pid ());
 }
 
 pub extern "C" fn thread_new (vals: &mut SyscallVals)
@@ -61,10 +61,10 @@ pub extern "C" fn thread_new (vals: &mut SyscallVals)
 	match proc_c ().new_thread (rip, None)
 	{
 		Ok(tid) => {
-			sysret! (vals, tid, 0);
+			sysret! (vals, SysErr::Ok.num (), tid);
 		},
 		Err(_) => {
-			sysret! (vals, 0, 1);
+			sysret! (vals, SysErr::Unknown.num (), 0);
 		}
 	}
 }

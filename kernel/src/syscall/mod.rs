@@ -17,6 +17,7 @@ pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
 static syscalls: [SyscallFunc; 29] = [
+	// TODO: info
 	sys_nop,
 	spawn,
 	thread_new,
