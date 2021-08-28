@@ -1,6 +1,5 @@
 use crate::uses::*;
 use core::fmt::{self, Formatter, Display};
-use core::cell::{Cell, RefCell};
 use crate::{mem::MemOwner, ptr::{UniqueRef, UniqueMut}};
 
 pub enum ParentType<'a, T>
@@ -8,29 +7,6 @@ pub enum ParentType<'a, T>
 	LeftOf(&'a T),
 	RightOf(&'a T),
 	Root,
-}
-
-pub struct TreeNodeData<K: Ord>
-{
-	key: RefCell<K>,
-	bf: Cell<i8>,
-	parent: Cell<*const Self>,
-	left: Cell<*const Self>,
-	right: Cell<*const Self>,
-}
-
-impl<K: Ord> TreeNodeData<K>
-{
-	pub fn new (key: K) -> Self
-	{
-		TreeNodeData {
-			key: RefCell::new (key),
-			bf: Cell::new (0),
-			parent: Cell::new (null ()),
-			left: Cell::new (null ()),
-			right: Cell::new (null ()),
-		}
-	}
 }
 
 // Any nodes inserted into the avl tree must implement this trait
