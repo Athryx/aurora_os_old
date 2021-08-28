@@ -13,56 +13,19 @@ use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMapp
 use crate::mem::shared_mem::{SMemMap, SharedMem};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, UniqueMut};
-use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
+use super::{ThreadList, TLTreeNode, Namespace, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
 use super::domain::{DomainMap, BlockMode};
-use super::Namespace;
 use super::connection::{MsgArgs, Connection, ConnectionMap};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
-pub struct FutexTreeNode
-{
-	addr: Cell<usize>,
-	list: LinkedList<Thread>,
-	parent: Cell<*const Self>,
-	left: Cell<*const Self>,
-	right: Cell<*const Self>,
-	bf: Cell<i8>,
-}
-
-impl FutexTreeNode
-{
-	pub fn new () -> MemOwner<Self>
-	{
-		MemOwner::new (FutexTreeNode {
-			addr: Cell::new (0),
-			list: LinkedList::new (),
-			parent: Cell::new (null ()),
-			left: Cell::new (null ()),
-			right: Cell::new (null ()),
-			bf: Cell::new (0),
-		})
-	}
-
-	// Safety: MemOwner must point to a valid FutexTreeNode
-	pub unsafe fn dealloc (this: MemOwner<Self>)
-	{
-		this.dealloc ();
-	}
-}
-
-unsafe impl Send for FutexTreeNode {}
-
-libutil::impl_tree_node! (usize, FutexTreeNode, parent, left, right, addr, bf);
-
-#[derive(Debug)]
 pub struct ThreadListProcLocal
 {
 	join: LinkedList<Thread>,
-	futex: AvlTree<usize, FutexTreeNode>,
+	futex: AvlTree<usize, TLTreeNode<usize>>,
 }
 
 impl ThreadListProcLocal
@@ -97,7 +60,7 @@ impl ThreadListProcLocal
 		}
 	}
 
-	pub fn ensure_futex_addr (&mut self, addr: usize, node: MemOwner<FutexTreeNode>) -> Option<MemOwner<FutexTreeNode>>
+	pub fn ensure_futex_addr (&mut self, addr: usize, node: MemOwner<TLTreeNode<usize>>) -> Option<MemOwner<TLTreeNode<usize>>>
 	{
 		match self.futex.insert (addr, node)
 		{
@@ -447,12 +410,12 @@ impl Process
 	{
 		if self.tlproc.lock ().get (ThreadState::FutexBlock(addr)).is_none ()
 		{
-			let tree_node = FutexTreeNode::new ();
+			let tree_node = TLTreeNode::new ();
 			if let Some(tree_node) = self.tlproc.lock ().ensure_futex_addr (addr, tree_node)
 			{
 				unsafe
 				{
-					FutexTreeNode::dealloc (tree_node);
+					TLTreeNode::dealloc (tree_node);
 				}
 			}
 		}

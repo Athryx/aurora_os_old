@@ -16,7 +16,7 @@ use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
 pub use process::Process;
-pub use thread::{Thread, ThreadState, Stack, Tuid};
+pub use thread::{Thread, SFutexWait, ThreadState, Stack, Tuid};
 pub use domain::*;
 pub use connection::*;
 pub use namespace::{Namespace, namespace_map};
@@ -245,12 +245,11 @@ fn thread_cleaner ()
 	}
 }
 
-// TODO: combine with conn tree node with generics
 // FIXME: find way to dealloc these when unneeded
 #[derive(Debug)]
-struct WaitTreeNode
+pub struct TLTreeNode<T: Default + Copy>
 {
-	id: Cell<Tuid>,
+	id: Cell<T>,
 	list: LinkedList<Thread>,
 
 	bf: Cell<i8>,
@@ -259,12 +258,12 @@ struct WaitTreeNode
 	right: Cell<*const Self>,
 }
 
-impl WaitTreeNode
+impl<T: Default + Copy> TLTreeNode<T>
 {
 	pub fn new () -> MemOwner<Self>
 	{
-		MemOwner::new (WaitTreeNode {
-			id: Cell::new (Tuid::new (0, 0)),
+		MemOwner::new (TLTreeNode {
+			id: Cell::new (T::default ()),
 			list: LinkedList::new (),
 			bf: Cell::new (0),
 			parent: Cell::new (null ()),
@@ -280,47 +279,12 @@ impl WaitTreeNode
 	}
 }
 
-unsafe impl Send for WaitTreeNode {}
+unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 
-libutil::impl_tree_node! (Tuid, WaitTreeNode, parent, left, right, id, bf);
-
-// FIXME: find way to dealloc these when unneeded
-#[derive(Debug)]
-struct ConnTreeNode
-{
-	id: Cell<ConnPid>,
-	list: LinkedList<Thread>,
-
-	bf: Cell<i8>,
-	parent: Cell<*const Self>,
-	left: Cell<*const Self>,
-	right: Cell<*const Self>,
-}
-
-impl ConnTreeNode
-{
-	pub fn new () -> MemOwner<Self>
-	{
-		MemOwner::new (ConnTreeNode {
-			id: Cell::new (ConnPid::new (0, 0)),
-			list: LinkedList::new (),
-			bf: Cell::new (0),
-			parent: Cell::new (null ()),
-			left: Cell::new (null ()),
-			right: Cell::new (null ()),
-		})
-	}
-
-	// Safety: MemOwner must point to a valid FutexTreeNode
-	pub unsafe fn dealloc (this: MemOwner<Self>)
-	{
-		this.dealloc ();
-	}
-}
-
-unsafe impl Send for ConnTreeNode {}
-
-libutil::impl_tree_node! (ConnPid, ConnTreeNode, parent, left, right, id, bf);
+libutil::impl_tree_node! (Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
+libutil::impl_tree_node! (ConnPid, TLTreeNode<ConnPid>, parent, left, right, id, bf);
+libutil::impl_tree_node! (SFutexWait, TLTreeNode<SFutexWait>, parent, left, right, id, bf);
+libutil::impl_tree_node! (usize, TLTreeNode<usize>, parent, left, right, id, bf);
 
 #[derive(Debug)]
 pub struct ThreadList
@@ -329,8 +293,8 @@ pub struct ThreadList
 	ready: LinkedList<Thread>,
 	destroy: LinkedList<Thread>,
 	sleep: LinkedList<Thread>,
-	wait: AvlTree<Tuid, WaitTreeNode>,
-	conn_wait: AvlTree<ConnPid, ConnTreeNode>,
+	wait: AvlTree<Tuid, TLTreeNode<Tuid>>,
+	conn_wait: AvlTree<ConnPid, TLTreeNode<ConnPid>>,
 }
 
 impl ThreadList
@@ -416,13 +380,13 @@ impl ThreadListGuard
 			ThreadState::Waiting(tuid) => {
 				if self.lock ().wait.get (&tuid).is_none ()
 				{
-					let node = WaitTreeNode::new ();
+					let node = TLTreeNode::new ();
 					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
 					if let Err(val) = self.lock ().wait.insert (tuid, node)
 					{
 						unsafe
 						{
-							WaitTreeNode::dealloc (val);
+							TLTreeNode::dealloc (val);
 						}
 					}
 				}
@@ -430,13 +394,13 @@ impl ThreadListGuard
 			ThreadState::Listening(conn_id) => {
 				if self.lock ().conn_wait.get (&conn_id).is_none ()
 				{
-					let node = ConnTreeNode::new ();
+					let node = TLTreeNode::new ();
 					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
 					if let Err(val) = self.lock ().conn_wait.insert (conn_id, node)
 					{
 						unsafe
 						{
-							ConnTreeNode::dealloc (val);
+							TLTreeNode::dealloc (val);
 						}
 					}
 				}

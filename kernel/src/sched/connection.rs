@@ -314,6 +314,14 @@ impl ConnPid
 	}
 }
 
+impl Default for ConnPid
+{
+	fn default () -> Self
+	{
+		Self::new (0, 0)
+	}
+}
+
 #[derive(Debug)]
 pub struct Connection
 {

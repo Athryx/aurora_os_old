@@ -15,7 +15,7 @@ use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGuard, MemOwner, UniqueMut, UniqueRef, UniquePtr};
 use crate::time::timer;
-use super::process::{Process, ThreadListProcLocal, FutexTreeNode};
+use super::process::{Process, ThreadListProcLocal};
 use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c, ConnPid};
 
 // TODO: implement support for growing stack
@@ -96,6 +96,42 @@ impl Stack
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SFutexWait
+{
+	smid: usize,
+	offset: usize,
+}
+
+impl SFutexWait
+{
+	pub fn new (smid: usize, offset: usize) -> Self
+	{
+		SFutexWait {
+			smid,
+			offset,
+		}
+	}
+
+	pub fn smid (&self) -> usize
+	{
+		self.smid
+	}
+
+	pub fn offset (&self) -> usize
+	{
+		self.offset
+	}
+}
+
+impl Default for SFutexWait
+{
+	fn default () -> Self
+	{
+		Self::new (0, 0)
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ThreadState
 {
 	Running,
@@ -111,6 +147,8 @@ pub enum ThreadState
 	FutexBlock(usize),
 	// connection cpid we are waiting for a reply from
 	Listening(ConnPid),
+	// shared memory futex waiting
+	ShareFutexBlock(SFutexWait),
 }
 
 impl ThreadState
@@ -192,6 +230,14 @@ impl Tuid
 	pub fn tid (&self) -> usize
 	{
 		self.tid
+	}
+}
+
+impl Default for Tuid
+{
+	fn default () -> Self
+	{
+		Self::new (0, 0)
 	}
 }
 
