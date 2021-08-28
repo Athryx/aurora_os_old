@@ -1,6 +1,5 @@
 use crate::uses::*;
 use alloc::collections::BTreeMap;
-use crate::util::{Futex, optnac};
 
 #[derive(Debug, Clone, Copy)]
 pub struct DomainHandler

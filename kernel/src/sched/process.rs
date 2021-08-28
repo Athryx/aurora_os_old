@@ -12,7 +12,7 @@ use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::mem::shared_mem::{SMemMap, SharedMem};
 use crate::upriv::PrivLevel;
-use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, UniqueMut, mlayout_of};
+use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, UniqueMut};
 use super::{ThreadList, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};

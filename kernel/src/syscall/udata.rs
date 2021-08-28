@@ -1,6 +1,5 @@
 use crate::uses::*;
 use crate::mem::VirtRange;
-use crate::util::{copy_to_heap, aligned_nonnull};
 use crate::sched::proc_c;
 
 // this trait represents data structures that can be fetched from user controlled memory by syscalls

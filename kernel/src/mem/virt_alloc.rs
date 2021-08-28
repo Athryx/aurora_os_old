@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
-use crate::util::{Futex, FutexGuard, optac, copy_to_heap};
+use crate::util::{Futex, FutexGuard};
 use super::phys_alloc::{Allocation, ZoneManager, zm};
 use super::shared_mem::SMemFlags;
 use super::error::MemErr;

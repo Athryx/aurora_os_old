@@ -9,7 +9,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::alloc::{Global, Allocator, Layout};
 use crate::uses::*;
 use crate::int::idt::{Handler, IRQ_TIMER, INT_SCHED};
-use crate::util::{AvlTree, TreeNode, LinkedList, IMutex, IMutexGuard, UniqueRef, UniqueMut, UniquePtr, mlayout_of, MemOwner};
+use crate::util::{AvlTree, TreeNode, LinkedList, IMutex, IMutexGuard, UniqueRef, UniqueMut, UniquePtr, MemOwner};
 use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
 use crate::time::timer;
 use crate::upriv::PrivLevel;

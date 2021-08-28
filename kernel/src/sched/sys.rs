@@ -1,7 +1,6 @@
 use crate::uses::*;
 use sys_consts::options::{ConnectOptions, RegOptions};
 use crate::syscall::{SyscallVals, udata::{UserData, UserArray, UserString, fetch_data}};
-use crate::util::copy_to_heap;
 use crate::sysret;
 use super::*;
 
