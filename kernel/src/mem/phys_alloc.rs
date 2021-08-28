@@ -1,8 +1,8 @@
 use spin::{Mutex};
 use core::cmp::{min, max};
-use core::sync::atomic::{Ordering, AtomicUsize};
+use core::sync::atomic::{Ordering, AtomicUsize, AtomicPtr};
 use crate::uses::*;
-use crate::util::{LinkedList, Node, MemOwner, UniqueRef, Futex};
+use crate::util::{LinkedList, MemOwner, UniqueRef, Futex};
 use crate::mb2::{BootInfo, MemoryRegionType};
 use super::PAGE_SIZE;
 use super::PhysRange;
@@ -87,6 +87,43 @@ impl Allocation
 		size
 	}
 }
+
+#[derive(Debug)]
+pub struct Node
+{
+	next: AtomicPtr<Node>,
+	prev: AtomicPtr<Node>,
+	size: Cell<usize>,
+}
+
+impl Node
+{
+	pub unsafe fn new (addr: usize, size: usize) -> MemOwner<Self>
+	{
+		let ptr = addr as *mut Node;
+
+		let out = Node {
+			prev: AtomicPtr::new (null_mut ()),
+			next: AtomicPtr::new (null_mut ()),
+			size: Cell::new (size),
+		};
+		ptr.write (out);
+
+		MemOwner::from_raw (ptr)
+	}
+
+	pub fn size (&self) -> usize
+	{
+		self.size.get ()
+	}
+
+	pub fn set_size (&self, size: usize)
+	{
+		self.size.set (size);
+	}
+}
+
+crate::impl_list_node! (Node, prev, next);
 
 #[derive(Debug)]
 pub struct BuddyAllocator

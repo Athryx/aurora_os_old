@@ -1,7 +1,5 @@
 //use core::ops::{Index, IndexMut};
 use core::fmt::{self, Formatter, Debug};
-use core::sync::atomic::AtomicPtr;
-use core::cell::Cell;
 use crate::uses::*;
 use crate::util::{MemOwner, UniqueRef, UniqueMut, UniquePtr};
 
@@ -93,44 +91,6 @@ macro_rules! impl_list_node
 		}
 	}
 }
-
-// a very common type of ListNode
-#[derive(Debug)]
-pub struct Node
-{
-	next: AtomicPtr<Node>,
-	prev: AtomicPtr<Node>,
-	size: Cell<usize>,
-}
-
-impl Node
-{
-	pub unsafe fn new (addr: usize, size: usize) -> MemOwner<Self>
-	{
-		let ptr = addr as *mut Node;
-
-		let out = Node {
-			prev: AtomicPtr::new (null_mut ()),
-			next: AtomicPtr::new (null_mut ()),
-			size: Cell::new (size),
-		};
-		ptr.write (out);
-
-		MemOwner::from_raw (ptr)
-	}
-
-	pub fn size (&self) -> usize
-	{
-		self.size.get ()
-	}
-
-	pub fn set_size (&self, size: usize)
-	{
-		self.size.set (size);
-	}
-}
-
-impl_list_node! (Node, prev, next);
 
 // TODO: maybe make in into_iter method
 // this linked list doesn't require memory allocation

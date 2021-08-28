@@ -5,7 +5,7 @@ pub mod io;
 pub mod misc;
 
 mod linked_list;
-pub use linked_list::{LinkedList, ListNode, Node};
+pub use linked_list::{LinkedList, ListNode};
 
 mod tree;
 pub use tree::{AvlTree, TreeNode};
@@ -27,8 +27,7 @@ mod futex;
 pub use futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
 
 // TODO: use macros to make shorter
-pub mod ptr;
-pub use ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
+pub use libutil::ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 
 // TODO: figure out how to move to user space
 mod mem;
