@@ -208,12 +208,15 @@ impl Process
 				.ok_or_else (|| Err::new ("not enough memory to load executable"))?;
 
 			// copy section data over to memory
-			let memslice = unsafe
+			if let Some(data) = section.data
 			{
-				// mem is guarenteed to have enough space
-				core::slice::from_raw_parts_mut (mem.as_mut_ptr::<u8> ().add (section.data_offset), section.data.len ())
-			};
-			memslice.copy_from_slice (section.data);
+				let memslice = unsafe
+				{
+					// mem is guarenteed to have enough space
+					core::slice::from_raw_parts_mut (mem.as_mut_ptr::<u8> ().add (section.data_offset), data.len ())
+				};
+				memslice.copy_from_slice (data);
+			}
 
 			// construct virtaddr layout
 			let v_elem = VirtLayoutElement::from_mem (mem, vrange.size (), flags);

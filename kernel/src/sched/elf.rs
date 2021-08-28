@@ -6,7 +6,7 @@ use crate::mem::VirtRange;
 pub struct Section<'a>
 {
 	pub virt_range: VirtRange,
-	pub data: &'a [u8],
+	pub data: Option<&'a [u8]>,
 	// data virtual offset from start of virt_range
 	pub data_offset: usize,
 	pub flags: PHdrFlags,
@@ -49,26 +49,33 @@ impl<'a> ElfParser<'a>
 		{
 			if header.ptype == P_TYPE_LOAD
 			{
-				if header.p_filesz == 0 || header.p_memsz == 0
+				if header.p_memsz == 0
 				{
 					continue;
 				}
 
 				let virt_range = VirtRange::new_unaligned (VirtAddr::new (header.p_vaddr as u64), header.p_memsz);
 				let virt_range_aligned = virt_range.aligned ();
-				let data = self.extract (header.p_offset, header.p_filesz);
-				match data
+
+				let data = if header.p_filesz == 0
 				{
-					Some(data) => {
-						out.push (Section {
-							virt_range: virt_range_aligned,
-							data,
-							data_offset: virt_range.as_usize () - virt_range_aligned.as_usize (),
-							flags: header.flags,
-						})
-					},
-					None => continue,
+					None
 				}
+				else
+				{
+					Some(match self.extract (header.p_offset, header.p_filesz)
+					{
+						Some(data) => data,
+						None => continue,
+					})
+				};
+
+				out.push (Section {
+					virt_range: virt_range_aligned,
+					data,
+					data_offset: virt_range.as_usize () - virt_range_aligned.as_usize (),
+					flags: header.flags,
+				});
 			}
 		}
 		out

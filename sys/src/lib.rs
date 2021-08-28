@@ -10,6 +10,18 @@ pub const PAGE_SIZE: usize = 4096;
 // filler for syscall macro to get right amount of return values
 const F: usize = 0;
 
+// must be power of 2 for correct results
+const fn align_up (addr: usize, align: usize) -> usize
+{
+	(addr + align - 1) & !(align - 1)
+}
+
+// must be power of 2 for correct results
+const fn align_down (addr: usize, align: usize) -> usize
+{
+	addr & !(align - 1)
+}
+
 pub fn thread_new (thread_func: fn() -> ()) -> Result<usize, SysErr>
 {
 	let rip = thread_func as usize;
@@ -85,7 +97,7 @@ pub fn futex_unblock (addr: usize, n: usize) -> usize
 
 pub unsafe fn realloc (mem: usize, size: usize, at_addr: usize, options: ReallocOptions) -> Result<(usize, usize), SysErr>
 {
-	let (err, mem, len) = syscall! (REALLOC, options.bits (), mem, size / PAGE_SIZE, at_addr);
+	let (err, mem, len) = syscall! (REALLOC, options.bits (), mem, align_up (size, PAGE_SIZE) / PAGE_SIZE, at_addr);
 	let err = SysErr::new (err).unwrap ();
 
 	if err == SysErr::Ok
