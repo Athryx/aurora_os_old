@@ -1,6 +1,6 @@
 use crate::uses::*;
 use core::fmt::{self, Formatter, Display};
-use crate::{memown::MemOwner, ptr::{UniqueRef, UniqueMut}};
+use crate::{mem::MemOwner, ptr::{UniqueRef, UniqueMut}};
 
 pub enum ParentType<'a, T>
 {

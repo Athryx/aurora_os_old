@@ -1,7 +1,7 @@
 //use core::ops::{Index, IndexMut};
 use core::fmt::{self, Formatter, Debug};
 use crate::uses::*;
-use crate::memown::MemOwner;
+use crate::mem::MemOwner;
 use crate::ptr::{UniqueRef, UniqueMut, UniquePtr};
 
 // Safety:

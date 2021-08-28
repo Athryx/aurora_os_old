@@ -24,7 +24,7 @@ pub use libutil::futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWr
 // TODO: use macros to make shorter
 pub use libutil::ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 
-pub use libutil::memown::MemOwner;
+pub use libutil::mem::MemOwner;
 
 use libutil::{UtilCalls, mem::Allocation};
 use crate::sched::{thread_c, proc_c, ThreadState};

@@ -15,7 +15,6 @@ pub mod futex;
 pub mod misc;
 pub mod ptr;
 pub mod mem;
-pub mod memown;
 pub mod collections;
 
 mod uses;

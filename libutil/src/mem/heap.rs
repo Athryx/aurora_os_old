@@ -1,5 +1,5 @@
 use crate::uses::*;
-use crate::{collections::LinkedList, memown::MemOwner, ptr::{UniqueRef, UniqueMut, UniquePtr}};
+use crate::{collections::LinkedList, ptr::{UniqueRef, UniqueMut, UniquePtr}};
 use crate::impl_list_node;
 use core::mem;
 use core::alloc::Layout;
@@ -8,7 +8,7 @@ use core::cell::Cell;
 use core::cmp::max;
 use sys::PAGE_SIZE;
 use crate::{alloc, dealloc};
-use super::Allocation;
+use super::{MemOwner, Allocation};
 
 const INITIAL_HEAP_SIZE: usize = PAGE_SIZE * 8;
 const HEAP_INC_SIZE: usize = PAGE_SIZE * 4;
