@@ -24,7 +24,7 @@ mod imutex;
 pub use imutex::{IMutex, IMutexGuard};
 
 mod futex;
-pub use futex::{Futex, FutexGaurd, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
+pub use futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
 
 // TODO: use macros to make shorter
 pub mod ptr;

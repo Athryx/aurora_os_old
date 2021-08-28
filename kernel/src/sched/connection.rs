@@ -3,7 +3,7 @@ use sys_consts::options::MsgOptions;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
-use crate::util::{Futex, FutexGaurd, NLVecMap};
+use crate::util::{Futex, FutexGuard, NLVecMap};
 use crate::syscall::SyscallVals;
 use super::*;
 

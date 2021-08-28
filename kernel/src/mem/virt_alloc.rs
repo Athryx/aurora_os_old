@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
-use crate::util::{Futex, FutexGaurd, optac, copy_to_heap};
+use crate::util::{Futex, FutexGuard, optac, copy_to_heap};
 use super::phys_alloc::{Allocation, ZoneManager, zm};
 use super::shared_mem::SMemFlags;
 use super::error::MemErr;
@@ -985,13 +985,13 @@ impl<T: FrameAllocator> VirtMapper<T>
 		None
 	}
 
-	fn contains (btree: &mut FutexGaurd<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange) -> bool
+	fn contains (btree: &mut FutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange) -> bool
 	{
 		btree.get (&virt_zone).is_some ()
 	}
 
 	// find virt range of size size
-	fn find_range (btree: &FutexGaurd<BTreeMap<VirtRange, VirtLayout>>, size: usize) -> Option<VirtRange>
+	fn find_range (btree: &FutexGuard<BTreeMap<VirtRange, VirtLayout>>, size: usize) -> Option<VirtRange>
 	{
 		// leave page at 0 empty so null pointers will page fault
 		let mut laddr = PAGE_SIZE;
@@ -1020,7 +1020,7 @@ impl<T: FrameAllocator> VirtMapper<T>
 	// if there is interference to left and right of virt_zone, returns none
 	// pass with inclusive true to ensure virt_zone is not already inserted
 	// if it is inserted, pass with inclusive false
-	fn free_space (btree: &FutexGaurd<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange, exclude: Option<VirtRange>) -> Option<(usize, usize)>
+	fn free_space (btree: &FutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange, exclude: Option<VirtRange>) -> Option<(usize, usize)>
 	{
 		let mut prev_iter = btree.range (..virt_zone);
 		let mut prev = prev_iter.next_back ();
