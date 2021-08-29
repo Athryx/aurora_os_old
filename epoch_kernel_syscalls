@@ -106,20 +106,39 @@ any other number will do nothing
 terminates process with exit code {code}
 
 
-6: fn futex_block (addr: usize)
+6: fn futex_block (addr: usize) -> SysErr
 bloocks the thread until woken by another thread via futex_unblock
 
+return value:
+syserr code:
+InvlVirtAddr:
+non cannonical address
 
-7: fn futex_unblock (addr: usize, n: usize) -> usize
+
+7: fn futex_unblock (addr: usize, n: usize) -> (err: SysErr, n: usize)
 unblocks {n} threads waiting on addr and returns how many threads were unblocked
 if addr is shared memory, this can also unblock threads in other processess that are waiting
 on the same value, with a different virtual address
+
+return value:
+syserr code:
+InvlVirtAddr:
+non cannonical address
+
+n: number of threads unblocked
 
 
 8: fn futex_move (addr_old: usize, addr_new: usize, n: usize) -> usize
 moves {n} threads waiting on {addr_old} to start waiting on {addr_new} and returns how many threads were moved
 it is not allowed to move a futex from an address within a shared memory zone to an address in a different shared
 memory zone or into a non shared memory zone
+
+return value:
+syserr code:
+InvlVirtAddr:
+non cannonical address
+
+n: number of threads moved
 
 
 9: set_proc_properties

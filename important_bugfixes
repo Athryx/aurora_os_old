@@ -1,3 +1,2 @@
 kernel:
-there is a race condition in the scheduler, I think from calling the proc_c () and thread_res_c () functions in reguler code,
-and then the interrupt handler calling thread_res_c to set the register data structure
+stop the thread list and proc local thread list from leaking memory

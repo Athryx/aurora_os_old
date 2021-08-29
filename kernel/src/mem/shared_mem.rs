@@ -49,11 +49,57 @@ impl SharedMem
 		}))
 	}
 
+	pub fn id (&self) -> usize
+	{
+		self.id
+	}
+
+	pub fn alloc_type (&self) -> AllocType
+	{
+		AllocType::Shared(self.id)
+	}
+
 	// returns a virtual layout that can be mapped by the virtual memory mapper
 	pub fn virt_layout (&self) -> VirtLayout
 	{
 		let elem = VirtLayoutElement::from_range (self.mem.into (), PageMappingFlags::from_shared_flags (self.flags));
-		VirtLayout::from (vec![elem], AllocType::Shared)
+		VirtLayout::from (vec![elem], self.alloc_type ())
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SMemAddr
+{
+	smid: usize,
+	offset: usize,
+}
+
+impl SMemAddr
+{
+	pub fn new (smid: usize, offset: usize) -> Self
+	{
+		SMemAddr {
+			smid,
+			offset,
+		}
+	}
+
+	pub fn smid (&self) -> usize
+	{
+		self.smid
+	}
+
+	pub fn offset (&self) -> usize
+	{
+		self.offset
+	}
+}
+
+impl Default for SMemAddr
+{
+	fn default () -> Self
+	{
+		Self::new (0, 0)
 	}
 }
 

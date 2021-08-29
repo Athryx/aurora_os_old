@@ -14,9 +14,10 @@ use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
+use crate::mem::shared_mem::SMemAddr;
 use crate::gdt::tss;
 pub use process::Process;
-pub use thread::{Thread, SFutexWait, ThreadState, Stack, Tuid};
+pub use thread::{Thread, ThreadState, Stack, Tuid};
 pub use domain::*;
 pub use connection::*;
 pub use namespace::{Namespace, namespace_map};
@@ -283,7 +284,7 @@ unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 
 libutil::impl_tree_node! (Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
 libutil::impl_tree_node! (ConnPid, TLTreeNode<ConnPid>, parent, left, right, id, bf);
-libutil::impl_tree_node! (SFutexWait, TLTreeNode<SFutexWait>, parent, left, right, id, bf);
+libutil::impl_tree_node! (SMemAddr, TLTreeNode<SMemAddr>, parent, left, right, id, bf);
 libutil::impl_tree_node! (usize, TLTreeNode<usize>, parent, left, right, id, bf);
 
 #[derive(Debug)]
@@ -295,6 +296,7 @@ pub struct ThreadList
 	sleep: LinkedList<Thread>,
 	wait: AvlTree<Tuid, TLTreeNode<Tuid>>,
 	conn_wait: AvlTree<ConnPid, TLTreeNode<ConnPid>>,
+	sfutex: AvlTree<SMemAddr, TLTreeNode<SMemAddr>>,
 }
 
 impl ThreadList
@@ -308,6 +310,7 @@ impl ThreadList
 			sleep: LinkedList::new (),
 			wait: AvlTree::new (),
 			conn_wait: AvlTree::new (),
+			sfutex: AvlTree::new (),
 		}
 	}
 
@@ -321,6 +324,7 @@ impl ThreadList
 			ThreadState::Sleep(_) => Some(&self.sleep),
 			ThreadState::Waiting(tuid) => Some(unsafe { unbound (&self.wait.get (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound (&self.conn_wait.get (&id)?.list) }),
+			ThreadState::ShareFutexBlock(id) => Some(unsafe { unbound (&self.sfutex.get (&id)?.list) }),
 			_ => None
 		}
 	}
@@ -335,6 +339,7 @@ impl ThreadList
 			ThreadState::Sleep(_) => Some(&mut self.sleep),
 			ThreadState::Waiting(tuid) => Some(unsafe { unbound_mut (&mut self.wait.get_mut (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound_mut (&mut self.conn_wait.get_mut (&id)?.list) }),
+			ThreadState::ShareFutexBlock(id) => Some(unsafe { unbound_mut (&mut self.sfutex.get_mut (&id)?.list) }),
 			_ => None
 		}
 	}
@@ -372,6 +377,42 @@ impl ThreadListGuard
 		self.0.lock ()
 	}
 
+	pub fn share_futex_move (&self, smaddr: SMemAddr, state: ThreadState, count: usize) -> usize
+	{
+		assert! (!state.is_proc_local ());
+		if let ThreadState::Running = state
+		{
+			panic! ("cannot move thread blocked on futex directly to running thread");
+		}
+
+		self.ensure (state);
+
+		let old_state = ThreadState::ShareFutexBlock(smaddr);
+		let process = proc_c ();
+		let mut thread_list = self.lock ();
+		if let None = thread_list.get (old_state)
+		{
+			return 0;
+		}
+
+		let mut plist = process.tlproc.lock ();
+
+		for i in 0..count
+		{
+			// FIXME: bug, sometimes indexes with invalid state
+			match thread_list[ThreadState::ShareFutexBlock(smaddr)].pop_front ()
+			{
+				Some(tpointer) => {
+					tpointer.set_state (state);
+					Thread::insert_into (tpointer, Some(&mut thread_list), Some(&mut plist)).unwrap ();
+				},
+				None => return i,
+			}
+		}
+
+		count
+	}
+
 	pub fn ensure (&self, state: ThreadState)
 	{
 		// TODO: put both these branches into a function
@@ -391,17 +432,69 @@ impl ThreadListGuard
 					}
 				}
 			},
-			ThreadState::Listening(conn_id) => {
-				if self.lock ().conn_wait.get (&conn_id).is_none ()
+			ThreadState::Listening(cpid) => {
+				if self.lock ().conn_wait.get (&cpid).is_none ()
 				{
 					let node = TLTreeNode::new ();
 					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
-					if let Err(val) = self.lock ().conn_wait.insert (conn_id, node)
+					if let Err(val) = self.lock ().conn_wait.insert (cpid, node)
 					{
 						unsafe
 						{
 							TLTreeNode::dealloc (val);
 						}
+					}
+				}
+			},
+			ThreadState::ShareFutexBlock(id) => {
+				if self.lock ().sfutex.get (&id).is_none ()
+				{
+					let node = TLTreeNode::new ();
+					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
+					if let Err(val) = self.lock ().sfutex.insert (id, node)
+					{
+						unsafe
+						{
+							TLTreeNode::dealloc (val);
+						}
+					}
+				}
+			},
+			_ => (),
+		}
+	}
+
+	pub fn dealloc_state (&self, state: ThreadState)
+	{
+		match state
+		{
+			ThreadState::Waiting(tuid) => {
+				if let Some(node) = self.lock ().wait.remove (&tuid)
+				{
+					assert_eq! (node.list.len (), 0);
+					unsafe
+					{
+						TLTreeNode::dealloc (node);
+					}
+				}
+			},
+			ThreadState::Listening(cpid) => {
+				if let Some(node) = self.lock ().conn_wait.remove (&cpid)
+				{
+					assert_eq! (node.list.len (), 0);
+					unsafe
+					{
+						TLTreeNode::dealloc (node);
+					}
+				}
+			},
+			ThreadState::ShareFutexBlock(id) => {
+				if let Some(node) = self.lock ().sfutex.remove (&id)
+				{
+					assert_eq! (node.list.len (), 0);
+					unsafe
+					{
+						TLTreeNode::dealloc (node);
 					}
 				}
 			},

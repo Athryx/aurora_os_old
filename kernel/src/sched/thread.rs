@@ -11,6 +11,7 @@ use alloc::sync::{Arc, Weak};
 use sys_consts::SysErr;
 use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
+use crate::mem::shared_mem::SMemAddr;
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGuard, MemOwner, UniqueMut, UniqueRef, UniquePtr};
@@ -96,42 +97,6 @@ impl Stack
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SFutexWait
-{
-	smid: usize,
-	offset: usize,
-}
-
-impl SFutexWait
-{
-	pub fn new (smid: usize, offset: usize) -> Self
-	{
-		SFutexWait {
-			smid,
-			offset,
-		}
-	}
-
-	pub fn smid (&self) -> usize
-	{
-		self.smid
-	}
-
-	pub fn offset (&self) -> usize
-	{
-		self.offset
-	}
-}
-
-impl Default for SFutexWait
-{
-	fn default () -> Self
-	{
-		Self::new (0, 0)
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ThreadState
 {
 	Running,
@@ -148,7 +113,7 @@ pub enum ThreadState
 	// connection cpid we are waiting for a reply from
 	Listening(ConnPid),
 	// shared memory futex waiting
-	ShareFutexBlock(SFutexWait),
+	ShareFutexBlock(SMemAddr),
 }
 
 impl ThreadState
@@ -543,7 +508,7 @@ impl Thread
 					process.ensure_futex_addr (addr);
 				}
 			}
-			_ => (),
+			_ => tlist.ensure (state),
 		}
 
 		self.set_state (state);

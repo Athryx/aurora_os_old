@@ -6,7 +6,7 @@ use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
 use crate::util::{Futex, FutexGuard};
 use super::phys_alloc::{Allocation, ZoneManager, zm};
-use super::shared_mem::SMemFlags;
+use super::shared_mem::{SMemFlags, SMemAddr};
 use super::error::MemErr;
 use super::*;
 
@@ -515,7 +515,8 @@ pub enum AllocType
 {
 	VirtMem,
 	PhysMap,
-	Shared,
+	// shared id
+	Shared(usize),
 	Protected,
 }
 
@@ -939,19 +940,34 @@ impl<T: FrameAllocator> VirtMapper<T>
 
 	pub fn get_mapped_range (&self, addr: VirtAddr) -> Option<VirtRange>
 	{
-		let virt_zone = VirtRange::new_unaligned (addr, usize::MAX);
+		self.address_map (addr, |zone, _| {
+			if zone.contains (addr)
+			{
+				Some(*zone)
+			}
+			else
+			{
+				None
+			}
+		})
+	}
 
-		let btree = self.virt_map.lock ();
-		let (zone, _) = btree.range (..virt_zone).next_back ()?;
+	pub fn get_alloc_type (&self, addr: VirtAddr) -> Option<AllocType>
+	{
+		self.address_map (addr, |_, zone| Some(zone.alloc_type ()))
+	}
 
-		if zone.contains (addr)
-		{
-			Some(*zone)
-		}
-		else
-		{
-			None
-		}
+	pub fn get_smem_addr (&self, addr: VirtAddr) -> Option<SMemAddr>
+	{
+		self.address_map (addr, |range, zone| {
+			let smid = match zone.alloc_type ()
+			{
+				AllocType::Shared(id) => id,
+				_ => return None,
+			};
+			let offset = addr - range.as_usize ();
+			Some(SMemAddr::new (smid, offset.as_u64 () as usize))
+		})
 	}
 
 	pub fn range_map<F, U> (&self, virt_zone: VirtRange, f: F) -> Option<U>
@@ -983,6 +999,16 @@ impl<T: FrameAllocator> VirtMapper<T>
 		}
 
 		None
+	}
+
+	pub fn address_map<F, U> (&self, addr: VirtAddr, f: F) -> Option<U>
+		where F: FnOnce(&VirtRange, &VirtLayout) -> Option<U>
+	{
+		let virt_zone = VirtRange::new_unaligned (addr, usize::MAX);
+
+		let btree = self.virt_map.lock ();
+		let (range, layout) = btree.range (..virt_zone).next_back ()?;
+		f (range, layout)
 	}
 
 	fn contains (btree: &mut FutexGuard<BTreeMap<VirtRange, VirtLayout>>, virt_zone: VirtRange) -> bool

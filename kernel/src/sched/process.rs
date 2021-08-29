@@ -269,7 +269,7 @@ impl Process
 		{
 			unsafe
 			{
-				self.addr_space.unmap (vmem, AllocType::Shared).unwrap ();
+				self.addr_space.unmap (vmem, entry.smem ().alloc_type ()).unwrap ();
 			}
 		}
 		Some(entry.into_smem ())
@@ -314,7 +314,7 @@ impl Process
 				{
 					unsafe
 					{
-						self.addr_space.unmap (vmem, AllocType::Shared).unwrap ();
+						self.addr_space.unmap (vmem, entry.smem ().alloc_type ()).unwrap ();
 					}
 					entry.virt_mem = None;
 					SysErr::Ok

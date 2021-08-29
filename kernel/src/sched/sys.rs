@@ -86,14 +86,47 @@ pub extern "C" fn thread_block (vals: &mut SyscallVals)
 pub extern "C" fn futex_block (vals: &mut SyscallVals)
 {
 	let addr = vals.a1;
-	thread_c ().block (ThreadState::FutexBlock(addr));
+
+	let vaddr = match VirtAddr::try_new (addr as u64)
+	{
+		Ok(addr) => addr,
+		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num ()),
+	};
+
+	// prevent race condition
+	let process = proc_c ();
+	let _slock = process.smem ().lock ();
+
+	match proc_c ().addr_space.get_smem_addr (vaddr)
+	{
+		Some(smaddr) => thread_c ().block (ThreadState::ShareFutexBlock(smaddr)),
+		None => thread_c ().block (ThreadState::FutexBlock(addr)),
+	};
+	sysret! (vals, SysErr::Ok.num ());
 }
 
 pub extern "C" fn futex_unblock (vals: &mut SyscallVals)
 {
 	let addr = vals.a1;
 	let n = vals.a2;
-	vals.a1 = proc_c ().futex_move (addr, ThreadState::Running, n);
+
+	let vaddr = match VirtAddr::try_new (addr as u64)
+	{
+		Ok(addr) => addr,
+		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num (), 0),
+	};
+
+	// prevent race condition
+	let process = proc_c ();
+	let _slock = process.smem ().lock ();
+
+	let move_count = match proc_c ().addr_space.get_smem_addr (vaddr)
+	{
+		Some(smaddr) => tlist.share_futex_move (smaddr, ThreadState::Ready, n),
+		None => process.futex_move (addr, ThreadState::Ready, n),
+	};
+
+	sysret! (vals, SysErr::Ok.num (), move_count);
 }
 
 pub extern "C" fn futex_move (vals: &mut SyscallVals)
@@ -101,7 +134,36 @@ pub extern "C" fn futex_move (vals: &mut SyscallVals)
 	let addr_old = vals.a1;
 	let addr_new = vals.a2;
 	let n = vals.a3;
-	vals.a1 = proc_c ().futex_move (addr_old, ThreadState::FutexBlock(addr_new), n);
+
+	let vaddr_old = match VirtAddr::try_new (addr_old as u64)
+	{
+		Ok(addr) => addr,
+		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num (), 0),
+	};
+
+	let vaddr_new = match VirtAddr::try_new (addr_new as u64)
+	{
+		Ok(addr) => addr,
+		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num (), 0),
+	};
+
+	// prevent race condition
+	let process = proc_c ();
+	let _slock = process.smem ().lock ();
+
+	let new_state = match process.addr_space.get_smem_addr (vaddr_new)
+	{
+		Some(smaddr) => ThreadState::ShareFutexBlock(smaddr),
+		None => ThreadState::FutexBlock(addr_new),
+	};
+
+	let move_count = match process.addr_space.get_smem_addr (vaddr_old)
+	{
+		Some(smaddr) => tlist.share_futex_move (smaddr, new_state, n),
+		None => process.futex_move (addr_old, new_state, n),
+	};
+
+	sysret! (vals, SysErr::Ok.num (), move_count);
 }
 
 // TODO: handle reg_group option
