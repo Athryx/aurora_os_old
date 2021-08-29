@@ -44,7 +44,7 @@ mod domain;
 mod connection;
 mod namespace;
 
-static tlist: ThreadListGuard = ThreadListGuard::new ();
+pub static tlist: ThreadListGuard = ThreadListGuard::new ();
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());
 
 // amount of time that elapses before we will switch to a new thread in nanoseconds
@@ -77,7 +77,7 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 		let sleep_nsec = tpointer.state ().sleep_nsec ().unwrap ();
 		if nsec >= sleep_nsec
 		{
-			Thread::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+			Thread::move_to (tpointer, ThreadState::Ready, &mut thread_list);
 		}
 	}
 
@@ -106,7 +106,7 @@ fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 		// FIXME: ugly
 		for thread in unsafe { unbound_mut (wait_list).iter () }
 		{
-			Thread::move_to (thread, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+			Thread::move_to (thread, ThreadState::Ready, &mut thread_list);
 		}
 	}
 
@@ -142,7 +142,7 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 				if !t.is_alive ()
 				{
 					t.set_state (ThreadState::Destroy);
-					Thread::insert_into (t, Some(&mut thread_list), None).unwrap ();
+					Thread::insert_into (t, &mut thread_list);
 				}
 				else
 				{
@@ -168,7 +168,6 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 
 	// FIXME: smp race condition
 	let old_process = old_thread.process ().unwrap ();
-	let mut tlproc_list = old_process.tlproc.lock ();
 
 	if let ThreadState::Running = old_thread.state ()
 	{
@@ -176,26 +175,18 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	}
 
 	// if process was dropped, move to destroy list
-	let old_is_alive = match Thread::insert_into (old_thread, Some(&mut thread_list), Some(&mut tlproc_list))
-	{
-		Ok(_) => true,
-		Err(tcell) => {
-			tcell.set_state (ThreadState::Destroy);
-			Thread::insert_into (tcell, Some(&mut thread_list), None).unwrap ();
-			false
-		}
-	};
+	Thread::insert_into (old_thread, &mut thread_list);
 
 	// TODO: add premptive multithreading here
 	tpointer.set_state (ThreadState::Running);
-	let tpointer = Thread::insert_into (tpointer, Some(&mut thread_list), None).expect ("could not set running thread");
+	let tpointer = Thread::insert_into (tpointer, &mut thread_list);
 
 	rprintln! ("switching to:\n{:#x?}", *tpointer);
 
 	// FIXME: smp race condition
 	let new_process = tpointer.process ().unwrap ();
 
-	if !old_is_alive || old_process.pid () != new_process.pid ()
+	if old_process.pid () != new_process.pid ()
 	{
 		unsafe { new_process.addr_space.load (); }
 	}
@@ -285,7 +276,43 @@ unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 libutil::impl_tree_node! (Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
 libutil::impl_tree_node! (ConnPid, TLTreeNode<ConnPid>, parent, left, right, id, bf);
 libutil::impl_tree_node! (SMemAddr, TLTreeNode<SMemAddr>, parent, left, right, id, bf);
-libutil::impl_tree_node! (usize, TLTreeNode<usize>, parent, left, right, id, bf);
+libutil::impl_tree_node! (FutexId, TLTreeNode<FutexId>, parent, left, right, id, bf);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FutexId
+{
+	pid: usize,
+	addr: usize,
+}
+
+impl FutexId
+{
+	pub fn new (pid: usize, addr: usize) -> Self
+	{
+		FutexId {
+			pid,
+			addr,
+		}
+	}
+
+	pub fn pid (&self) -> usize
+	{
+		self.pid
+	}
+
+	pub fn addr (&self) -> usize
+	{
+		self.addr
+	}
+}
+
+impl Default for FutexId
+{
+	fn default () -> Self
+	{
+		Self::new (0, 0)
+	}
+}
 
 #[derive(Debug)]
 pub struct ThreadList
@@ -294,8 +321,10 @@ pub struct ThreadList
 	ready: LinkedList<Thread>,
 	destroy: LinkedList<Thread>,
 	sleep: LinkedList<Thread>,
+	join: AvlTree<Tuid, TLTreeNode<Tuid>>,
 	wait: AvlTree<Tuid, TLTreeNode<Tuid>>,
 	conn_wait: AvlTree<ConnPid, TLTreeNode<ConnPid>>,
+	futex: AvlTree<FutexId, TLTreeNode<FutexId>>,
 	sfutex: AvlTree<SMemAddr, TLTreeNode<SMemAddr>>,
 }
 
@@ -308,8 +337,10 @@ impl ThreadList
 			ready: LinkedList::new (),
 			destroy: LinkedList::new (),
 			sleep: LinkedList::new (),
+			join: AvlTree::new (),
 			wait: AvlTree::new (),
 			conn_wait: AvlTree::new (),
+			futex: AvlTree::new (),
 			sfutex: AvlTree::new (),
 		}
 	}
@@ -322,10 +353,11 @@ impl ThreadList
 			ThreadState::Ready => Some(&self.ready),
 			ThreadState::Destroy => Some(&self.destroy),
 			ThreadState::Sleep(_) => Some(&self.sleep),
+			ThreadState::Join(tuid) => Some(unsafe { unbound (&self.join.get (&tuid)?.list) }),
 			ThreadState::Waiting(tuid) => Some(unsafe { unbound (&self.wait.get (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound (&self.conn_wait.get (&id)?.list) }),
+			ThreadState::FutexBlock(id) => Some(unsafe { unbound (&self.futex.get (&id)?.list) }),
 			ThreadState::ShareFutexBlock(id) => Some(unsafe { unbound (&self.sfutex.get (&id)?.list) }),
-			_ => None
 		}
 	}
 
@@ -337,10 +369,11 @@ impl ThreadList
 			ThreadState::Ready => Some(&mut self.ready),
 			ThreadState::Destroy => Some(&mut self.destroy),
 			ThreadState::Sleep(_) => Some(&mut self.sleep),
+			ThreadState::Join(tuid) => Some(unsafe { unbound_mut (&mut self.join.get_mut (&tuid)?.list) }),
 			ThreadState::Waiting(tuid) => Some(unsafe { unbound_mut (&mut self.wait.get_mut (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound_mut (&mut self.conn_wait.get_mut (&id)?.list) }),
+			ThreadState::FutexBlock(id) => Some(unsafe { unbound_mut (&mut self.futex.get_mut (&id)?.list) }),
 			ThreadState::ShareFutexBlock(id) => Some(unsafe { unbound_mut (&mut self.sfutex.get_mut (&id)?.list) }),
-			_ => None
 		}
 	}
 }
@@ -369,7 +402,7 @@ impl ThreadListGuard
 {
 	pub const fn new () -> Self
 	{
-		ThreadListGuard(IMutex::new (ThreadList:: new ()))
+		ThreadListGuard(IMutex::new (ThreadList::new ()))
 	}
 
 	pub fn lock (&self) -> IMutexGuard<ThreadList>
@@ -377,34 +410,33 @@ impl ThreadListGuard
 		self.0.lock ()
 	}
 
-	pub fn share_futex_move (&self, smaddr: SMemAddr, state: ThreadState, count: usize) -> usize
+	pub fn state_move (&self, old_state: ThreadState, new_state: ThreadState, count: usize) -> usize
 	{
-		assert! (!state.is_proc_local ());
-		if let ThreadState::Running = state
+		if let ThreadState::Running = new_state
 		{
 			panic! ("cannot move thread blocked on futex directly to running thread");
 		}
 
-		self.ensure (state);
+		if let ThreadState::Running = old_state
+		{
+			panic! ("cannot move running thread");
+		}
 
-		let old_state = ThreadState::ShareFutexBlock(smaddr);
-		let process = proc_c ();
+		self.ensure (new_state);
+
 		let mut thread_list = self.lock ();
 		if let None = thread_list.get (old_state)
 		{
 			return 0;
 		}
 
-		let mut plist = process.tlproc.lock ();
-
 		for i in 0..count
 		{
-			// FIXME: bug, sometimes indexes with invalid state
-			match thread_list[ThreadState::ShareFutexBlock(smaddr)].pop_front ()
+			match thread_list[old_state].pop_front ()
 			{
 				Some(tpointer) => {
-					tpointer.set_state (state);
-					Thread::insert_into (tpointer, Some(&mut thread_list), Some(&mut plist)).unwrap ();
+					tpointer.set_state (new_state);
+					Thread::insert_into (tpointer, &mut thread_list);
 				},
 				None => return i,
 			}
@@ -413,11 +445,26 @@ impl ThreadListGuard
 		count
 	}
 
+	// TODO: have ensure and dealloc_state return locks to guarentee no race conditions
 	pub fn ensure (&self, state: ThreadState)
 	{
 		// TODO: put both these branches into a function
 		match state
 		{
+			ThreadState::Join(tuid) => {
+				if self.lock ().join.get (&tuid).is_none ()
+				{
+					let node = TLTreeNode::new ();
+					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
+					if let Err(val) = self.lock ().join.insert (tuid, node)
+					{
+						unsafe
+						{
+							TLTreeNode::dealloc (val);
+						}
+					}
+				}
+			},
 			ThreadState::Waiting(tuid) => {
 				if self.lock ().wait.get (&tuid).is_none ()
 				{
@@ -438,6 +485,20 @@ impl ThreadListGuard
 					let node = TLTreeNode::new ();
 					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
 					if let Err(val) = self.lock ().conn_wait.insert (cpid, node)
+					{
+						unsafe
+						{
+							TLTreeNode::dealloc (val);
+						}
+					}
+				}
+			},
+			ThreadState::FutexBlock(id) => {
+				if self.lock ().futex.get (&id).is_none ()
+				{
+					let node = TLTreeNode::new ();
+					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
+					if let Err(val) = self.lock ().futex.insert (id, node)
 					{
 						unsafe
 						{
@@ -468,6 +529,16 @@ impl ThreadListGuard
 	{
 		match state
 		{
+			ThreadState::Join(tuid) => {
+				if let Some(node) = self.lock ().join.remove (&tuid)
+				{
+					assert_eq! (node.list.len (), 0);
+					unsafe
+					{
+						TLTreeNode::dealloc (node);
+					}
+				}
+			},
 			ThreadState::Waiting(tuid) => {
 				if let Some(node) = self.lock ().wait.remove (&tuid)
 				{
@@ -480,6 +551,16 @@ impl ThreadListGuard
 			},
 			ThreadState::Listening(cpid) => {
 				if let Some(node) = self.lock ().conn_wait.remove (&cpid)
+				{
+					assert_eq! (node.list.len (), 0);
+					unsafe
+					{
+						TLTreeNode::dealloc (node);
+					}
+				}
+			},
+			ThreadState::FutexBlock(id) => {
+				if let Some(node) = self.lock ().futex.remove (&id)
 				{
 					assert_eq! (node.list.len (), 0);
 					unsafe

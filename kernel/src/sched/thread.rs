@@ -16,8 +16,8 @@ use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGuard, MemOwner, UniqueMut, UniqueRef, UniquePtr};
 use crate::time::timer;
-use super::process::{Process, ThreadListProcLocal};
-use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c, ConnPid};
+use super::process::Process;
+use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c, ConnPid, FutexId};
 
 // TODO: implement support for growing stack
 #[derive(Debug)]
@@ -107,9 +107,9 @@ pub enum ThreadState
 	// nsecs to sleep
 	Sleep(u64),
 	// tid to join with
-	Join(usize),
+	Join(Tuid),
 	// virtual address currently waiting on
-	FutexBlock(usize),
+	FutexBlock(FutexId),
 	// connection cpid we are waiting for a reply from
 	Listening(ConnPid),
 	// shared memory futex waiting
@@ -118,12 +118,6 @@ pub enum ThreadState
 
 impl ThreadState
 {
-	// is the data structure for storing this thread local to the process
-	pub fn is_proc_local (&self) -> bool
-	{
-		matches! (self, Self::Join(_) | Self::FutexBlock(_))
-	}
-
 	pub fn sleep_nsec (&self) -> Option<u64>
 	{
 		match self
@@ -137,7 +131,7 @@ impl ThreadState
 	{
 		match self
 		{
-			Self::Join(tid) => Some(*tid),
+			Self::Join(tid) => Some(tid.tid ()),
 			_ => None,
 		}
 	}
@@ -146,7 +140,7 @@ impl ThreadState
 	{
 		match self
 		{
-			Self::FutexBlock(addr) => Some(*addr),
+			Self::FutexBlock(addr) => Some(addr.addr ()),
 			_ => None,
 		}
 	}
@@ -179,7 +173,7 @@ pub struct Tuid
 
 impl Tuid
 {
-	pub fn new (pid: usize, tid: usize) -> Tuid
+	pub const fn new (pid: usize, tid: usize) -> Tuid
 	{
 		Tuid {
 			pid,
@@ -369,7 +363,7 @@ impl Thread
 			// FIXME: ugly
 			let ptr = UniqueRef::new (self);
 			let mut thread_list = tlist.lock ();
-			Thread::move_to (ptr, ThreadState::Ready, Some(&mut thread_list), None).unwrap ();
+			Thread::move_to (ptr, ThreadState::Ready, &mut thread_list);
 		}
 	}
 
@@ -422,76 +416,28 @@ impl Thread
 	}
 
 	// returns false if failed to remove
-	pub fn remove_from_current<'a, T> (ptr: T, gtlist: Option<&mut ThreadList>, proctlist: Option<&mut ThreadListProcLocal>) -> Result<MemOwner<Thread>, T>
+	pub fn remove_from_current<'a, T> (ptr: T, list: &mut ThreadList) -> MemOwner<Thread>
 		where T: UniquePtr<Self> + 'a
 	{
-		let state = ptr.state ();
-		if !state.is_proc_local ()
-		{
-			match gtlist
-			{
-				Some(list) => Ok(list[state].remove_node (ptr)),
-				None => Err(ptr),
-			}
-		}
-		else if ptr.proc_alive ()
-		{
-			match proctlist
-			{
-				Some(list) => Ok(list[state].remove_node (ptr)),
-				None => Err(ptr),
-			}
-		}
-		else
-		{
-			Err(ptr)
-		}
+		list[ptr.state ()].remove_node (ptr)
 	}
 
 	// returns None if failed to insert into list
 	// inserts into current state list
-	pub fn insert_into<'a> (cell: MemOwner<Self>, gtlist: Option<&'a mut ThreadList>, proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, Thread>, MemOwner<Thread>>
+	pub fn insert_into (thread: MemOwner<Self>, list: &mut ThreadList) -> UniqueMut<Thread>
 	{
-		let state = cell.state ();
-		if !state.is_proc_local ()
-		{
-			match gtlist
-			{
-				Some(list) => Ok(list[state].push (cell)),
-				None => Err(cell),
-			}
-		}
-		else if cell.proc_alive ()
-		{
-			match proctlist
-			{
-				Some(list) => Ok(list[state].push (cell)),
-				None => Err(cell),
-			}
-		}
-		else
-		{
-			Err(cell)
-		}
+		list[thread.state ()].push (thread)
 	}
 
 	// moves ThreadLNode from old thread state data structure to specified new thread state data structure and return true
 	// will set state variable accordingly
 	// if the thread has already been destroyed via process exiting, this will return false
-	pub fn move_to<'a, 'b, T> (ptr: T, state: ThreadState, mut gtlist: Option<&'a mut ThreadList>, mut proctlist: Option<&'a mut ThreadListProcLocal>) -> Result<UniqueMut<'a, Thread>, T>
+	pub fn move_to<'a, 'b, T> (ptr: T, state: ThreadState, list: &'a mut ThreadList) -> UniqueMut<'a, Thread>
 		where T: UniquePtr<Self> + Clone + 'b
 	{
-		let ptr2 = ptr.clone ();
-		match Self::remove_from_current (ptr, gtlist.as_deref_mut (), proctlist.as_deref_mut ())
-		{
-			Ok(cell) => {
-				cell.set_state (state);
-				// TODO: figure out if we need to handle None case of this specially
-				Self::insert_into (cell, gtlist, proctlist)
-					.map_err (|_| ptr2)
-			},
-			Err(ptr) => Err(ptr),
-		}
+		let thread = Self::remove_from_current (ptr, list);
+		thread.set_state (state);
+		Self::insert_into (thread, list)
 	}
 
 	// only call on currently running thread
@@ -501,13 +447,6 @@ impl Thread
 		{
 			// do nothing if new state is stil running
 			ThreadState::Running => return,
-			ThreadState::FutexBlock(addr) => {
-				// if the thread is not alive because process died, thread will eventually be destroyed in int_sched called bellow
-				if let Some(process) = self.process ()
-				{
-					process.ensure_futex_addr (addr);
-				}
-			}
 			_ => tlist.ensure (state),
 		}
 

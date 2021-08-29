@@ -22,73 +22,6 @@ use super::connection::{MsgArgs, Connection, ConnectionMap};
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
 #[derive(Debug)]
-pub struct ThreadListProcLocal
-{
-	join: LinkedList<Thread>,
-	futex: AvlTree<usize, TLTreeNode<usize>>,
-}
-
-impl ThreadListProcLocal
-{
-	const fn new () -> Self
-	{
-		ThreadListProcLocal {
-			join: LinkedList::new (),
-			futex: AvlTree::new (),
-		}
-	}
-
-	// returns None if futex addres is not present
-	pub fn get (&self, state: ThreadState) -> Option<&LinkedList<Thread>>
-	{
-		match state
-		{
-			ThreadState::Join(_) => Some(&self.join),
-			// TODO: find out is unbound is unneeded
-			ThreadState::FutexBlock(addr) => unsafe { Some(unbound (&self.futex.get (&addr)?.list)) },
-			_ => None
-		}
-	}
-
-	pub fn get_mut (&mut self, state: ThreadState) -> Option<&mut LinkedList<Thread>>
-	{
-		match state
-		{
-			ThreadState::Join(_) => Some(&mut self.join),
-			ThreadState::FutexBlock(addr) => unsafe { Some(unbound_mut (&mut self.futex.get_mut (&addr)?.list)) },
-			_ => None
-		}
-	}
-
-	pub fn ensure_futex_addr (&mut self, addr: usize, node: MemOwner<TLTreeNode<usize>>) -> Option<MemOwner<TLTreeNode<usize>>>
-	{
-		match self.futex.insert (addr, node)
-		{
-			Ok(_) => None,
-			Err(memcell) => Some(memcell),
-		}
-	}
-}
-
-impl Index<ThreadState> for ThreadListProcLocal
-{
-	type Output = LinkedList<Thread>;
-
-	fn index (&self, state: ThreadState) -> &Self::Output
-	{
-		self.get (state).expect ("attempted to index ThreadListProcLocal with invalid state")
-	}
-}
-
-impl IndexMut<ThreadState> for ThreadListProcLocal
-{
-	fn index_mut (&mut self, state: ThreadState) -> &mut Self::Output
-	{
-		self.get_mut (state).expect ("attempted to index ThreadListProcLocal with invalid state")
-	}
-}
-
-#[derive(Debug)]
 pub struct Process
 {
 	pid: usize,
@@ -104,8 +37,6 @@ pub struct Process
 	// NOTE: don't lock proc_list while this is locked
 	connections: Futex<ConnectionMap>,
 	smem: Futex<SMemMap>,
-
-	pub tlproc: IMutex<ThreadListProcLocal>,
 
 	pub addr_space: VirtMapper<FAllocerType>,
 }
@@ -126,7 +57,6 @@ impl Process
 			domains: Futex::new (DomainMap::new ()),
 			connections: Futex::new (ConnectionMap::new (pid)),
 			smem: Futex::new (SMemMap::new ()),
-			tlproc: IMutex::new (ThreadListProcLocal::new ()),
 			addr_space: VirtMapper::new (&zm),
 		})
 	}
@@ -361,21 +291,21 @@ impl Process
 	pub fn remove_thread (&self, tid: usize) -> Option<MemOwner<Thread>>
 	{
 		let out = self.threads.lock ().remove (&tid)?;
+		let state = ThreadState::Join(out.tuid ());
 		let mut thread_list = tlist.lock ();
-		let mut list = self.tlproc.lock ();
 
-		// FIXME: ugly
-		for tpointer in unsafe { unbound_mut (&mut list[ThreadState::Join(0)]).iter () }
+		if let Some(_) = thread_list.get (state)
 		{
-			let join_tid = tpointer.state ().join_tid ().unwrap ();
-
-			if tid == join_tid
+			// FIXME: ugly
+			for tpointer in unsafe { unbound_mut (&mut thread_list[state]).iter () }
 			{
-				Thread::move_to (tpointer, ThreadState::Ready, Some(&mut thread_list), Some(&mut list)).unwrap ();
+				Thread::move_to (tpointer, ThreadState::Ready, &mut thread_list);
 			}
-		}
 
-		drop (thread_list);
+			drop (thread_list);
+
+			tlist.dealloc_state (state);
+		}
 
 		Some(out)
 	}
@@ -404,108 +334,14 @@ impl Process
 			Err(Err::new ("could not insert thread into process thread list"))
 		}
 	}
-
-	// TODO: make a way to deallocate old FutexTreeNodes
-	pub fn ensure_futex_addr (&self, addr: usize)
-	{
-		if self.tlproc.lock ().get (ThreadState::FutexBlock(addr)).is_none ()
-		{
-			let tree_node = TLTreeNode::new ();
-			if let Some(tree_node) = self.tlproc.lock ().ensure_futex_addr (addr, tree_node)
-			{
-				unsafe
-				{
-					TLTreeNode::dealloc (tree_node);
-				}
-			}
-		}
-	}
-
-	// returns how many threads were moved
-	pub fn futex_move (&self, addr: usize, state: ThreadState, count: usize) -> usize
-	{
-		match state
-		{
-			ThreadState::FutexBlock(addr) => self.ensure_futex_addr (addr),
-			ThreadState::Running => panic! ("cannot move thread blocked on futex directly to running thread"),
-			_ => (),
-		}
-
-		let mut thread_list = tlist.lock ();
-		let mut list = self.tlproc.lock ();
-
-		for i in 0..count
-		{
-			// FIXME: bug, sometimes indexes with invalid state
-			match list[ThreadState::FutexBlock(addr)].pop_front ()
-			{
-				Some(tpointer) => {
-					tpointer.set_state (state);
-					Thread::insert_into (tpointer, Some(&mut thread_list), Some(&mut list)).unwrap ();
-				},
-				None => return i,
-			}
-		}
-
-		count
-	}
 }
 
 impl Drop for Process
 {
 	fn drop (&mut self)
 	{
-		// TODO: drop FutexTreeNodes
-		// Need to drop all the threads first, because they asssume process is always alive if they are alive
-		// TODO: make this faster
 		let mut threads = self.threads.lock ();
 		while threads.pop_first ().is_some () {}
-
-		loop
-		{
-			let mut tlproc = self.tlproc.lock ();
-			let tpointer = match tlproc[ThreadState::Join(0)].pop_front ()
-			{
-				Some(thread) => thread,
-				None => break,
-			};
-
-			// TODO: this is probably slow
-			// avoid race condition with dealloc
-			drop (tlproc);
-
-			unsafe
-			{
-				tpointer.dealloc ();
-			}
-		}
-		loop
-		{
-			let mut tlproc = self.tlproc.lock ();
-			let list = match tlproc.futex.pop ()
-			{
-				Some(list) => list,
-				None => break,
-			};
-
-			// TODO: this is probably slow
-			// avoid race condition with dealloc
-			drop (tlproc);
-
-			let mut list_mut = unsafe { UniqueMut::from_ptr (list.ptr_mut ()) };
-
-			while let Some(thread) = list_mut.list.pop ()
-			{
-				unsafe
-				{
-					thread.dealloc ()
-				}
-			}
-
-			unsafe
-			{
-				list.dealloc ();
-			}
-		}
+		todo! ();
 	}
 }

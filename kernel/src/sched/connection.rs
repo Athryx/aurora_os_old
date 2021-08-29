@@ -436,7 +436,7 @@ impl Connection
 				let state = ThreadState::Waiting(thread_c ().tuid ());
 				tlist.ensure (state);
 				let mut thread_list = tlist.lock ();
-				Thread::move_to (thread, ThreadState::Waiting(thread_c ().tuid ()), Some(&mut thread_list), None).unwrap ();
+				Thread::move_to (thread, ThreadState::Waiting(thread_c ().tuid ()), &mut thread_list);
 			},
 			None => {
 				let handler = match inner.init_handler
@@ -500,7 +500,7 @@ impl Drop for Connection
 			*thread.rcv_regs ().lock () = Err(SysErr::MsgTerm);
 
 			let mut thread_list = tlist.lock ();
-			Thread::move_to (thread, ThreadState::Waiting(thread_c ().tuid ()), Some(&mut thread_list), None).unwrap ();
+			Thread::move_to (thread, ThreadState::Waiting(thread_c ().tuid ()), &mut thread_list);
 		}
 
 		tlist.dealloc_state (ThreadState::Listening(self.cpids));

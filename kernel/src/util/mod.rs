@@ -27,7 +27,7 @@ pub use libutil::ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
 pub use libutil::mem::MemOwner;
 
 use libutil::{UtilCalls, mem::Allocation};
-use crate::sched::{thread_c, proc_c, ThreadState};
+use crate::sched::{thread_c, proc_c, tlist, ThreadState, FutexId};
 use crate::mem::phys_alloc::zm;
 
 pub static CALLS: Calls = Calls();
@@ -36,14 +36,17 @@ pub struct Calls();
 
 impl UtilCalls for Calls
 {
+	// NOTE: chage if kernel ever blocks on shared memory
 	fn block (&self, addr: usize)
 	{
-		thread_c ().block (ThreadState::FutexBlock(addr));
+		let state = ThreadState::FutexBlock(FutexId::new (proc_c ().pid (), addr));
+		thread_c ().block (state);
 	}
 	
 	fn unblock (&self, addr: usize)
 	{
-		proc_c ().futex_move (addr, ThreadState::Ready, 1);
+		let state = ThreadState::FutexBlock(FutexId::new (proc_c ().pid (), addr));
+		tlist.state_move (state, ThreadState::Ready, 1);
 	}
 
 	fn alloc (&self, size: usize) -> Option<Allocation>

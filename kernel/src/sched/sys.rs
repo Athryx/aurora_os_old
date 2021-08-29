@@ -78,9 +78,11 @@ pub extern "C" fn thread_block (vals: &mut SyscallVals)
 		0 => thread_c ().block (ThreadState::Running),
 		1 => thread_c ().block (ThreadState::Destroy),
 		2 => thread_c ().block (ThreadState::Sleep(arg as u64)),
-		3 => thread_c ().block (ThreadState::Join (arg)),
-		_ => (),
+		3 => thread_c ().block (ThreadState::Join (Tuid::new (proc_c ().pid (), arg))),
+		_ => sysret! (vals, SysErr::InvlArgs.num ()),
 	}
+
+	sysret! (vals, SysErr::Ok.num ());
 }
 
 pub extern "C" fn futex_block (vals: &mut SyscallVals)
@@ -100,7 +102,7 @@ pub extern "C" fn futex_block (vals: &mut SyscallVals)
 	match proc_c ().addr_space.get_smem_addr (vaddr)
 	{
 		Some(smaddr) => thread_c ().block (ThreadState::ShareFutexBlock(smaddr)),
-		None => thread_c ().block (ThreadState::FutexBlock(addr)),
+		None => thread_c ().block (ThreadState::FutexBlock(FutexId::new (process.pid (), addr))),
 	};
 	sysret! (vals, SysErr::Ok.num ());
 }
@@ -122,8 +124,8 @@ pub extern "C" fn futex_unblock (vals: &mut SyscallVals)
 
 	let move_count = match proc_c ().addr_space.get_smem_addr (vaddr)
 	{
-		Some(smaddr) => tlist.share_futex_move (smaddr, ThreadState::Ready, n),
-		None => process.futex_move (addr, ThreadState::Ready, n),
+		Some(smaddr) => tlist.state_move (ThreadState::ShareFutexBlock(smaddr), ThreadState::Ready, n),
+		None => tlist.state_move (ThreadState::FutexBlock(FutexId::new (process.pid (), addr)), ThreadState::Ready, n),
 	};
 
 	sysret! (vals, SysErr::Ok.num (), move_count);
@@ -154,13 +156,13 @@ pub extern "C" fn futex_move (vals: &mut SyscallVals)
 	let new_state = match process.addr_space.get_smem_addr (vaddr_new)
 	{
 		Some(smaddr) => ThreadState::ShareFutexBlock(smaddr),
-		None => ThreadState::FutexBlock(addr_new),
+		None => ThreadState::FutexBlock(FutexId::new (process.pid (), addr_new)),
 	};
 
 	let move_count = match process.addr_space.get_smem_addr (vaddr_old)
 	{
-		Some(smaddr) => tlist.share_futex_move (smaddr, new_state, n),
-		None => process.futex_move (addr_old, new_state, n),
+		Some(smaddr) => tlist.state_move (ThreadState::ShareFutexBlock(smaddr), new_state, n),
+		None => tlist.state_move (ThreadState::FutexBlock(FutexId::new (process.pid (), addr_old)), new_state, n),
 	};
 
 	sysret! (vals, SysErr::Ok.num (), move_count);

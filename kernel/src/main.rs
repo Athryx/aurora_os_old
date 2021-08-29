@@ -223,7 +223,7 @@ impl Display for TreeTest
 libutil::impl_tree_node! (usize, TreeTest, parent, left, right, key, bf);
 
 // just for test
-static mut join_tid: usize = 0;
+static mut join_tid: Tuid = Tuid::new (0, 0);
 
 fn test ()
 {
@@ -301,7 +301,8 @@ fn test ()
 
 	unsafe
 	{
-		join_tid = proc_c ().new_thread (test_thread_1 as usize, Some("alloc_test_thread".to_string ())).unwrap ();
+		let tid = proc_c ().new_thread (test_thread_1 as usize, Some("alloc_test_thread".to_string ())).unwrap ();
+		join_tid = Tuid::new (proc_c ().pid (), tid);
 	}
 	proc_c ().new_thread (test_thread_2 as usize, Some("join_test_thread".to_string ())).unwrap ();
 	for _ in 0..10

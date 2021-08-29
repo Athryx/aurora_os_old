@@ -89,7 +89,7 @@ tid:
 thread id
 
 
-3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize)
+3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize) -> SysErr
 blocks the calling thread with reason {reason}
 
 reason:
@@ -100,6 +100,10 @@ if another thread is waiting on this thread for a message reply, than that threa
 2: sleep, will sleep until {nsec} nanoseconds after boot
 3: join, will block until thread with id {thread_id} terminates
 any other number will do nothing
+
+return value:
+syserr code:
+InvlArgs: invalid reason passed to thread_block
 
 
 5: fn exit (code: usize)
