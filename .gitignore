@@ -1,5 +1,5 @@
 kernel/kernel.iso
 *.bin
 *target/
-*/.cargo
+*.cargo/
 */.vim
