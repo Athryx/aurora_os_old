@@ -1,2 +1,4 @@
 kernel:
-stop the thread list and proc local thread list from leaking memory
+stop the thread list from leaking memory
+
+fix build system

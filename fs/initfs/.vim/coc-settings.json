@@ -1,0 +1,5 @@
+{
+	"rust.sysroot": "/home/jack/projects/rust/rust_os/fs/initfs/sysroot",
+	"rust.target": "/home/jack/projects/rust/rust_os/x86_64-os-userland.json",
+	"rust.all_targets": false
+}

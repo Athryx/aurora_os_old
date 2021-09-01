@@ -10,4 +10,4 @@ global %1 %+ _len
 %endmacro
 
 section .resources
-incres initfs, "../initfs/initfs.bin"
+incres initfs, "../fs/initfs/initfs.bin"

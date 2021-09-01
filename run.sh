@@ -1,7 +1,7 @@
 #!/bin/sh
 
 ISO_FILE="kernel/kernel.iso"
-SUBDIRS="initfs kernel"
+SUBDIRS="fs kernel"
 
 cd $(dirname $0)
 

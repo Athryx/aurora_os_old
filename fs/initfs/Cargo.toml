@@ -12,7 +12,7 @@ spin = "0.5.2"
 concat-idents = "1.1.2"
 bitflags = "1.2.1"
 lazy_static = { version = "1.0", features = ["spin_no_std"] }
-std = { path = "../std/" }
+std = { path = "../../std/" }
 
 [profile.dev]
 panic = "abort"
@@ -21,4 +21,4 @@ panic = "abort"
 panic = "abort"
 
 [package.metadata.cargo-sysroot]
-target = "../x86_64-os-userland.json"
+target = "../../x86_64-os-userland.json"
