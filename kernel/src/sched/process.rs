@@ -393,7 +393,7 @@ impl Process
 		match entry
 		{
 			Some(entry) => {
-				if let None = entry.virt_mem
+				if entry.virt_mem.is_none ()
 				{
 					let vlayout = entry.smem ().virt_layout ();
 					unsafe
@@ -475,7 +475,7 @@ impl Process
 		let state = ThreadState::Join(out.tuid ());
 		let mut thread_list = tlist.lock ();
 
-		if let Some(_) = thread_list.get (state)
+		if thread_list.get (state).is_some ()
 		{
 			// FIXME: ugly
 			for tpointer in unsafe { unbound_mut (&mut thread_list[state]).iter () }

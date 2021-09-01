@@ -418,7 +418,7 @@ impl Connection
 		let other_cpid = self.other (process.pid ());
 		let other_process = proc_get (other_cpid.pid ()).ok_or (SysErr::MsgTerm)?;
 
-		if let None = other_process.connections ().lock ().get_int (other_cpid.conn_id ())
+		if other_process.connections ().lock ().get_int (other_cpid.conn_id ()).is_none ()
 		{
 			return Err(SysErr::InvlId);
 		}

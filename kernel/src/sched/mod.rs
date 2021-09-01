@@ -111,9 +111,7 @@ fn int_handler (regs: &Registers, _: u64) -> Option<&Registers>
 
 	drop (thread_list);
 
-	let out = schedule (regs, timer.nsec ());
-
-	out
+	schedule (regs, timer.nsec ())
 }
 
 fn int_sched ()
@@ -422,7 +420,7 @@ impl ThreadListGuard
 		self.ensure (new_state);
 
 		let mut thread_list = self.lock ();
-		if let None = thread_list.get (old_state)
+		if thread_list.get (old_state).is_none ()
 		{
 			return 0;
 		}
@@ -745,7 +743,7 @@ pub fn proc_c () -> Arc<Process>
 
 pub fn proc_get (pid: usize) -> Option<Arc<Process>>
 {
-	proc_list.lock ().get (&pid).map (|proc| proc.clone ())
+	proc_list.lock ().get (&pid).cloned ()
 }
 
 pub fn init () -> Result<(), Err>

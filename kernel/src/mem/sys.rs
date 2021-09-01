@@ -191,7 +191,7 @@ pub extern "C" fn salloc (vals: &mut SyscallVals)
 pub extern "C" fn sdealloc (vals: &mut SyscallVals)
 {
 	let smid = vals.a1;
-	if let None = proc_c ().remove_smem (smid)
+	if proc_c ().remove_smem (smid).is_none ()
 	{
 		sysret! (vals, SysErr::InvlId.num ());
 	}
