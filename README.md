@@ -1,11 +1,14 @@
-To build:
+#### Build
 
-rustup override set nightly
-./run.sh sysroot
-./run.sh
+set toolchain and build sysroot
 
-or
+	rustup override set nightly
+	./run.sh sysroot
 
-./run.sh release
+compile and run
 
-for release build
+	./run.sh
+
+or compile and run in release mode
+
+	./run.sh release
