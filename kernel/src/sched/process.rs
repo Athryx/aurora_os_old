@@ -1,5 +1,6 @@
 use crate::uses::*;
 use spin::Mutex;
+use bitflags::bitflags;
 use core::cell::Cell;
 use core::ops::{Index, IndexMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -7,19 +8,101 @@ use core::ptr::NonNull;
 use alloc::alloc::{Global, Allocator, Layout};
 use alloc::collections::BTreeMap;
 use alloc::sync::{Arc, Weak};
-use crate::mem::VirtRange;
+use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, PageMappingFlags, FAllocerType, AllocType};
 use crate::mem::shared_mem::{SMemMap, SharedMem};
 use crate::upriv::PrivLevel;
 use crate::util::{LinkedList, AvlTree, IMutex, MemOwner, Futex, UniqueRef, UniqueMut};
-use super::{ThreadList, TLTreeNode, Namespace, tlist, proc_list, Registers, thread_c, int_sched, thread::{Stack, ConnSaveState}};
+use crate::syscall::udata::{UserData, UserArray, UserPageArray};
+use super::{ThreadList, TLTreeNode, Namespace, tlist, proc_list, Registers, proc_c, thread_c, int_sched, thread::{Stack, ConnSaveState}};
 use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
 use super::domain::{DomainMap, BlockMode};
 use super::connection::{MsgArgs, Connection, ConnectionMap};
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct SpawnMemPtr
+{
+	mem: UserPageArray,
+	flags: usize,
+}
+
+impl SpawnMemPtr
+{
+	pub fn from_parts (virt_range: VirtRange, flags: SpawnMapFlags) -> Self
+	{
+		SpawnMemPtr {
+			mem: UserPageArray::from_parts (virt_range.as_usize (), virt_range.size () / PAGE_SIZE),
+			flags: flags.rwx_bits (),
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub struct SpawnMemMap
+{
+	mem: UserPageArray,
+	at_addr: usize,
+	flags: usize,
+}
+
+unsafe impl UserData for SpawnMemMap {}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct SpawnStartState
+{
+	entry: usize,
+	mem_arr: UserArray<SpawnMemMap>,
+	smem_arr: UserArray<usize>,
+}
+
+unsafe impl UserData for SpawnStartState {}
+
+bitflags!
+{
+	pub struct SpawnMapFlags: usize
+	{
+		const NONE = 0;
+		const READ = 1;
+		const WRITE = 1 << 1;
+		const EXEC = 1 << 2;
+		const NO_COPY = 1 << 3;
+		const COPY_ON_WRITE = 1 << 4;
+		const SPAWN_PTR = 1 << 5;
+	}
+}
+
+impl SpawnMapFlags
+{
+	pub fn as_map_flags (&self) -> PageMappingFlags
+	{
+		let mut out = PageMappingFlags::USER | PageMappingFlags::EXACT_SIZE;
+		if self.contains (Self::READ)
+		{
+			out |= PageMappingFlags::READ;
+		}
+		if self.contains (Self::WRITE)
+		{
+			out |= PageMappingFlags::WRITE;
+		}
+		if self.contains (Self::EXEC)
+		{
+			out |= PageMappingFlags::EXEC;
+		}
+		out
+	}
+
+	pub fn rwx_bits (&self) -> usize
+	{
+		get_bits (self.bits (), 0..3)
+	}
+}
 
 #[derive(Debug)]
 pub struct Process
@@ -133,6 +216,104 @@ impl Process
 			plist.remove (&pid);
 			err
 		})?;
+
+		Ok(process)
+	}
+
+	pub fn spawn (uid: PrivLevel, name: String, state: SpawnStartState) -> Result<Arc<Self>, SysErr>
+	{
+		let process = Process::new (uid, name);
+		let proc_curr = proc_c ();
+
+		let mem_arr = state.mem_arr.try_fetch ().ok_or (SysErr::InvlPtr)?;
+		let mut mem_ptr_arr = Vec::new ();
+
+		for elem in mem_arr
+		{
+			let flags = SpawnMapFlags::from_bits_truncate (elem.flags);
+			let map_flags = flags.as_map_flags ();
+
+			let map_size = elem.mem.byte_len ();
+
+			let velem = if flags.contains (SpawnMapFlags::NO_COPY)
+			{
+				VirtLayoutElement::new (map_size, map_flags).ok_or (SysErr::OutOfMem)?
+			}
+			else
+			{
+				let vrange_from = elem.mem.as_virt_zone ()?;
+				let mem = proc_curr.addr_space.copy_to_allocation (vrange_from).ok_or (SysErr::OutOfMem)?;
+				VirtLayoutElement::from_mem (mem, map_size, map_flags)
+			};
+
+			let vlayout = VirtLayout::from (vec![velem], AllocType::Protected);
+
+			let mapped_range = if elem.at_addr == 0
+			{
+				unsafe
+				{
+					process.addr_space.map (vlayout)?
+				}
+			}
+			else
+			{
+				let virt_range = VirtRange::try_new_user (elem.at_addr, map_size)?;
+				unsafe
+				{
+					process.addr_space.map_at (vlayout, virt_range)?
+				}
+			};
+
+			if flags.contains (SpawnMapFlags::SPAWN_PTR)
+			{
+				mem_ptr_arr.push (SpawnMemPtr::from_parts (mapped_range, flags));
+			}
+		}
+
+		let mut smem_arr = state.smem_arr.try_fetch ().ok_or (SysErr::InvlPtr)?;
+
+		for smid in smem_arr.iter_mut ()
+		{
+			let smem = proc_curr.get_smem (*smid).ok_or (SysErr::InvlId)?;
+			let new_smid = process.insert_smem (smem);
+			*smid = new_smid;
+		}
+
+		// offset of smid array after mem_ptr_arr from the start of the memory block they are allocated in
+		let mem_ptr_size = mem_ptr_arr.len () * size_of::<SpawnMemPtr> ();
+		let smid_size = smem_arr.len () * size_of::<usize> ();
+		let total_size = mem_ptr_size + smid_size;
+
+		let smid_offset = align_up (mem_ptr_size, core::mem::align_of::<usize> ());
+
+		let mut mem = zm.alloc (total_size)?;
+
+		let mem_ptr_slice = unsafe { core::slice::from_raw_parts_mut (mem.as_mut_ptr (), mem_ptr_arr.len ()) };
+		mem_ptr_slice.copy_from_slice (&mem_ptr_arr[..]);
+
+		let smid_slice = unsafe { core::slice::from_raw_parts_mut ((mem.as_usize () + smid_offset) as *mut _, smem_arr.len ()) };
+		smid_slice.copy_from_slice (&smem_arr[..]);
+
+		let velem = VirtLayoutElement::from_mem (mem, total_size, PageMappingFlags::READ | PageMappingFlags::USER);
+		let vlayout = VirtLayout::from (vec![velem], AllocType::Protected);
+		let mapped_range = unsafe { process.addr_space.map (vlayout)? };
+		let addr = mapped_range.as_usize ();
+
+		let mut regs = Registers::from_rip (state.entry);
+		regs.rax = addr;
+		regs.rbx = mem_ptr_arr.len ();
+		regs.rcx = addr + smid_offset;
+		regs.rdx = smem_arr.len ();
+
+
+		let mut plist = proc_list.lock ();
+		let pid = process.pid ();
+		plist.insert (pid, process.clone ());
+
+		process.new_thread_regs (regs, None).map_err (|err| {
+			plist.remove (&pid);
+			err
+		}).or (Err(SysErr::OutOfMem))?;
 
 		Ok(process)
 	}
@@ -320,6 +501,7 @@ impl Process
 
 	// returns tid in ok
 	// locks thread list
+	// will override flags, cs, ss, and rsp on regs
 	pub fn new_thread_regs (&self, regs: Registers, name: Option<String>) -> Result<usize, Err>
 	{
 		let tid = self.next_tid ();

@@ -20,9 +20,15 @@ const REALLOC_EXACT: usize = 1 << 4;
 pub extern "C" fn realloc (vals: &mut SyscallVals)
 {
 	let options = vals.options;
-	let addr = align_down (vals.a1, PAGE_SIZE);
+	let addr = vals.a1;
 	let size = vals.a2 * PAGE_SIZE;
-	let at_addr = align_down (vals.a3, PAGE_SIZE);
+	let at_addr = vals.a3;
+
+	if align_of (addr) < PAGE_SIZE || align_of (at_addr) < PAGE_SIZE
+	{
+		sysret! (vals, SysErr::InvlPtr.num (), 0, 0);
+	}
+
 	let at_vaddr = match VirtAddr::try_new (at_addr as u64)
 	{
 		Ok(addr) => addr,

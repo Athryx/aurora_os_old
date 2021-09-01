@@ -1,10 +1,11 @@
-use core::ops::Bound::{Excluded, Unbounded};
 use bitflags::bitflags;
 use alloc::collections::BTreeMap;
 use crate::uses::*;
 use crate::arch::x64::{invlpg, get_cr3, set_cr3};
 use crate::consts;
 use crate::util::{Futex, FutexGuard};
+use crate::syscall::udata::UserPageArray;
+use crate::sched::SpawnMapFlags;
 use super::phys_alloc::{Allocation, ZoneManager, zm};
 use super::shared_mem::{SMemFlags, SMemAddr};
 use super::error::MemErr;
@@ -367,7 +368,7 @@ impl VirtLayoutElement
 		if flags.exists ()
 		{
 			let mem = zm.alloc (size)?;
-			
+
 			phys_data = VirtLayoutElementType::AllocedMem(mem);
 
 			map_size = if flags.contains (PageMappingFlags::EXACT_SIZE)
@@ -693,6 +694,17 @@ impl VirtLayout
 	}
 }
 
+impl Drop for VirtLayout
+{
+	fn drop (&mut self)
+	{
+		unsafe
+		{
+			self.dealloc ();
+		}
+	}
+}
+
 #[derive(Debug, Clone, Copy)]
 enum PageMappingAction
 {
@@ -968,6 +980,22 @@ impl<T: FrameAllocator> VirtMapper<T>
 			let offset = addr - range.as_usize ();
 			Some(SMemAddr::new (smid, offset.as_u64 () as usize))
 		})
+	}
+
+	pub fn copy_to_allocation (&self, virt_zone: VirtRange) -> Option<Allocation>
+	{
+		if !virt_zone.is_aligned ()
+		{
+			None
+		}
+		else
+		{
+			self.range_map (virt_zone, |mem| {
+				let mut alloc = zm.alloc (mem.len ())?;
+				alloc.copy_from_mem (mem);
+				Some(alloc)
+			})
+		}
 	}
 
 	pub fn range_map<F, U> (&self, virt_zone: VirtRange, f: F) -> Option<U>
@@ -1397,14 +1425,6 @@ impl<T: FrameAllocator> Drop for VirtMapper<T>
 	// Note: it is unsafe to drop a VirtMapper if the VirtMapper is currently loaded
 	fn drop (&mut self)
 	{
-		for virt_layout in self.virt_map.lock ().values ()
-		{
-			unsafe
-			{
-				virt_layout.dealloc ();
-			}
-		}
-
 		unsafe
 		{
 			self.cr3.lock ().as_mut ().unwrap ().dealloc_all (self.frame_allocer);

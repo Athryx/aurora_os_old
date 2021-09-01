@@ -274,7 +274,6 @@ extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) 
 		d ();
 		let mut tss = gdt::tss.lock ();
 		tss.rsp0 = regs.call_rsp as _;
-		rprintln! ("tss.rsp0: {:x}", #[allow(unused_unsafe)] unsafe { tss.rsp0 });
 		let mut data = kdata::gs_data.lock ();
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;

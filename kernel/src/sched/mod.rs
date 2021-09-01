@@ -16,7 +16,7 @@ use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::mem::shared_mem::SMemAddr;
 use crate::gdt::tss;
-pub use process::Process;
+pub use process::{SpawnStartState, SpawnMapFlags, Process};
 pub use thread::{Thread, ThreadState, Stack, Tuid};
 pub use domain::*;
 pub use connection::*;
@@ -62,7 +62,6 @@ pub static mut out_regs: Registers = Registers::zero ();
 fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 {
 	lock ();
-	rprintln! ("int");
 
 	let mut out = None;
 
@@ -156,7 +155,6 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	let old_thread = thread_list[ThreadState::Running].pop ().expect ("no currently running thread");
 
 	let nsec_last = last_switch_nsec.swap (nsec_current, Ordering::SeqCst);
-	rprintln! ("nsec last: {}\nnsec current: {}", nsec_last, nsec_current);
 	if nsec_current >= nsec_last
 	{
 		old_thread.inc_time (nsec_current - nsec_last);
@@ -181,7 +179,7 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	tpointer.set_state (ThreadState::Running);
 	let tpointer = Thread::insert_into (tpointer, &mut thread_list);
 
-	rprintln! ("switching to:\n{:#x?}", *tpointer);
+	//rprintln! ("switching to:\n{:#x?}", *tpointer);
 
 	// FIXME: smp race condition
 	let new_process = tpointer.process ().unwrap ();
@@ -232,7 +230,6 @@ fn thread_cleaner ()
 				tcell.dealloc ();
 			}
 		}
-		rprintln! ("end thread_cleaner loop");
 		thread_c ().sleep (Duration::new (1, 0));
 	}
 }
@@ -676,22 +673,6 @@ impl Registers
 		out
 	}
 
-	pub const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
-	{
-		self.rax = SysErr::MsgResp.num () | (msg_args.smem_mask as usize) << 8;
-		self.rbx = msg_args.sender_pid;
-		self.rdx = msg_args.domain;
-		self.rsi = msg_args.a1;
-		self.rdi = msg_args.a2;
-		self.r8 = msg_args.a3;
-		self.r9 = msg_args.a4;
-		self.r12 = msg_args.a5;
-		self.r13 = msg_args.a6;
-		self.r14 = msg_args.a7;
-		self.r15 = msg_args.a8;
-		self
-	}
-
 	pub fn apply_stack (&mut self, stack: &Stack) -> &mut Self
 	{
 		self.rsp = stack.top () - 8;
@@ -725,6 +706,22 @@ impl Registers
 				self.ss = 0x1b;
 			},
 		}
+		self
+	}
+
+	pub const fn apply_msg_args (&mut self, msg_args: &MsgArgs) -> &mut Self
+	{
+		self.rax = SysErr::MsgResp.num () | (msg_args.smem_mask as usize) << 8;
+		self.rbx = msg_args.sender_pid;
+		self.rdx = msg_args.domain;
+		self.rsi = msg_args.a1;
+		self.rdi = msg_args.a2;
+		self.r8 = msg_args.a3;
+		self.r9 = msg_args.a4;
+		self.r12 = msg_args.a5;
+		self.r13 = msg_args.a6;
+		self.r14 = msg_args.a7;
+		self.r15 = msg_args.a8;
 		self
 	}
 }

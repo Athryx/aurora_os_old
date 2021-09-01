@@ -2,17 +2,8 @@ use crate::uses::*;
 use sys_consts::options::{ConnectOptions, RegOptions};
 use crate::syscall::{SyscallVals, udata::{UserData, UserArray, UserString, fetch_data}};
 use crate::sysret;
+use crate::mem::PAGE_SIZE;
 use super::*;
-
-#[derive(Debug, Clone, Copy)]
-struct ProcStartData
-{
-	name: UserString,
-	uid: usize,
-	args: UserArray<UserString>,
-}
-
-unsafe impl UserData for ProcStartData {}
 
 // FIXME: make sure uid is valid once uid system is added to kernel
 // FIXME: use args
@@ -23,31 +14,26 @@ pub extern "C" fn spawn (vals: &mut SyscallVals)
 		sysret! (vals, SysErr::InvlPriv.num (), 0);
 	}
 
-	let elf_arr = UserArray::from_parts (vals.a1 as *const u8, vals.a2);
+	let name = UserString::from_parts (vals.a1 as *const u8, vals.a2);
+	let uid = vals.a3;
 
-	let psdata_ptr = vals.a3 as *const ProcStartData;
-	let psdata = match fetch_data (psdata_ptr)
+	let spawn_state = vals.a7 as *const SpawnStartState;
+	let spawn_state = match fetch_data (spawn_state)
 	{
 		Some(data) => data,
 		None => sysret! (vals, SysErr::InvlPtr.num (), 0),
 	};
 
-	let name = match psdata.name.try_fetch ()
+	let name = match name.try_fetch ()
 	{
 		Some(name) => name,
 		None => sysret! (vals, SysErr::InvlPtr.num (), 0),
 	};
 
-	let elf_data = match elf_arr.try_fetch ()
-	{
-		Some(data) => data,
-		None => sysret! (vals, SysErr::InvlPtr.num (), 0),
-	};
-
-	let process = match Process::from_elf (&elf_data, PrivLevel::new (psdata.uid), name)
+	let process = match Process::spawn (PrivLevel::new (uid), name, spawn_state)
 	{
 		Ok(process) => process,
-		Err(_) => sysret! (vals, SysErr::Unknown.num (), 0),
+		Err(err) => sysret! (vals, err.num (), 0),
 	};
 
 	sysret! (vals, SysErr::Ok.num (), process.pid ());

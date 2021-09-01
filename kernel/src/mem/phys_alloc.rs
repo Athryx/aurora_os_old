@@ -541,7 +541,7 @@ impl ZoneManager
 		if let None = new_mem
 		{
 			let mut out = self.alloc (size)?;
-			out.copy_from_mem (&mem);
+			out.copy_from_mem (mem.as_slice ());
 			Some(out)
 		}
 		else
@@ -560,7 +560,7 @@ impl ZoneManager
 		if let None = new_mem
 		{
 			let mut out = self.oalloc (order)?;
-			out.copy_from_mem (&mem);
+			out.copy_from_mem (mem.as_slice ());
 			Some(out)
 		}
 		else

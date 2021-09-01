@@ -2,6 +2,7 @@ use core::cmp::min;
 use core::marker::PhantomData;
 use core::slice;
 use crate::uses::*;
+use crate::syscall::udata;
 use phys_alloc::Allocation;
 
 // unless otherwise stated, all lens in this module are in bytes, not pages
@@ -137,6 +138,37 @@ impl PhysRange
 		}
 	}
 
+	// returns error if invalid virt addr or unaligned addr and size
+	pub fn try_new_usize (addr: usize, size: usize) -> Result<Self, SysErr>
+	{
+		let paddr = PhysAddr::try_new (addr as u64).or (Err(SysErr::InvlVirtAddr))?;
+		if align_of (addr) < PAGE_SIZE || align_of (size) < PAGE_SIZE
+		{
+			Err(SysErr::InvlPtr)
+		}
+		else
+		{
+			Ok(PhysRange {
+				addr: paddr,
+				size,
+			})
+		}
+	}
+
+	// returns error if invalid virt addr or unaligned addr and size, or not in user mem zone
+	pub fn try_new_user (addr: usize, size: usize) -> Result<Self, SysErr>
+	{
+		let out = Self::try_new_usize (addr, size)?;
+		if !out.verify_umem ()
+		{
+			Err(SysErr::InvlPtr)
+		}
+		else
+		{
+			Ok(out)
+		}
+	}
+
 	// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
 	pub fn new_aligned (addr: PhysAddr, size: usize) -> Self
 	{
@@ -166,6 +198,11 @@ impl PhysRange
 	pub fn aligned (&self) -> PhysRange
 	{
 		Self::new_aligned (self.addr, self.size)
+	}
+
+	pub fn is_aligned (&self) -> bool
+	{
+		align_of (self.as_usize ()) >= PAGE_SIZE && align_of (self.end_usize ()) >= PAGE_SIZE
 	}
 
 	pub fn addr (&self) -> PhysAddr
@@ -207,6 +244,11 @@ impl PhysRange
 	pub fn full_contains_range (&self, range: Self) -> bool
 	{
 		self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
+	}
+
+	pub fn verify_umem (&self) -> bool
+	{
+		udata::verify_umem (self.as_usize (), self.size)
 	}
 
 	pub fn merge (&self, other: Self) -> Option<Self>
@@ -400,6 +442,37 @@ impl VirtRange
 		}
 	}
 
+	// returns error if invalid virt addr or unaligned addr and size
+	pub fn try_new_usize (addr: usize, size: usize) -> Result<Self, SysErr>
+	{
+		let vaddr = VirtAddr::try_new (addr as u64).or (Err(SysErr::InvlVirtAddr))?;
+		if align_of (addr) < PAGE_SIZE || align_of (size) < PAGE_SIZE
+		{
+			Err(SysErr::InvlPtr)
+		}
+		else
+		{
+			Ok(VirtRange {
+				addr: vaddr,
+				size,
+			})
+		}
+	}
+
+	// returns error if invalid virt addr or unaligned addr and size, or not in user mem zone
+	pub fn try_new_user (addr: usize, size: usize) -> Result<Self, SysErr>
+	{
+		let out = Self::try_new_usize (addr, size)?;
+		if !out.verify_umem ()
+		{
+			Err(SysErr::InvlPtr)
+		}
+		else
+		{
+			Ok(out)
+		}
+	}
+
 	// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
 	pub fn new_aligned (addr: VirtAddr, size: usize) -> Self
 	{
@@ -429,6 +502,11 @@ impl VirtRange
 	pub fn aligned (&self) -> VirtRange
 	{
 		Self::new_aligned (self.addr, self.size)
+	}
+
+	pub fn is_aligned (&self) -> bool
+	{
+		align_of (self.as_usize ()) >= PAGE_SIZE && align_of (self.end_usize ()) >= PAGE_SIZE
 	}
 
 	pub fn addr (&self) -> VirtAddr
@@ -470,6 +548,11 @@ impl VirtRange
 	pub fn full_contains_range (&self, range: Self) -> bool
 	{
 		self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
+	}
+
+	pub fn verify_umem (&self) -> bool
+	{
+		udata::verify_umem (self.as_usize (), self.size)
 	}
 
 	pub fn merge (&self, other: Self) -> Option<Self>

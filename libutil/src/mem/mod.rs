@@ -129,7 +129,7 @@ impl Allocation
 	}
 
 	// returns number of bytes copied
-	pub fn copy_from_mem (&mut self, other: &Self) -> usize
+	pub fn copy_from_mem (&mut self, other: &[u8]) -> usize
 	{
 		let size = min (self.len (), other.len ());
 		unsafe

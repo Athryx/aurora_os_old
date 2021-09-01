@@ -60,20 +60,110 @@ r15: arg 8
 more details about this abi under msg syscall
 
 
+common struct definitions:
+struct UserArray<T> {
+	data: *const T,
+	len: usize,
+}
+len is number of elements, not bytes
+data must be properly aligned for the type it is pointing to
+
+struct UserString {
+	data: UserArray<u8>,
+}
+must point to a valid utf-8 string
+
+struct UserPageArray {
+	addr: usize,
+	len: usize,
+}
+addr must be page aligned
+len is number of pages
+
+
 0: fn info ()
 
 
-// TODO: specify ProcStartData
-1: fn spawn (addr: usize, len: usize, psdata: *const ProcStartData) -> (err: SysErr, pid: usize)
+1: fn spawn (name: usize, name_len: usize, uid: usize, pstate: *const SpawnStartState) -> (err: SysErr, pid: usize)
 spawns a new process
+must be a superuser process to call this syscall
+{name} must point to a valid utf-8 string, and {name_len} is the length of this string in bytes
+{uid} specifies the uid of the spawned process
+{pstate} must be properly aligned and point to a valid SpawnStartState structure
+
 {addr} points to the start of the memory containing the elf executable to be loaded, {len} is the length of the elf executable in bytes
-{psdata} contains additional data for the process, and the information in it will be mapped into the new process' memory
-the exact data in the ProcStartData structure is TBD, but it will likely have things like command line arguments, stdio smid, uid, etc.
-spawn can only be called by a superuser process
+
+{mem_addr} and {mem_pages} specify the location and length, respectively, of memory that will have its data copied and mapped into the spawn process
+this data can be command line arguments, or other information
+the address of this memory will be placed in rax, and the length in pages placed in rbx on process start
+{mem_addr} must be page aligned and {mem_pages} specifies the length in pages
+
+{smem_array} is a pointer that points to an array of shared memory ids with len {smem_array_len}
+the newly spaned process can call smap on these ids to map them into its memory
+the address of the shared memory id array will be placed in rcx, and the number of shared memory ids will be placed in rdx
+{smem_array} must be word aligned (8 bytes on 64 bit system, etc)
+
+{pstate} contains additional information used by spawn syscall, and is defined as follows:
+struct SpawnStartState {
+	entry: usize,
+	mem_arr: UserArray<SpawnMemMap>,
+	smem_arr: UserArray<usize>,
+}
+
+{rcx} through {r15} specify what values will be stored in the registers on process start
+{entry} specifies which address the process should start executing code from
+
+{mem_arr} is an array of SpawnMemMap structs which specify memory to be mapped into the new process
+SpawnMemMap is defined as follows:
+struct SpawnMemMap {
+	mem: UserPageArray,
+	at_addr: usize,
+	flags: usize,
+}
+{mem} specifies the memory pages from the calling process that should be mapped into the new process
+
+if {at_addr} is non zero, spawn will try to map the memory at the specified address
+{at_addr} must b page aligned
+
+{flags} is a bitmask of flags and is define as follows:
+bit 0 (read): allows reading of memory
+bit 1 (write): allows writing to memory
+bit 2 (exec): allows executing code from memory
+bit 3 (no_copy):
+specifies that spawn should map the memory, but not copy any data over from the calling process
+if this bit is set, {mem} does not need to point to allocated memory, the length will be used to allocate new memory
+// TODO
+bit 4 (copy_on_write):
+specifies that the memory should be copy on write, and will not be coppied until written to
+cannot be set if no_copy is also set
+bit 5 (spawn_ptr):
+push pointer to memory to the SpawnMemPtr array in the new process
+when the new process starts, a pointer to the SpawnMemPtr array will be in rax, and the length in rbx
+the order of elements in this array will be the same as the order of the elements in the input {mem_arr}
+the SpawnMemPtr data structure is defined as follows:
+struct SpawnMemPtr {
+	mem: UserPageArray,
+	flags: usize,
+}
+
+{mem} points to the mapped memory
+{flags} is a bitmask of flags, with the following options:
+bit 0 (read): allows reading of memory
+bit 1 (write): allows writing to memory
+bit 2 (exec): allows executing code from memory
+
+{smem_arr} is an array of smids that will be shared to the new process
+a pointer to this array will be put in rcx, and the number of smids will be put in rdx
 
 return value:
-err:
-syserr code
+syserr code:
+InvlPriv: calling process was not superuser
+InvlPtr: a pointer was not correctly alligned or did not point to valid memory,
+or the lengths were to long and they passed over invalid memory
+InvlVirtAddr: non cannonical pointer
+OutOfMem: not enough memory to load new process
+InvlId: smid in {smem_arr} is invalid
+
 pid:
 pid of new process
 

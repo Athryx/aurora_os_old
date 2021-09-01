@@ -148,12 +148,6 @@ fn init (boot_info: &BootInfo) -> Result<(), util::Err>
 	Ok(())
 }
 
-struct Test
-{
-	a: usize,
-	b: u8,
-}
-
 #[no_mangle]
 pub extern "C" fn _start (boot_info_addr: usize) -> !
 {
@@ -170,11 +164,17 @@ pub extern "C" fn _start (boot_info_addr: usize) -> !
 
 	Process::from_elf (*consts::INITFS, PrivLevel::new (IOPRIV_UID), "initfs".to_string ()).unwrap ();
 
-	test ();
+	//test ();
 
 	loop {
 		hlt ();
 	}
+}
+
+struct Test
+{
+	a: usize,
+	b: u8,
 }
 
 use core::cell::Cell;
