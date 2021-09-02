@@ -1,55 +1,56 @@
 #!/bin/sh
 
+#boot directory with kernel.bin and grub.cfg is passed in argument 1
+
 cd $(dirname $0)
 
 IMG="disk.img"
+PART_NUM="p1"
 DEV0="/dev/loop0"
-DEV1="/dev/loop1"
-F0=""
-F1=""
+LOOP=""
+MNT=""
 
 echo "generating disk image..."
 
-modprobe loop || exit 1
+sudo modprobe loop || exit 1
+
+rm -f $IMG
 
 dd if=/dev/zero of=$IMG bs=512 count=131072 || exit 1
 
-losetup $DEV0 $IMG || exit 1
-F0="1"
+sudo losetup $DEV0 $IMG || exit 1
+LOOP="1"
 
 cleanup () {
-	if [ -d mnt ]
+	if [ -n $MNT ]
 	then
-		umount mnt
-		rmdir mnt
+		sudo umount /mnt || ( sleep 1 && sync && sudo umount /mnt )
 	fi
 
-	if [ -n $F0 ]
+	if [ -n $LOOP ]
 	then
-		losetup -d $DEV0
-	fi
-
-	if [ -n $F1 ]
-	then
-		losetup -d $DEV1
+		sudo losetup -d $DEV0
 	fi
 }
 trap cleanup EXIT
 
-parted -s $DEV1 mklabel msdos mkpart primary ext2 1M 100% -a minimal set 1 boot on || exit 1
+sudo parted -s $DEV0 mklabel msdos mkpart primary ext2 1M 100% -a minimal set 1 boot on || exit 1
 
-losetup $DEV0 $IMG -o 1048576 || exit 1
-F1="1"
+sudo mke2fs $DEV0$PART_NUM || exit 1
 
-mke2fs $DEV1 || exit 1
+#mkdir -p mnt
+#sudo mount $DEV0$PART_NUM mnt/ || exit 1
 
-mkdir -p mnt
-mount $DEV1 mnt/ || exit 1
+#sudo rm -rf mnt/boot/
+#sudo cp -r $1 mnt/boot
 
-rm -rf mnt/*
-cp -r -t mnt $1
+sudo mount $DEV0$PART_NUM /mnt || exit 1
+MNT="1"
 
-grub-install --root-directory=mnt --no-floppy --target="i386-pc" --modules="normal part_msdos ext2 multiboot" $DEV0 || exit 1
+sudo rm -rf /mnt/boot/
+sudo cp -r $1 /mnt/boot
+
+sudo grub-install --root-directory=/mnt --no-floppy --target="i386-pc" --modules="normal part_msdos ext2 multiboot" $DEV0 || exit 1
 
 echo "done"
 exit 0
