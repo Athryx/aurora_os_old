@@ -17,7 +17,10 @@ do
 	fi
 done
 
-./gen-img.sh $KERNEL $IMG
+if [[ $1 != sysroot ]]
+then
+	./gen-img.sh $KERNEL $IMG
+fi
 
 if [[ $1 = debug ]]
 then
