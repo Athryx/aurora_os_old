@@ -74,7 +74,8 @@ bitflags!
 		const EXEC = 1 << 2;
 		const NO_COPY = 1 << 3;
 		const COPY_ON_WRITE = 1 << 4;
-		const SPAWN_PTR = 1 << 5;
+		const MOVE = 1 << 5;
+		const SPAWN_PTR = 1 << 6;
 	}
 }
 

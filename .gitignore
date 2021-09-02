@@ -3,4 +3,4 @@ disk.img
 *.bin
 *target/
 *.cargo/
-*/.vim
+*.vim/

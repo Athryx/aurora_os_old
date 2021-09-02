@@ -132,11 +132,16 @@ bit 2 (exec): allows executing code from memory
 bit 3 (no_copy):
 specifies that spawn should map the memory, but not copy any data over from the calling process
 if this bit is set, {mem} does not need to point to allocated memory, the length will be used to allocate new memory
+this cannot be used with copy_on_write or move
 // TODO
 bit 4 (copy_on_write):
 specifies that the memory should be copy on write, and will not be coppied until written to
-cannot be set if no_copy is also set
-bit 5 (spawn_ptr):
+this cannot be used with no_copy or move
+// TODO
+bit 5 (move):
+move the memory pointed to to the new process, and unmap it from the current process
+this cannot be used with no_copy or copy_on_write
+bit 6 (spawn_ptr):
 push pointer to memory to the SpawnMemPtr array in the new process
 when the new process starts, a pointer to the SpawnMemPtr array will be in rax, and the length in rbx
 the order of elements in this array will be the same as the order of the elements in the input {mem_arr}
@@ -200,39 +205,54 @@ InvlArgs: invalid reason passed to thread_block
 terminates process with exit code {code}
 
 
-6: fn futex_block (addr: usize) -> SysErr
-bloocks the thread until woken by another thread via futex_unblock
+// TODO: priority inheritance once I write a real scheduler
+6: fn futex_block (fid: usize, | smid: usize, | timeout_nsec: usize) -> SysErr
+bloocks the thread on futix id {fid} until woken by another thread via futex_unblock
+incraments block count on the futex
+this may not actually block the thread if there are a negative amount of threads waiting on this futex
+futexes do not have to be created, if no futex with {fid} exists, futex_block will create a new one
+
+options:
+bit 0 (futex_share):
+shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
+bit 1 (futex_timeout):
+if the thread has not been unblocked for at least {timeout_nsec} nanoseconds, the thread will be unblocked,
+the waiting thread count will be decremented, and futex_block will return OkTimeout
 
 return value:
 syserr code:
-InvlVirtAddr:
-non cannonical address
+InvlId: invalid smid
+OkTimeout: timout exceeded, and the thread was unblocked
 
 
-7: fn futex_unblock (addr: usize, n: usize) -> (err: SysErr, n: usize)
-unblocks {n} threads waiting on addr and returns how many threads were unblocked
-if addr is shared memory, this can also unblock threads in other processess that are waiting
-on the same value, with a different virtual address
+7: fn futex_unblock (fid: usize, | smid: usize, n: usize) -> (err: SysErr, n: usize)
+unblocks {n} threads waiting on futex {fid} and returns how many real threads were unblocked
+decrements the wait count by {n}
+if {n} exceeds the amount of threads waiting on the futex, the wait count will be negative
+
+options:
+bit 0 (futex_share):
+shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
 
 return value:
 syserr code:
-InvlVirtAddr:
-non cannonical address
+InvlId: invalid smid
 
 n: number of threads unblocked
 
 
-8: fn futex_move (addr_old: usize, addr_new: usize, n: usize) -> usize
-moves {n} threads waiting on {addr_old} to start waiting on {addr_new} and returns how many threads were moved
-it is not allowed to move a futex from an address within a shared memory zone to an address in a different shared
-memory zone or into a non shared memory zone
+8: fn futex_destroy (fid: usize, | smid: usize) -> (err: SysErr, n: usize)
+destroys the futex and changes any threads waiting on the futex back to the runnable state
+
+options:
+bit 0 (futex_share):
+shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
 
 return value:
 syserr code:
-InvlVirtAddr:
-non cannonical address
+InvlId: ivalid fid or smid
 
-n: number of threads moved
+n: number of real threads unblocked that were waiting on the futex when destroyed
 
 
 9: set_proc_properties

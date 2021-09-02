@@ -6,7 +6,6 @@ use crate::mem::PAGE_SIZE;
 use super::*;
 
 // FIXME: make sure uid is valid once uid system is added to kernel
-// FIXME: use args
 pub extern "C" fn spawn (vals: &mut SyscallVals)
 {
 	if proc_c ().uid () != PrivLevel::SuperUser
