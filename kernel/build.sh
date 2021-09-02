@@ -10,4 +10,4 @@ cargo build $RFLAG || exit 1
 IMG=target/x86_64-os/debug/kernel
 [[ $1 = release ]] && IMG=target/x86_64-os/release/kernel
 
-cp $IMG boot/kernel.bin
+cp $IMG kernel.bin

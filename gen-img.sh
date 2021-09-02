@@ -1,10 +1,11 @@
 #!/bin/sh
 
-#boot directory with kernel.bin and grub.cfg is passed in argument 1
+# kernel.bin in arg 1, output image name in arg 2
 
 cd $(dirname $0)
 
 IMG="$2"
+BOOT_DIR="boot"
 PART_NUM="p1"
 DEV0="/dev/loop0"
 LOOP=""
@@ -15,6 +16,8 @@ echo "generating disk image..."
 sudo modprobe loop || exit 1
 
 rm -f $IMG
+rm -f $BOOT_DIR/kernel.bin
+cp $1 $BOOT_DIR/kernel.bin
 
 dd if=/dev/zero of=$IMG bs=512 count=131072 || exit 1
 
@@ -48,7 +51,7 @@ sudo mount $DEV0$PART_NUM /mnt || exit 1
 MNT="1"
 
 sudo rm -rf /mnt/boot/
-sudo cp -r $1 /mnt/boot
+sudo cp -r $BOOT_DIR /mnt/boot
 
 sudo grub-install --root-directory=/mnt --no-floppy --target="i386-pc" --modules="normal part_msdos ext2 multiboot" $DEV0 || exit 1
 

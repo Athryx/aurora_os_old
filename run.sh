@@ -2,6 +2,7 @@
 
 IMG="disk.img"
 SUBDIRS="fs kernel"
+KERNEL="kernel/kernel.bin"
 
 cd $(dirname $0)
 
@@ -16,7 +17,7 @@ do
 	fi
 done
 
-./gen-img.sh kernel/boot/ disk.img
+./gen-img.sh $KERNEL $IMG
 
 if [[ $1 = debug ]]
 then
