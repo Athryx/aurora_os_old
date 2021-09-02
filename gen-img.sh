@@ -4,7 +4,7 @@
 
 cd $(dirname $0)
 
-IMG="disk.img"
+IMG="$2"
 PART_NUM="p1"
 DEV0="/dev/loop0"
 LOOP=""
