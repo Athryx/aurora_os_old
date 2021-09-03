@@ -8,8 +8,7 @@ use crate::{block, unblock};
 #[derive(Debug)]
 pub struct Futex<T>
 {
-	acquired: AtomicBool,
-	waiting: AtomicUsize,
+	count: AtomicUsize,
 	data: UnsafeCell<T>,
 }
 
@@ -18,32 +17,49 @@ impl<T> Futex<T>
 	pub const fn new(data: T) -> Self
 	{
 		Futex {
-			acquired: AtomicBool::new(false),
-			waiting: AtomicUsize::new(0),
+			count: AtomicUsize::new(0),
 			data: UnsafeCell::new(data),
 		}
 	}
 
-	pub fn lock(&self) -> FutexGuard<T>
+	/*pub fn lock(&self) -> FutexGuard<T>
 	{
 		loop {
 			match self.try_lock() {
 				Ok(guard) => return guard,
 				Err(_) => {
+					// FIXME: this futex has race condition which can cause thread calling lock to block even when futex is available
 					self.waiting.fetch_add(1, Ordering::Relaxed);
 					block(self as *const _ as usize);
 				},
 			}
 		}
+	}*/
+
+	pub fn lock(&self) -> FutexGuard<T>
+	{
+		if self.count.fetch_add(1, Ordering::Relaxed) > 0 {
+			block(self as *const _ as usize);
+		}
+		FutexGuard(self)
 	}
 
 	pub fn try_lock(&self) -> Result<FutexGuard<T>, ()>
 	{
-		let acq = self.acquired.swap(true, Ordering::Relaxed);
-		if acq {
-			Err(())
-		} else {
-			Ok(FutexGuard::new(self))
+		let closure = |n| {
+			if n == 0 {
+				Some(n + 1)
+			} else {
+				None
+			}
+		};
+
+		match self
+			.count
+			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, closure)
+		{
+			Ok(_) => Ok(FutexGuard(self)),
+			Err(_) => Err(()),
 		}
 	}
 
@@ -94,22 +110,7 @@ impl<T> Drop for FutexGuard<'_, T>
 {
 	fn drop(&mut self)
 	{
-		self.0.acquired.store(false, Ordering::Relaxed);
-
-		let closure = |n| {
-			if n == 0 {
-				None
-			} else {
-				Some(n - 1)
-			}
-		};
-
-		if self
-			.0
-			.waiting
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, closure)
-			.is_ok()
-		{
+		if self.0.count.fetch_sub(1, Ordering::Relaxed) > 1 {
 			unblock(self.0 as *const _ as usize);
 		}
 	}
