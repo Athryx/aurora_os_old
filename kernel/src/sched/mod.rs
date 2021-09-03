@@ -14,7 +14,6 @@ use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_MSR, EFER_EXEC_DISABLE};
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
-use crate::mem::shared_mem::SMemAddr;
 use crate::gdt::tss;
 pub use process::{SpawnStartState, SpawnMapFlags, Process};
 pub use thread::{Thread, ThreadState, Stack, Tuid};
@@ -279,7 +278,6 @@ unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 
 libutil::impl_tree_node! (Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
 libutil::impl_tree_node! (ConnPid, TLTreeNode<ConnPid>, parent, left, right, id, bf);
-libutil::impl_tree_node! (SMemAddr, TLTreeNode<SMemAddr>, parent, left, right, id, bf);
 libutil::impl_tree_node! (Fuid, TLTreeNode<Fuid>, parent, left, right, id, bf);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

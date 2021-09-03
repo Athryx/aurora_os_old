@@ -11,7 +11,6 @@ use alloc::sync::{Arc, Weak};
 use sys_consts::SysErr;
 use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{VirtMapper, VirtLayout, VirtLayoutElement, FAllocerType, PageMappingFlags, AllocType};
-use crate::mem::shared_mem::SMemAddr;
 use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGuard, MemOwner, UniqueMut, UniqueRef, UniquePtr};

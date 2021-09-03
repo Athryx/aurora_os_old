@@ -76,42 +76,6 @@ impl SharedMem
 	}
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SMemAddr
-{
-	smid: usize,
-	offset: usize,
-}
-
-impl SMemAddr
-{
-	pub fn new (smid: usize, offset: usize) -> Self
-	{
-		SMemAddr {
-			smid,
-			offset,
-		}
-	}
-
-	pub fn smid (&self) -> usize
-	{
-		self.smid
-	}
-
-	pub fn offset (&self) -> usize
-	{
-		self.offset
-	}
-}
-
-impl Default for SMemAddr
-{
-	fn default () -> Self
-	{
-		Self::new (0, 0)
-	}
-}
-
 #[derive(Debug)]
 pub struct SMemMapEntry
 {

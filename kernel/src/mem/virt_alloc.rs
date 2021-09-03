@@ -7,7 +7,7 @@ use crate::util::{Futex, FutexGuard};
 use crate::syscall::udata::UserPageArray;
 use crate::sched::SpawnMapFlags;
 use super::phys_alloc::{Allocation, ZoneManager, zm};
-use super::shared_mem::{SMemFlags, SMemAddr};
+use super::shared_mem::SMemFlags;
 use super::error::MemErr;
 use super::*;
 
@@ -967,19 +967,6 @@ impl<T: FrameAllocator> VirtMapper<T>
 	pub fn get_alloc_type (&self, addr: VirtAddr) -> Option<AllocType>
 	{
 		self.address_map (addr, |_, zone| Some(zone.alloc_type ()))
-	}
-
-	pub fn get_smem_addr (&self, addr: VirtAddr) -> Option<SMemAddr>
-	{
-		self.address_map (addr, |range, zone| {
-			let smid = match zone.alloc_type ()
-			{
-				AllocType::Shared(id) => id,
-				_ => return None,
-			};
-			let offset = addr - range.as_usize ();
-			Some(SMemAddr::new (smid, offset.as_u64 () as usize))
-		})
 	}
 
 	pub fn copy_to_allocation (&self, virt_zone: VirtRange) -> Option<Allocation>
