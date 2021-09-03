@@ -141,7 +141,9 @@ this cannot be used with no_copy or move
 bit 5 (move):
 move the memory pointed to to the new process, and unmap it from the current process
 this cannot be used with no_copy or copy_on_write
-bit 6 (spawn_ptr):
+bit 6 (protected):
+the memory cannot be realloced
+bit 7 (spawn_ptr):
 push pointer to memory to the SpawnMemPtr array in the new process
 when the new process starts, a pointer to the SpawnMemPtr array will be in rax, and the length in rbx
 the order of elements in this array will be the same as the order of the elements in the input {mem_arr}
@@ -206,6 +208,7 @@ terminates process with exit code {code}
 
 
 // TODO: priority inheritance once I write a real scheduler
+// TODO: timeout
 6: fn futex_block (fid: usize, | smid: usize, | timeout_nsec: usize) -> SysErr
 bloocks the thread on futix id {fid} until woken by another thread via futex_unblock
 incraments block count on the futex
@@ -216,7 +219,7 @@ options:
 bit 0 (futex_share):
 shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
 bit 1 (futex_timeout):
-if the thread has not been unblocked for at least {timeout_nsec} nanoseconds, the thread will be unblocked,
+if the thread has not been unblocked by {timeout_nsec} nanoseconds after boot, the thread will be unblocked,
 the waiting thread count will be decremented, and futex_block will return OkTimeout
 
 return value:
@@ -238,7 +241,7 @@ return value:
 syserr code:
 InvlId: invalid smid
 
-n: number of threads unblocked
+n: number of real threads unblocked
 
 
 8: fn futex_destroy (fid: usize, | smid: usize) -> (err: SysErr, n: usize)

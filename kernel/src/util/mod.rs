@@ -37,16 +37,14 @@ pub struct Calls();
 impl UtilCalls for Calls
 {
 	// NOTE: chage if kernel ever blocks on shared memory
-	fn block (&self, addr: usize)
+	fn block (&self, id: usize)
 	{
-		let state = ThreadState::FutexBlock(FutexId::new (proc_c ().pid (), addr));
-		thread_c ().block (state);
+		proc_c ().futex ().block (id);
 	}
-	
-	fn unblock (&self, addr: usize)
+
+	fn unblock (&self, id: usize)
 	{
-		let state = ThreadState::FutexBlock(FutexId::new (proc_c ().pid (), addr));
-		tlist.state_move (state, ThreadState::Ready, 1);
+		proc_c ().futex ().unblock (id, 1);
 	}
 
 	fn alloc (&self, size: usize) -> Option<Allocation>

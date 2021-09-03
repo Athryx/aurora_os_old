@@ -25,8 +25,8 @@ static mut UTIL_CALLS: Option<&'static dyn UtilCalls> = None;
 
 pub trait UtilCalls
 {
-	fn block (&self, addr: usize);
-	fn unblock (&self, addr: usize);
+	fn block (&self, id: usize);
+	fn unblock (&self, id: usize);
 
 	fn alloc (&self, size: usize) -> Option<Allocation>;
 	fn dealloc (&self, mem: Allocation);

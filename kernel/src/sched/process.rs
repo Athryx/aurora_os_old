@@ -20,6 +20,7 @@ use super::elf::{ElfParser, Section};
 use super::thread::{Thread, ThreadState};
 use super::domain::{DomainMap, BlockMode};
 use super::connection::{MsgArgs, Connection, ConnectionMap};
+use super::sync::FutexMap;
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new (0);
 
@@ -75,7 +76,8 @@ bitflags!
 		const NO_COPY = 1 << 3;
 		const COPY_ON_WRITE = 1 << 4;
 		const MOVE = 1 << 5;
-		const SPAWN_PTR = 1 << 6;
+		const PROTECTED = 1 << 6;
+		const SPAWN_PTR = 1 << 7;
 	}
 }
 
@@ -117,6 +119,8 @@ pub struct Process
 	next_tid: AtomicUsize,
 	threads: Mutex<BTreeMap<usize, MemOwner<Thread>>>,
 
+	futex: FutexMap,
+	// TODO: change these to use internel futexes to be consistant with FutexMap, which has to use an internal spinlock
 	domains: Futex<DomainMap>,
 	// NOTE: don't lock proc_list while this is locked
 	connections: Futex<ConnectionMap>,
@@ -138,6 +142,7 @@ impl Process
 			uid,
 			next_tid: AtomicUsize::new (0),
 			threads: Mutex::new (BTreeMap::new ()),
+			futex: FutexMap::new (pid),
 			domains: Futex::new (DomainMap::new ()),
 			connections: Futex::new (ConnectionMap::new (pid)),
 			smem: Futex::new (SMemMap::new ()),
@@ -247,7 +252,16 @@ impl Process
 				VirtLayoutElement::from_mem (mem, map_size, map_flags)
 			};
 
-			let vlayout = VirtLayout::from (vec![velem], AllocType::Protected);
+			let atype = if flags.contains (SpawnMapFlags::PROTECTED)
+			{
+				AllocType::Protected
+			}
+			else
+			{
+				AllocType::VirtMem
+			};
+
+			let vlayout = VirtLayout::from (vec![velem], atype);
 
 			let mapped_range = if elem.at_addr == 0
 			{
@@ -342,6 +356,11 @@ impl Process
 	pub fn next_tid (&self) -> usize
 	{
 		self.next_tid.fetch_add (1, Ordering::Relaxed)
+	}
+
+	pub fn futex (&self) -> &FutexMap
+	{
+		&self.futex
 	}
 
 	pub fn domains (&self) -> &Futex<DomainMap>

@@ -17,7 +17,7 @@ use crate::upriv::PrivLevel;
 use crate::util::{ListNode, IMutex, IMutexGuard, Futex, FutexGuard, MemOwner, UniqueMut, UniqueRef, UniquePtr};
 use crate::time::timer;
 use super::process::Process;
-use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c, ConnPid, FutexId};
+use super::{Registers, ThreadList, int_sched, tlist, MsgArgs, thread_c, ConnPid, KFutex};
 
 // TODO: implement support for growing stack
 #[derive(Debug)]
@@ -109,15 +109,26 @@ pub enum ThreadState
 	// tid to join with
 	Join(Tuid),
 	// virtual address currently waiting on
-	FutexBlock(FutexId),
+	FutexBlock(*const KFutex),
 	// connection cpid we are waiting for a reply from
 	Listening(ConnPid),
-	// shared memory futex waiting
-	ShareFutexBlock(SMemAddr),
 }
 
 impl ThreadState
 {
+	// called by the scheduler when whole scheduler is locked so additional atomic steps can be done
+	pub fn atomic_process (&self)
+	{
+		match self
+		{
+			Self::FutexBlock(id) => unsafe {
+				id.as_ref ().unwrap ().force_unlock ()
+			},
+			_ => (),
+		}
+	}
+
+	// TODO: remove
 	pub fn sleep_nsec (&self) -> Option<u64>
 	{
 		match self
@@ -140,7 +151,7 @@ impl ThreadState
 	{
 		match self
 		{
-			Self::FutexBlock(addr) => Some(addr.addr ()),
+			Self::FutexBlock(addr) => Some(0),
 			_ => None,
 		}
 	}

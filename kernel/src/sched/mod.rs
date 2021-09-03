@@ -20,6 +20,7 @@ pub use process::{SpawnStartState, SpawnMapFlags, Process};
 pub use thread::{Thread, ThreadState, Stack, Tuid};
 pub use domain::*;
 pub use connection::*;
+pub use sync::{Fuid, KFutex};
 pub use namespace::{Namespace, namespace_map};
 
 // TODO: clean up code, it is kind of ugly
@@ -43,6 +44,7 @@ mod elf;
 mod domain;
 mod connection;
 mod namespace;
+mod sync;
 
 pub static tlist: ThreadListGuard = ThreadListGuard::new ();
 static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new (BTreeMap::new ());
@@ -165,7 +167,9 @@ fn schedule (_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 	// FIXME: smp race condition
 	let old_process = old_thread.process ().unwrap ();
 
-	if let ThreadState::Running = old_thread.state ()
+	let old_state = old_thread.state ();
+	old_state.atomic_process ();
+	if let ThreadState::Running = old_state
 	{
 		old_thread.set_state (ThreadState::Ready);
 	}
@@ -271,9 +275,9 @@ unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 libutil::impl_tree_node! (Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
 libutil::impl_tree_node! (ConnPid, TLTreeNode<ConnPid>, parent, left, right, id, bf);
 libutil::impl_tree_node! (SMemAddr, TLTreeNode<SMemAddr>, parent, left, right, id, bf);
-libutil::impl_tree_node! (FutexId, TLTreeNode<FutexId>, parent, left, right, id, bf);
+libutil::impl_tree_node! (Fuid, TLTreeNode<Fuid>, parent, left, right, id, bf);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FutexId
 {
 	pid: usize,
@@ -301,14 +305,6 @@ impl FutexId
 	}
 }
 
-impl Default for FutexId
-{
-	fn default () -> Self
-	{
-		Self::new (0, 0)
-	}
-}
-
 #[derive(Debug)]
 pub struct ThreadList
 {
@@ -319,8 +315,7 @@ pub struct ThreadList
 	join: AvlTree<Tuid, TLTreeNode<Tuid>>,
 	wait: AvlTree<Tuid, TLTreeNode<Tuid>>,
 	conn_wait: AvlTree<ConnPid, TLTreeNode<ConnPid>>,
-	futex: AvlTree<FutexId, TLTreeNode<FutexId>>,
-	sfutex: AvlTree<SMemAddr, TLTreeNode<SMemAddr>>,
+	futex: AvlTree<Fuid, TLTreeNode<Fuid>>,
 }
 
 impl ThreadList
@@ -336,7 +331,6 @@ impl ThreadList
 			wait: AvlTree::new (),
 			conn_wait: AvlTree::new (),
 			futex: AvlTree::new (),
-			sfutex: AvlTree::new (),
 		}
 	}
 
@@ -351,8 +345,7 @@ impl ThreadList
 			ThreadState::Join(tuid) => Some(unsafe { unbound (&self.join.get (&tuid)?.list) }),
 			ThreadState::Waiting(tuid) => Some(unsafe { unbound (&self.wait.get (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound (&self.conn_wait.get (&id)?.list) }),
-			ThreadState::FutexBlock(id) => Some(unsafe { unbound (&self.futex.get (&id)?.list) }),
-			ThreadState::ShareFutexBlock(id) => Some(unsafe { unbound (&self.sfutex.get (&id)?.list) }),
+			ThreadState::FutexBlock(id) => Some(unsafe { unbound (&self.futex.get (&id.as_ref ().unwrap ().fuid ())?.list) }),
 		}
 	}
 
@@ -367,9 +360,40 @@ impl ThreadList
 			ThreadState::Join(tuid) => Some(unsafe { unbound_mut (&mut self.join.get_mut (&tuid)?.list) }),
 			ThreadState::Waiting(tuid) => Some(unsafe { unbound_mut (&mut self.wait.get_mut (&tuid)?.list) }),
 			ThreadState::Listening(id) => Some(unsafe { unbound_mut (&mut self.conn_wait.get_mut (&id)?.list) }),
-			ThreadState::FutexBlock(id) => Some(unsafe { unbound_mut (&mut self.futex.get_mut (&id)?.list) }),
-			ThreadState::ShareFutexBlock(id) => Some(unsafe { unbound_mut (&mut self.sfutex.get_mut (&id)?.list) }),
+			ThreadState::FutexBlock(id) => Some(unsafe { unbound_mut (&mut self.futex.get_mut (&id.as_ref ().unwrap ().fuid ())?.list) }),
 		}
+	}
+
+	pub fn inner_state_move (&mut self, old_state: ThreadState, new_state: ThreadState, count: usize) -> usize
+	{
+		if let ThreadState::Running = new_state
+		{
+			panic! ("cannot move thread blocked on futex directly to running thread");
+		}
+
+		if let ThreadState::Running = old_state
+		{
+			panic! ("cannot move running thread");
+		}
+
+		if self.get (old_state).is_none () || self.get (new_state).is_none ()
+		{
+			return 0;
+		}
+
+		for i in 0..count
+		{
+			match self[old_state].pop_front ()
+			{
+				Some(tpointer) => {
+					tpointer.set_state (new_state);
+					Thread::insert_into (tpointer, self);
+				},
+				None => return i,
+			}
+		}
+
+		count
 	}
 }
 
@@ -407,37 +431,9 @@ impl ThreadListGuard
 
 	pub fn state_move (&self, old_state: ThreadState, new_state: ThreadState, count: usize) -> usize
 	{
-		if let ThreadState::Running = new_state
-		{
-			panic! ("cannot move thread blocked on futex directly to running thread");
-		}
-
-		if let ThreadState::Running = old_state
-		{
-			panic! ("cannot move running thread");
-		}
-
 		self.ensure (new_state);
 
-		let mut thread_list = self.lock ();
-		if thread_list.get (old_state).is_none ()
-		{
-			return 0;
-		}
-
-		for i in 0..count
-		{
-			match thread_list[old_state].pop_front ()
-			{
-				Some(tpointer) => {
-					tpointer.set_state (new_state);
-					Thread::insert_into (tpointer, &mut thread_list);
-				},
-				None => return i,
-			}
-		}
-
-		count
+		self.lock ().inner_state_move (old_state, new_state, count)
 	}
 
 	// TODO: have ensure and dealloc_state return locks to guarentee no race conditions
@@ -489,25 +485,12 @@ impl ThreadListGuard
 				}
 			},
 			ThreadState::FutexBlock(id) => {
+				let id = unsafe { id.as_ref ().unwrap ().fuid () };
 				if self.lock ().futex.get (&id).is_none ()
 				{
 					let node = TLTreeNode::new ();
 					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
 					if let Err(val) = self.lock ().futex.insert (id, node)
-					{
-						unsafe
-						{
-							TLTreeNode::dealloc (val);
-						}
-					}
-				}
-			},
-			ThreadState::ShareFutexBlock(id) => {
-				if self.lock ().sfutex.get (&id).is_none ()
-				{
-					let node = TLTreeNode::new ();
-					// NOTE: this is non allocing AvlTree, which returns the value it tried to insert if there was already a valus in the tree
-					if let Err(val) = self.lock ().sfutex.insert (id, node)
 					{
 						unsafe
 						{
@@ -555,17 +538,8 @@ impl ThreadListGuard
 				}
 			},
 			ThreadState::FutexBlock(id) => {
+				let id = unsafe { id.as_ref ().unwrap ().fuid () };
 				if let Some(node) = self.lock ().futex.remove (&id)
-				{
-					assert_eq! (node.list.len (), 0);
-					unsafe
-					{
-						TLTreeNode::dealloc (node);
-					}
-				}
-			},
-			ThreadState::ShareFutexBlock(id) => {
-				if let Some(node) = self.lock ().sfutex.remove (&id)
 				{
 					assert_eq! (node.list.len (), 0);
 					unsafe
