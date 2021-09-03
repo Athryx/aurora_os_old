@@ -1,17 +1,18 @@
-use crate::uses::*;
 use core::panic::PanicInfo;
+
+use crate::uses::*;
 
 #[lang = "eh_personality"]
 #[no_mangle]
-extern fn rust_eh_personality () {}
+extern "C" fn rust_eh_personality() {}
 
 #[lang = "panic_impl"]
 #[no_mangle]
-extern fn rust_begin_panic (info: &PanicInfo) -> !
+extern "C" fn rust_begin_panic(info: &PanicInfo) -> !
 {
 	//println! ("{}", info);
 	//eprintln! ("{}", info);
 	loop {
-		println! ("{}", info);
+		println!("{}", info);
 	}
 }

@@ -10,35 +10,33 @@ pub enum CPUPrivLevel
 
 impl CPUPrivLevel
 {
-	pub const fn n (&self) -> u8
+	pub const fn n(&self) -> u8
 	{
 		*self as u8
 	}
 
-	pub const fn get_cs (&self) -> u16
+	pub const fn get_cs(&self) -> u16
 	{
-		match self
-		{
+		match self {
 			Self::Ring0 => 0x8,
 			Self::Ring3 => 0x23,
 		}
 	}
 
-	pub const fn get_ds (&self) -> u16
+	pub const fn get_ds(&self) -> u16
 	{
-		match self
-		{
+		match self {
 			Self::Ring0 => 0x10,
 			Self::Ring3 => 0x1b,
 		}
 	}
 
-	pub fn is_ring0 (&self) -> bool
+	pub fn is_ring0(&self) -> bool
 	{
 		*self == Self::Ring0
 	}
 
-	pub fn is_ring3 (&self) -> bool
+	pub fn is_ring3(&self) -> bool
 	{
 		*self == Self::Ring3
 	}
@@ -46,12 +44,9 @@ impl CPUPrivLevel
 
 // bochs magic breakpoint
 #[inline]
-pub fn bochs_break ()
+pub fn bochs_break()
 {
-	unsafe
-	{
-		asm!( "xchg bx, bx", options (nomem, nostack))
-	}
+	unsafe { asm!("xchg bx, bx", options(nomem, nostack)) }
 }
 
 pub const EFER_MSR: u32 = 0xc0000080;
@@ -69,33 +64,30 @@ pub const RTAR_MSR: u32 = 0xc0000083;
 pub const FMASK_MSR: u32 = 0xc0000084;
 
 #[inline]
-pub fn rdmsr (msr: u32) -> u64
+pub fn rdmsr(msr: u32) -> u64
 {
 	let low: u32;
 	let high: u32;
-	unsafe
-	{
+	unsafe {
 		asm! ("rdmsr", in("ecx") msr, out("eax") low, out("edx") high, options(nomem, nostack));
 	}
 	((high as u64) << 32) | low as u64
 }
 
 #[inline]
-pub fn wrmsr (msr: u32, data: u64)
+pub fn wrmsr(msr: u32, data: u64)
 {
-	let low = get_bits (data as usize, 0..32);
-	let high = get_bits (data as usize, 32..64);
-	unsafe
-	{
+	let low = get_bits(data as usize, 0..32);
+	let high = get_bits(data as usize, 32..64);
+	unsafe {
 		asm! ("wrmsr", in("ecx") msr, in("eax") low, in("edx") high, options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn hlt ()
+pub fn hlt()
 {
-	unsafe
-	{
+	unsafe {
 		asm!("hlt", options(nomem, nostack));
 	}
 }
@@ -104,75 +96,66 @@ pub fn hlt ()
 pub const RFLAGS_INT: usize = 1 << 9;
 
 #[inline]
-pub fn get_flags () -> usize
+pub fn get_flags() -> usize
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("pushfq\npop {}", out(reg) out, options(nomem));
 	}
 	out
 }
 
 #[inline]
-pub fn set_flags (flags: usize)
+pub fn set_flags(flags: usize)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("push {}\npopfq", in(reg) flags);
 	}
 }
 
 #[inline]
-pub fn cli ()
+pub fn cli()
 {
-	unsafe
-	{
+	unsafe {
 		asm!("cli", options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn sti ()
+pub fn sti()
 {
-	unsafe
-	{
+	unsafe {
 		asm!("sti", options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn sti_nop ()
+pub fn sti_nop()
 {
-	unsafe
-	{
+	unsafe {
 		asm!("sti\nnop", options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn sti_hlt ()
+pub fn sti_hlt()
 {
-	unsafe
-	{
+	unsafe {
 		asm!("sti\nhlt", options(nomem, nostack));
 	}
 }
 
-pub fn is_int_enabled () -> bool
+pub fn is_int_enabled() -> bool
 {
-	get_flags () & RFLAGS_INT != 0
+	get_flags() & RFLAGS_INT != 0
 }
 
-pub fn set_int_enabled (enabled: bool)
+pub fn set_int_enabled(enabled: bool)
 {
-	if enabled
-	{
-		sti_nop ();
-	}
-	else
-	{
-		cli ();
+	if enabled {
+		sti_nop();
+	} else {
+		cli();
 	}
 }
 
@@ -184,10 +167,10 @@ pub struct IntDisable
 
 impl IntDisable
 {
-	pub fn new () -> Self
+	pub fn new() -> Self
 	{
-		let old_status = is_int_enabled ();
-		cli ();
+		let old_status = is_int_enabled();
+		cli();
 		IntDisable {
 			old_status,
 		}
@@ -196,168 +179,152 @@ impl IntDisable
 
 impl Drop for IntDisable
 {
-	fn drop (&mut self)
+	fn drop(&mut self)
 	{
-		set_int_enabled (self.old_status);
+		set_int_enabled(self.old_status);
 	}
 }
 
 #[inline]
-pub fn outb (port: u16, data: u8)
+pub fn outb(port: u16, data: u8)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("out dx, al", in("dx") port, in("al") data);
 	}
 }
 
 #[inline]
-pub fn outw (port: u16, data: u16)
+pub fn outw(port: u16, data: u16)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("out dx, al", in("dx") port, in("ax") data);
 	}
 }
 
 #[inline]
-pub fn outd (port: u16, data: u32)
+pub fn outd(port: u16, data: u32)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("out dx, al", in("dx") port, in("eax") data);
 	}
 }
 
 #[inline]
-pub fn inb (port: u16) -> u8
+pub fn inb(port: u16) -> u8
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("in al, dx", in("dx") port, out("al") out);
 	}
 	out
 }
 
 #[inline]
-pub fn inw (port: u16) -> u16
+pub fn inw(port: u16) -> u16
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("in ax, dx", in("dx") port, out("ax") out);
 	}
 	out
 }
 
 #[inline]
-pub fn ind (port: u16) -> u32
+pub fn ind(port: u16) -> u32
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("in eax, dx", in("dx") port, out("eax") out);
 	}
 	out
 }
 
 #[inline]
-pub fn get_cr0 () -> usize
+pub fn get_cr0() -> usize
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("mov {}, cr0", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
 
 #[inline]
-pub fn set_cr0 (n: usize)
+pub fn set_cr0(n: usize)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("mov cr0, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn get_cr2 () -> usize
+pub fn get_cr2() -> usize
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("mov {}, cr2", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
 
 #[inline]
-pub fn set_cr2 (n: usize)
+pub fn set_cr2(n: usize)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("mov cr2, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn get_cr3 () -> usize
+pub fn get_cr3() -> usize
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("mov {}, cr3", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
 
 #[inline]
-pub fn set_cr3 (n: usize)
+pub fn set_cr3(n: usize)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("mov cr3, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn get_cr4 () -> usize
+pub fn get_cr4() -> usize
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("mov {}, cr4", out(reg) out, options(nomem, nostack));
 	}
 	out
 }
 
 #[inline]
-pub fn set_cr4 (n: usize)
+pub fn set_cr4(n: usize)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("mov cr4, {}", in(reg) n, options(nomem, nostack));
 	}
 }
 
 #[inline]
-pub fn get_rsp () -> usize
+pub fn get_rsp() -> usize
 {
 	let out;
-	unsafe
-	{
+	unsafe {
 		asm!("mov {}, rsp", out(reg) out, options(nomem));
 	}
 	out
 }
 
 #[inline]
-pub fn invlpg (addr: usize)
+pub fn invlpg(addr: usize)
 {
-	unsafe
-	{
+	unsafe {
 		asm!("invlpg [{}]", in (reg) addr);
 	}
 }

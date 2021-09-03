@@ -1,16 +1,20 @@
-use crate::uses::*;
-use crate::arch::x64::{rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, STAR_MSR, LSTAR_MSR, FMASK_MSR};
-use crate::sched::sys::{spawn, thread_new, thread_block, futex_block, futex_unblock, futex_destroy, reg, connect, disconnect, conn_info, msg, msg_return};
-use crate::mem::sys::{realloc, salloc, sdealloc, smap, sunmap, smem_info, mprotect};
-use crate::util::io::sys_print_debug;
-
 pub use sys_consts::SysErr;
+
+use crate::uses::*;
+use crate::arch::x64::{
+	rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, FMASK_MSR, LSTAR_MSR, STAR_MSR,
+};
+use crate::sched::sys::{
+	conn_info, connect, disconnect, futex_block, futex_destroy, futex_unblock, msg, msg_return,
+	reg, spawn, thread_block, thread_new,
+};
+use crate::mem::sys::{mprotect, realloc, salloc, sdealloc, smap, smem_info, sunmap};
+use crate::util::io::sys_print_debug;
 
 pub mod udata;
 
-extern "C"
-{
-	fn syscall_entry ();
+extern "C" {
+	fn syscall_entry();
 }
 
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
@@ -79,8 +83,7 @@ pub struct SyscallVals
 }
 
 #[macro_export]
-macro_rules! sysret
-{
+macro_rules! sysret {
 	() => {
 		return
 	};
@@ -104,7 +107,7 @@ macro_rules! sysret
 		$v.a1 = $r1;
 		$v.a2 = $r2;
 		$v.a3 = $r3;
-		return
+		return;
 	}};
 
 	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr) => {{
@@ -157,7 +160,18 @@ macro_rules! sysret
 		return;
 	}};
 
-	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr, $r7:expr, $r8:expr, $r9:expr) => {{
+	(
+		$v:ident,
+		$r1:expr,
+		$r2:expr,
+		$r3:expr,
+		$r4:expr,
+		$r5:expr,
+		$r6:expr,
+		$r7:expr,
+		$r8:expr,
+		$r9:expr
+	) => {{
 		$v.a1 = $r1;
 		$v.a2 = $r2;
 		$v.a3 = $r3;
@@ -170,7 +184,19 @@ macro_rules! sysret
 		return;
 	}};
 
-	($v:ident, $r1:expr, $r2:expr, $r3:expr, $r4:expr, $r5:expr, $r6:expr, $r7:expr, $r8:expr, $r9:expr, $r10:expr) => {{
+	(
+		$v:ident,
+		$r1:expr,
+		$r2:expr,
+		$r3:expr,
+		$r4:expr,
+		$r5:expr,
+		$r6:expr,
+		$r7:expr,
+		$r8:expr,
+		$r9:expr,
+		$r10:expr
+	) => {{
 		$v.a1 = $r1;
 		$v.a2 = $r2;
 		$v.a3 = $r3;
@@ -185,21 +211,19 @@ macro_rules! sysret
 	}};
 }
 
-extern "C" fn sys_nop (_: &mut SyscallVals)
-{
-}
+extern "C" fn sys_nop(_: &mut SyscallVals) {}
 
-pub fn init ()
+pub fn init()
 {
-	let efer = rdmsr (EFER_MSR);
-	wrmsr (EFER_MSR, efer | EFER_SYSCALL_ENABLE);
+	let efer = rdmsr(EFER_MSR);
+	wrmsr(EFER_MSR, efer | EFER_SYSCALL_ENABLE);
 
 	// tell cpu syscall instruction entry point
-	wrmsr (LSTAR_MSR, syscall_entry as usize as u64);
+	wrmsr(LSTAR_MSR, syscall_entry as usize as u64);
 
 	// tell cpu to disable interrupts on syscall_entry
-	wrmsr (FMASK_MSR, 0x200);
+	wrmsr(FMASK_MSR, 0x200);
 
 	// load correct segment values after syscall and sysret
-	wrmsr (STAR_MSR, 0x0013000800000000);
+	wrmsr(STAR_MSR, 0x0013000800000000);
 }

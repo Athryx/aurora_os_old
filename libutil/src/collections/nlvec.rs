@@ -1,99 +1,91 @@
-use crate::uses::*;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::fmt::{self, Debug, Formatter};
 
+use crate::uses::*;
+
 // a non locking, synchronous vec
-pub struct NLVec<T> (AtomicPtr<Vec<*const T>>);
+pub struct NLVec<T>(AtomicPtr<Vec<*const T>>);
 
 impl<T> NLVec<T>
 {
-	pub fn new () -> Self
+	pub fn new() -> Self
 	{
-		let vec: Vec<*const T> = Vec::new ();
-		let ptr = to_heap (vec);
-		NLVec(AtomicPtr::new (ptr))
+		let vec: Vec<*const T> = Vec::new();
+		let ptr = to_heap(vec);
+		NLVec(AtomicPtr::new(ptr))
 	}
 
-	pub fn len (&self) -> usize
+	pub fn len(&self) -> usize
 	{
-		self.read (|vec| vec.len ())
+		self.read(|vec| vec.len())
 	}
 
-	pub fn is_empty (&self) -> bool
+	pub fn is_empty(&self) -> bool
 	{
-		self.read (|vec| vec.is_empty ())
+		self.read(|vec| vec.is_empty())
 	}
 
-	pub fn get (&self, index: usize) -> Option<&T>
+	pub fn get(&self, index: usize) -> Option<&T>
 	{
-		unsafe
-		{
-			self.read (|vec| vec.get (index).map (|ref_to_ptr| *ref_to_ptr))
-				.map (|ptr| ptr.as_ref ().unwrap ())
+		unsafe {
+			self.read(|vec| vec.get(index).map(|ref_to_ptr| *ref_to_ptr))
+				.map(|ptr| ptr.as_ref().unwrap())
 		}
 	}
 
-	pub fn insert (&self, index: usize, element: T)
+	pub fn insert(&self, index: usize, element: T)
 	{
-		let ptr = to_heap (element);
-		self.write (|vec| vec.insert (index, ptr));
+		let ptr = to_heap(element);
+		self.write(|vec| vec.insert(index, ptr));
 	}
 
-	pub fn push (&self, element: T)
+	pub fn push(&self, element: T)
 	{
-		let ptr = to_heap (element);
-		self.write (|vec| vec.push (ptr));
+		let ptr = to_heap(element);
+		self.write(|vec| vec.push(ptr));
 	}
 
-	pub fn remove (&self, index: usize) -> T
+	pub fn remove(&self, index: usize) -> T
 	{
-		unsafe
-		{
-			from_heap (self.write (|vec| vec.remove (index)))
-		}
+		unsafe { from_heap(self.write(|vec| vec.remove(index))) }
 	}
 
-	pub fn pop (&self) -> Option<T>
+	pub fn pop(&self) -> Option<T>
 	{
-		unsafe
-		{
-			self.write (|vec| vec.pop ()).map (|ptr| from_heap (ptr))
-		}
+		unsafe { self.write(|vec| vec.pop()).map(|ptr| from_heap(ptr)) }
 	}
 
-	pub fn read<F, V> (&self, f: F) -> V
-		where F: FnOnce(&Vec<*const T>) -> V
+	pub fn read<F, V>(&self, f: F) -> V
+	where
+		F: FnOnce(&Vec<*const T>) -> V,
 	{
-		unsafe
-		{
-			f (self.0.load (Ordering::Acquire).as_ref ().unwrap ())
-		}
+		unsafe { f(self.0.load(Ordering::Acquire).as_ref().unwrap()) }
 	}
 
-	pub fn write<F, V> (&self, mut f: F) -> V
-		where F: FnMut(&mut Vec<*const T>) -> V
+	pub fn write<F, V>(&self, mut f: F) -> V
+	where
+		F: FnMut(&mut Vec<*const T>) -> V,
 	{
-		loop
-		{
-			let ptr = self.0.load (Ordering::Acquire);
-			let mut vec = unsafe { ptr.as_ref ().unwrap ().clone () };
+		loop {
+			let ptr = self.0.load(Ordering::Acquire);
+			let mut vec = unsafe { ptr.as_ref().unwrap().clone() };
 
-			let out = f (&mut vec);
+			let out = f(&mut vec);
 
-			let new_ptr = to_heap (vec);
+			let new_ptr = to_heap(vec);
 
-			let result = self.0.compare_exchange (ptr, new_ptr, Ordering::AcqRel, Ordering::Acquire);
-			match result
-			{
+			let result = self
+				.0
+				.compare_exchange(ptr, new_ptr, Ordering::AcqRel, Ordering::Acquire);
+			match result {
 				Ok(old_ptr) => {
-					unsafe
-					{
+					unsafe {
 						// drop old value
-						drop (Box::from_raw (old_ptr));
+						drop(Box::from_raw(old_ptr));
 					}
 					return out;
 				},
-				Err(_) => unsafe { drop (Box::from_raw (new_ptr)) },
+				Err(_) => unsafe { drop(Box::from_raw(new_ptr)) },
 			}
 		}
 	}
@@ -101,21 +93,19 @@ impl<T> NLVec<T>
 
 impl<T: Debug> Debug for NLVec<T>
 {
-	fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result
+	fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result
 	{
-		self.read (|vec| {
-			write! (f, "[").unwrap ();
-			for (i, ptr) in vec.iter ().enumerate ()
-			{
-				let elem = unsafe { ptr.as_ref ().unwrap () };
-				write! (f, "{:?}", elem).unwrap ();
+		self.read(|vec| {
+			write!(f, "[").unwrap();
+			for (i, ptr) in vec.iter().enumerate() {
+				let elem = unsafe { ptr.as_ref().unwrap() };
+				write!(f, "{:?}", elem).unwrap();
 
-				if i < vec.len () - 1
-				{
-					write! (f, ", ").unwrap ();
+				if i < vec.len() - 1 {
+					write!(f, ", ").unwrap();
 				}
 			}
-			write! (f, "]").unwrap ();
+			write!(f, "]").unwrap();
 		});
 		Ok(())
 	}

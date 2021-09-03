@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+
 use crate::uses::*;
 use crate::mem::VirtRange;
 
@@ -22,18 +23,18 @@ pub struct ElfParser<'a>
 
 impl<'a> ElfParser<'a>
 {
-	pub fn new (data: &[u8]) -> Result<ElfParser, Err>
+	pub fn new(data: &[u8]) -> Result<ElfParser, Err>
 	{
-		let elf_header = ElfHeader::new (data)?;
-		elf_header.check ()?;
+		let elf_header = ElfHeader::new(data)?;
+		elf_header.check()?;
 
 		let phdr = elf_header.program_header;
 		let phdr_len = elf_header.phdr_len as usize;
 
 		// TODO: figure out if it matters that alignment requirements might not be met
 		// (probably not on x86)
-		let program_headers = Self::extract_slice (data, phdr, phdr_len)
-			.ok_or_else (|| Err::new ("invalid program headers"))?;
+		let program_headers = Self::extract_slice(data, phdr, phdr_len)
+			.ok_or_else(|| Err::new("invalid program headers"))?;
 
 		Ok(ElfParser {
 			data,
@@ -42,38 +43,32 @@ impl<'a> ElfParser<'a>
 		})
 	}
 
-	pub fn program_headers (&self) -> Vec<Section>
+	pub fn program_headers(&self) -> Vec<Section>
 	{
-		let mut out = Vec::new ();
-		for header in self.program_headers.iter ()
-		{
-			if header.ptype == P_TYPE_LOAD
-			{
-				if header.p_memsz == 0
-				{
+		let mut out = Vec::new();
+		for header in self.program_headers.iter() {
+			if header.ptype == P_TYPE_LOAD {
+				if header.p_memsz == 0 {
 					continue;
 				}
 
-				let virt_range = VirtRange::new_unaligned (VirtAddr::new (header.p_vaddr as u64), header.p_memsz);
-				let virt_range_aligned = virt_range.aligned ();
+				let virt_range =
+					VirtRange::new_unaligned(VirtAddr::new(header.p_vaddr as u64), header.p_memsz);
+				let virt_range_aligned = virt_range.aligned();
 
-				let data = if header.p_filesz == 0
-				{
+				let data = if header.p_filesz == 0 {
 					None
-				}
-				else
-				{
-					Some(match self.extract (header.p_offset, header.p_filesz)
-					{
+				} else {
+					Some(match self.extract(header.p_offset, header.p_filesz) {
 						Some(data) => data,
 						None => continue,
 					})
 				};
 
-				out.push (Section {
+				out.push(Section {
 					virt_range: virt_range_aligned,
 					data,
-					data_offset: virt_range.as_usize () - virt_range_aligned.as_usize (),
+					data_offset: virt_range.as_usize() - virt_range_aligned.as_usize(),
 					flags: header.flags,
 				});
 			}
@@ -81,29 +76,23 @@ impl<'a> ElfParser<'a>
 		out
 	}
 
-	pub fn entry_point (&self) -> usize
+	pub fn entry_point(&self) -> usize
 	{
 		self.elf_header.entry
 	}
 
-	fn extract_slice<T> (data: &[u8], index: usize, len: usize) -> Option<&[T]>
+	fn extract_slice<T>(data: &[u8], index: usize, len: usize) -> Option<&[T]>
 	{
-		let slice = data.get (index..(index + len * size_of::<T> ()))?;
-		let ptr = slice.as_ptr () as *const T;
-		unsafe
-		{
-			Some(core::slice::from_raw_parts (ptr, len))
-		}
+		let slice = data.get(index..(index + len * size_of::<T>()))?;
+		let ptr = slice.as_ptr() as *const T;
+		unsafe { Some(core::slice::from_raw_parts(ptr, len)) }
 	}
 
-	fn extract<T> (&self, index: usize, len: usize) -> Option<&[T]>
+	fn extract<T>(&self, index: usize, len: usize) -> Option<&[T]>
 	{
-		let slice = self.data.get (index..(index + len * size_of::<T> ()))?;
-		let ptr = slice.as_ptr () as *const T;
-		unsafe
-		{
-			Some(core::slice::from_raw_parts (ptr, len))
-		}
+		let slice = self.data.get(index..(index + len * size_of::<T>()))?;
+		let ptr = slice.as_ptr() as *const T;
+		unsafe { Some(core::slice::from_raw_parts(ptr, len)) }
 	}
 }
 
@@ -162,42 +151,27 @@ struct ElfHeader
 
 impl ElfHeader
 {
-	fn new (data: &[u8]) -> Result<&Self, Err>
+	fn new(data: &[u8]) -> Result<&Self, Err>
 	{
-		if data.len () < size_of::<Self> ()
-		{
-			return Err(Err::new ("invalid elf header"));
+		if data.len() < size_of::<Self>() {
+			return Err(Err::new("invalid elf header"));
 		}
-		unsafe
-		{
-			Ok((data.as_ptr () as *const Self).as_ref ().unwrap ())
-		}
+		unsafe { Ok((data.as_ptr() as *const Self).as_ref().unwrap()) }
 	}
 
-	fn check (&self) -> Result<(), Err>
+	fn check(&self) -> Result<(), Err>
 	{
-		if self.magic != ELF_MAGIC
-		{
-			Err(Err::new ("Binary is not ELF"))
-		}
-		else if self.bits != BIT_64 || self.endianness != LITTLE_ENDIAN || self.arch != X64
-		{
-			Err(Err::new ("Binary is not an x64 binary"))
-		}
-		else if self.abi != SYSTEM_V_ABI
-		{
-			Err(Err::new ("Binary does not use system V abi"))
-		}
-		else if self.info != EXECUTABLE
-		{
-			Err(Err::new ("Binary is not an executable"))
-		}
-		else if self.phdr_entry_size as usize != size_of::<ProgramHeader> ()
-		{
-			Err(Err::new ("Invalid ELF program header sizes"))
-		}
-		else
-		{
+		if self.magic != ELF_MAGIC {
+			Err(Err::new("Binary is not ELF"))
+		} else if self.bits != BIT_64 || self.endianness != LITTLE_ENDIAN || self.arch != X64 {
+			Err(Err::new("Binary is not an x64 binary"))
+		} else if self.abi != SYSTEM_V_ABI {
+			Err(Err::new("Binary does not use system V abi"))
+		} else if self.info != EXECUTABLE {
+			Err(Err::new("Binary is not an executable"))
+		} else if self.phdr_entry_size as usize != size_of::<ProgramHeader>() {
+			Err(Err::new("Invalid ELF program header sizes"))
+		} else {
 			Ok(())
 		}
 	}
@@ -209,8 +183,7 @@ const P_TYPE_DYNAMIC: u32 = 2;
 const P_TYPE_INTERP: u32 = 3;
 const P_TYPE_NOTE: u32 = 4;
 
-bitflags!
-{
+bitflags! {
 	pub struct PHdrFlags: u32
 	{
 		const EXECUTABLE = 1;
@@ -221,19 +194,19 @@ bitflags!
 
 impl PHdrFlags
 {
-	pub fn readable (&self) -> bool
+	pub fn readable(&self) -> bool
 	{
-		self.contains (Self::READABLE)
+		self.contains(Self::READABLE)
 	}
 
-	pub fn writable (&self) -> bool
+	pub fn writable(&self) -> bool
 	{
-		self.contains (Self::WRITABLE)
+		self.contains(Self::WRITABLE)
 	}
 
-	pub fn executable (&self) -> bool
+	pub fn executable(&self) -> bool
 	{
-		self.contains (Self::EXECUTABLE)
+		self.contains(Self::EXECUTABLE)
 	}
 }
 

@@ -1,12 +1,11 @@
 //! Crate for constants related to epoch kernel system calls
 #![no_std]
-
 #![feature(try_trait)]
 
 use core::option::NoneError;
 
-pub mod syscalls;
 pub mod options;
+pub mod syscalls;
 
 /// Error codes returned by syscalls
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,33 +30,28 @@ pub enum SysErr
 
 impl SysErr
 {
-	pub fn new (n: usize) -> Option<Self>
+	pub fn new(n: usize) -> Option<Self>
 	{
-		if n > Self::Unknown as usize
-		{
+		if n > Self::Unknown as usize {
 			None
-		}
-		else
-		{
-			unsafe
-			{
-				Some(core::mem::transmute (n))
-			}
+		} else {
+			unsafe { Some(core::mem::transmute(n)) }
 		}
 	}
 
-	pub const fn num (&self) -> usize
+	pub const fn num(&self) -> usize
 	{
 		*self as usize
 	}
 
-	pub const fn as_str (&self) -> &'static str
+	pub const fn as_str(&self) -> &'static str
 	{
-		match self
-		{
+		match self {
 			Self::Ok => "no error",
 			Self::MsgResp => "blocking message sent, and a response was recieved",
-			Self::MsgUnreach => "cannot send message, no waiting thread or registered domain handler",
+			Self::MsgUnreach => {
+				"cannot send message, no waiting thread or registered domain handler"
+			},
 			Self::MsgTerm => "cannot send message, connection terminated",
 			Self::OutOfMem => "out of memory",
 			Self::InvlVirtMem => "virtual memory collision",
@@ -75,7 +69,7 @@ impl SysErr
 
 impl From<NoneError> for SysErr
 {
-	fn from (_: NoneError) -> Self
+	fn from(_: NoneError) -> Self
 	{
 		SysErr::Unknown
 	}

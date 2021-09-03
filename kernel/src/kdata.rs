@@ -1,8 +1,9 @@
 use core::ops::Deref;
+
 use crate::util::IMutex;
 use crate::arch::x64::*;
 
-pub static gs_data: IMutex<GsData> = IMutex::new (GsData::new ());
+pub static gs_data: IMutex<GsData> = IMutex::new(GsData::new());
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -14,7 +15,7 @@ pub struct GsData
 
 impl GsData
 {
-	const fn new () -> Self
+	const fn new() -> Self
 	{
 		GsData {
 			call_rsp: 0,
@@ -23,10 +24,10 @@ impl GsData
 	}
 }
 
-pub fn init ()
+pub fn init()
 {
-	let data_addr = (gs_data.lock ().deref () as *const _) as u64;
+	let data_addr = (gs_data.lock().deref() as *const _) as u64;
 
-	wrmsr (GSBASE_MSR, data_addr);
-	wrmsr (GSBASEK_MSR, data_addr);
+	wrmsr(GSBASE_MSR, data_addr);
+	wrmsr(GSBASEK_MSR, data_addr);
 }

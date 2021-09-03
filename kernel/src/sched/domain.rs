@@ -1,5 +1,6 @@
-use crate::uses::*;
 use alloc::collections::BTreeMap;
+
+use crate::uses::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DomainHandler
@@ -11,7 +12,7 @@ pub struct DomainHandler
 
 impl DomainHandler
 {
-	pub const fn new (rip: usize, pid: usize, options: HandlerOptions) -> Self
+	pub const fn new(rip: usize, pid: usize, options: HandlerOptions) -> Self
 	{
 		DomainHandler {
 			pid,
@@ -20,17 +21,17 @@ impl DomainHandler
 		}
 	}
 
-	pub fn rip (&self) -> usize
+	pub fn rip(&self) -> usize
 	{
 		self.rip
 	}
 
-	pub fn pid (&self) -> usize
+	pub fn pid(&self) -> usize
 	{
 		self.pid
 	}
 
-	pub fn options (&self) -> &HandlerOptions
+	pub fn options(&self) -> &HandlerOptions
 	{
 		&self.options
 	}
@@ -48,14 +49,14 @@ pub enum BlockMode
 #[derive(Debug, Clone, Copy)]
 pub struct HandlerOptions
 {
-	// If this is true, will block the 
+	// If this is true, will block the
 	pub block_mode: BlockMode,
 	pub public: bool,
 }
 
 impl HandlerOptions
 {
-	pub fn new (block_mode: BlockMode, public: bool) -> Self
+	pub fn new(block_mode: BlockMode, public: bool) -> Self
 	{
 		HandlerOptions {
 			block_mode,
@@ -74,72 +75,72 @@ pub struct DomainMap
 
 impl DomainMap
 {
-	pub const fn new () -> Self
+	pub const fn new() -> Self
 	{
 		DomainMap {
 			default_handler: None,
-			domains: BTreeMap::new (),
+			domains: BTreeMap::new(),
 		}
 	}
 
-	pub fn default_handler (&self) -> Option<DomainHandler>
+	pub fn default_handler(&self) -> Option<DomainHandler>
 	{
 		self.default_handler
 	}
 
 	// returns true if succesfull
-	pub fn set_default_handler (&mut self, pid_act: usize, new: Option<DomainHandler>) -> bool
+	pub fn set_default_handler(&mut self, pid_act: usize, new: Option<DomainHandler>) -> bool
 	{
-		if optnac (self.default_handler, |h| h.pid == pid_act)
-		{
+		if optnac(self.default_handler, |h| h.pid == pid_act) {
 			self.default_handler = new;
 			true
-		}
-		else
-		{
+		} else {
 			false
 		}
 	}
 
 	// if domain is none, will set the default handler
 	// returns the old handler if one was registered
-	pub fn register (&mut self, pid_act: usize, domain: Option<usize>, handler: DomainHandler) -> bool
+	pub fn register(
+		&mut self,
+		pid_act: usize,
+		domain: Option<usize>,
+		handler: DomainHandler,
+	) -> bool
 	{
-		match domain
-		{
-			Some(domain) =>	if optnac (self.domains.get (&domain), |h| h.pid == pid_act) 
-			{
-				self.domains.insert (domain, handler);
-				true
-			}
-			else
-			{
-				false
+		match domain {
+			Some(domain) => {
+				if optnac(self.domains.get(&domain), |h| h.pid == pid_act) {
+					self.domains.insert(domain, handler);
+					true
+				} else {
+					false
+				}
 			},
-			None => self.set_default_handler (pid_act, Some(handler)),
+			None => self.set_default_handler(pid_act, Some(handler)),
 		}
 	}
 
 	// removes specified domain handler, returning the old one if it existed
-	pub fn remove (&mut self, pid_act: usize, domain: Option<usize>) -> bool
+	pub fn remove(&mut self, pid_act: usize, domain: Option<usize>) -> bool
 	{
-		match domain
-		{
-			Some(domain) =>	if optnac (self.domains.get (&domain), |h| h.pid == pid_act) 
-			{
-				self.domains.remove (&domain);
-				true
-			}
-			else
-			{
-				false
+		match domain {
+			Some(domain) => {
+				if optnac(self.domains.get(&domain), |h| h.pid == pid_act) {
+					self.domains.remove(&domain);
+					true
+				} else {
+					false
+				}
 			},
-			None => self.set_default_handler (pid_act, None),
+			None => self.set_default_handler(pid_act, None),
 		}
 	}
 
-	pub fn get (&self, domain: usize) -> Option<&DomainHandler>
+	pub fn get(&self, domain: usize) -> Option<&DomainHandler>
 	{
-		self.domains.get (&domain).or ((&self.default_handler).as_ref ())
+		self.domains
+			.get(&domain)
+			.or((&self.default_handler).as_ref())
 	}
 }

@@ -1,39 +1,37 @@
 //! Epoch kernel system calls
 #![no_std]
-
 #![feature(asm)]
 
-use sys_consts::{thread, syscalls::*};
-pub use sys_consts::{SysErr, options::*};
+use sys_consts::syscalls::*;
+use sys_consts::thread;
+pub use sys_consts::options::*;
+pub use sys_consts::SysErr;
 
 pub const PAGE_SIZE: usize = 4096;
 // filler for syscall macro to get right amount of return values
 const F: usize = 0;
 
 // must be power of 2 for correct results
-const fn align_up (addr: usize, align: usize) -> usize
+const fn align_up(addr: usize, align: usize) -> usize
 {
 	(addr + align - 1) & !(align - 1)
 }
 
 // must be power of 2 for correct results
-const fn align_down (addr: usize, align: usize) -> usize
+const fn align_down(addr: usize, align: usize) -> usize
 {
 	addr & !(align - 1)
 }
 
-pub fn thread_new (thread_func: fn() -> ()) -> Result<usize, SysErr>
+pub fn thread_new(thread_func: fn() -> ()) -> Result<usize, SysErr>
 {
 	let rip = thread_func as usize;
-	let (err, tid) = unsafe { syscall! (THREAD_BLOCK, 0, rip, F) };
-	let err = SysErr::new (err).unwrap ();
+	let (err, tid) = unsafe { syscall!(THREAD_BLOCK, 0, rip, F) };
+	let err = SysErr::new(err).unwrap();
 
-	if err == SysErr::Ok
-	{
+	if err == SysErr::Ok {
 		Ok(tid)
-	}
-	else
-	{
+	} else {
 		Err(err)
 	}
 }
@@ -48,13 +46,12 @@ pub enum ThreadState
 
 impl ThreadState
 {
-	fn get_vals (&self) -> (usize, usize)
+	fn get_vals(&self) -> (usize, usize)
 	{
 		let mut val = 0;
-	
+
 		// TODO: put these values in syscall_consts crate
-		let reason: usize = match self
-		{
+		let reason: usize = match self {
 			Self::Yield => thread::YIELD,
 			Self::Destroy => thread::DESTROY,
 			Self::Sleep(num) => {
@@ -71,51 +68,69 @@ impl ThreadState
 	}
 }
 
-pub fn thread_block (state: ThreadState)
+pub fn thread_block(state: ThreadState)
 {
-	let (reason, val) = state.get_vals ();
+	let (reason, val) = state.get_vals();
 
-	unsafe
-	{
-		syscall! (THREAD_BLOCK, 0, reason, val);
+	unsafe {
+		syscall!(THREAD_BLOCK, 0, reason, val);
 	}
 }
 
-pub fn futex_block (addr: usize)
+pub fn futex_block(addr: usize)
 {
-	unsafe
-	{
-		syscall! (FUTEX_BLOCK, 0, addr);
+	unsafe {
+		syscall!(FUTEX_BLOCK, 0, addr);
 	}
 }
 
-pub fn futex_unblock (addr: usize, n: usize) -> usize
+pub fn futex_unblock(addr: usize, n: usize) -> usize
 {
-	let (num, _) = unsafe { syscall! (FUTEX_UNBLOCK, 0, addr, n) };
+	let (num, _) = unsafe { syscall!(FUTEX_UNBLOCK, 0, addr, n) };
 	num
 }
 
-pub unsafe fn realloc (mem: usize, size: usize, at_addr: usize, options: ReallocOptions) -> Result<(usize, usize), SysErr>
+pub unsafe fn realloc(
+	mem: usize,
+	size: usize,
+	at_addr: usize,
+	options: ReallocOptions,
+) -> Result<(usize, usize), SysErr>
 {
-	let (err, mem, len) = syscall! (REALLOC, options.bits (), mem, align_up (size, PAGE_SIZE) / PAGE_SIZE, at_addr);
-	let err = SysErr::new (err).unwrap ();
+	let (err, mem, len) = syscall!(
+		REALLOC,
+		options.bits(),
+		mem,
+		align_up(size, PAGE_SIZE) / PAGE_SIZE,
+		at_addr
+	);
+	let err = SysErr::new(err).unwrap();
 
-	if err == SysErr::Ok
-	{
+	if err == SysErr::Ok {
 		Ok((mem, len * PAGE_SIZE))
-	}
-	else
-	{
+	} else {
 		Err(err)
 	}
 }
 
-pub fn print_debug (bytes: &[u8; 10 * core::mem::size_of::<usize> ()], n: u32)
+pub fn print_debug(bytes: &[u8; 10 * core::mem::size_of::<usize>()], n: u32)
 {
 	let arr: &[usize; 10] = unsafe { core::mem::transmute(bytes) };
-	unsafe
-	{
-		syscall! (PRINT_DEBUG, n, arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], arr[6], arr[7], arr[8], arr[9]);
+	unsafe {
+		syscall!(
+			PRINT_DEBUG,
+			n,
+			arr[0],
+			arr[1],
+			arr[2],
+			arr[3],
+			arr[4],
+			arr[5],
+			arr[6],
+			arr[7],
+			arr[8],
+			arr[9]
+		);
 	}
 }
 

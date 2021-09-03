@@ -1,15 +1,16 @@
-use crate::uses::*;
-use bitflags::bitflags;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
+
+use bitflags::bitflags;
+
+use crate::uses::*;
 use crate::sched::FutexMap;
 use super::*;
 use super::phys_alloc::{zm, Allocation};
-use super::virt_alloc::{PageMappingFlags, VirtLayoutElement, VirtLayout, AllocType};
+use super::virt_alloc::{AllocType, PageMappingFlags, VirtLayout, VirtLayoutElement};
 
-bitflags!
-{
+bitflags! {
 	pub struct SMemFlags: u8
 	{
 		const NONE =		0;
@@ -21,13 +22,13 @@ bitflags!
 
 impl SMemFlags
 {
-	fn exists (&self) -> bool
+	fn exists(&self) -> bool
 	{
-		self.intersects (SMemFlags::READ | SMemFlags::WRITE | SMemFlags::EXEC)
+		self.intersects(SMemFlags::READ | SMemFlags::WRITE | SMemFlags::EXEC)
 	}
 }
 
-static next_smid: AtomicUsize = AtomicUsize::new (0);
+static next_smid: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
 pub struct SharedMem
@@ -41,38 +42,41 @@ pub struct SharedMem
 
 impl SharedMem
 {
-	pub fn new (size: usize, flags: SMemFlags) -> Option<Arc<Self>>
+	pub fn new(size: usize, flags: SMemFlags) -> Option<Arc<Self>>
 	{
-		let allocation = zm.alloc (size)?;
-		let id = next_smid.fetch_add (1, Ordering::Relaxed);
-		Some(Arc::new (SharedMem {
+		let allocation = zm.alloc(size)?;
+		let id = next_smid.fetch_add(1, Ordering::Relaxed);
+		Some(Arc::new(SharedMem {
 			mem: allocation,
 			flags,
 			id,
-			futex: FutexMap::new_smem (id),
+			futex: FutexMap::new_smem(id),
 		}))
 	}
 
-	pub fn id (&self) -> usize
+	pub fn id(&self) -> usize
 	{
 		self.id
 	}
 
-	pub fn futex (&self) -> &FutexMap
+	pub fn futex(&self) -> &FutexMap
 	{
 		&self.futex
 	}
 
-	pub fn alloc_type (&self) -> AllocType
+	pub fn alloc_type(&self) -> AllocType
 	{
 		AllocType::Shared(self.id)
 	}
 
 	// returns a virtual layout that can be mapped by the virtual memory mapper
-	pub fn virt_layout (&self) -> VirtLayout
+	pub fn virt_layout(&self) -> VirtLayout
 	{
-		let elem = VirtLayoutElement::from_range (self.mem.into (), PageMappingFlags::from_shared_flags (self.flags));
-		VirtLayout::from (vec![elem], self.alloc_type ())
+		let elem = VirtLayoutElement::from_range(
+			self.mem.into(),
+			PageMappingFlags::from_shared_flags(self.flags),
+		);
+		VirtLayout::from(vec![elem], self.alloc_type())
 	}
 }
 
@@ -85,12 +89,12 @@ pub struct SMemMapEntry
 
 impl SMemMapEntry
 {
-	pub fn smem (&self) -> &Arc<SharedMem>
+	pub fn smem(&self) -> &Arc<SharedMem>
 	{
 		&self.smem
 	}
 
-	pub fn into_smem (self) -> Arc<SharedMem>
+	pub fn into_smem(self) -> Arc<SharedMem>
 	{
 		self.smem
 	}
@@ -105,15 +109,15 @@ pub struct SMemMap
 
 impl SMemMap
 {
-	pub fn new () -> Self
+	pub fn new() -> Self
 	{
 		SMemMap {
-			data: BTreeMap::new (),
+			data: BTreeMap::new(),
 			next_id: 0,
 		}
 	}
 
-	pub fn insert (&mut self, smem: Arc<SharedMem>) -> usize
+	pub fn insert(&mut self, smem: Arc<SharedMem>) -> usize
 	{
 		let id = self.next_id;
 		self.next_id += 1;
@@ -121,22 +125,22 @@ impl SMemMap
 			smem,
 			virt_mem: None,
 		};
-		self.data.insert (id, entry);
+		self.data.insert(id, entry);
 		id
 	}
 
-	pub fn get (&self, id: usize) -> Option<&SMemMapEntry>
+	pub fn get(&self, id: usize) -> Option<&SMemMapEntry>
 	{
-		self.data.get (&id)
+		self.data.get(&id)
 	}
 
-	pub fn get_mut (&mut self, id: usize) -> Option<&mut SMemMapEntry>
+	pub fn get_mut(&mut self, id: usize) -> Option<&mut SMemMapEntry>
 	{
-		self.data.get_mut (&id)
+		self.data.get_mut(&id)
 	}
 
-	pub fn remove (&mut self, id: usize) -> Option<SMemMapEntry>
+	pub fn remove(&mut self, id: usize) -> Option<SMemMapEntry>
 	{
-		self.data.remove (&id)
+		self.data.remove(&id)
 	}
 }

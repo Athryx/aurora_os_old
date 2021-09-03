@@ -4,30 +4,22 @@ pub mod io;
 
 pub mod misc;
 
-pub use libutil::collections::{LinkedList, ListNode};
-
-pub use libutil::collections::{AvlTree, TreeNode};
-
-pub use libutil::collections::NLVec;
-
-pub use libutil::collections::NLVecMap;
+pub use libutil::collections::{AvlTree, LinkedList, ListNode, NLVec, NLVecMap, TreeNode};
 
 // TODO: probably eliminate
 mod error;
-pub use error::{Error, Err};
+pub use error::{Err, Error};
 
 mod imutex;
 pub use imutex::{IMutex, IMutexGuard};
-
 pub use libutil::futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
-
 // TODO: use macros to make shorter
-pub use libutil::ptr::{UniqueRef, UniqueMut, UniquePtr, UniqueMutPtr};
-
+pub use libutil::ptr::{UniqueMut, UniqueMutPtr, UniquePtr, UniqueRef};
 pub use libutil::mem::MemOwner;
+use libutil::mem::Allocation;
+use libutil::UtilCalls;
 
-use libutil::{UtilCalls, mem::Allocation};
-use crate::sched::{thread_c, proc_c, tlist, ThreadState, FutexId};
+use crate::sched::{proc_c, thread_c, tlist, FutexId, ThreadState};
 use crate::mem::phys_alloc::zm;
 
 pub static CALLS: Calls = Calls();
@@ -37,26 +29,25 @@ pub struct Calls();
 impl UtilCalls for Calls
 {
 	// NOTE: chage if kernel ever blocks on shared memory
-	fn block (&self, id: usize)
+	fn block(&self, id: usize)
 	{
-		proc_c ().futex ().block (id);
+		proc_c().futex().block(id);
 	}
 
-	fn unblock (&self, id: usize)
+	fn unblock(&self, id: usize)
 	{
-		proc_c ().futex ().unblock (id, 1);
+		proc_c().futex().unblock(id, 1);
 	}
 
-	fn alloc (&self, size: usize) -> Option<Allocation>
+	fn alloc(&self, size: usize) -> Option<Allocation>
 	{
-		zm.alloc (size)
+		zm.alloc(size)
 	}
 
-	fn dealloc (&self, mem: Allocation)
+	fn dealloc(&self, mem: Allocation)
 	{
-		unsafe
-		{
-			zm.dealloc (mem);
+		unsafe {
+			zm.dealloc(mem);
 		}
 	}
 }

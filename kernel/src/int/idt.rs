@@ -1,8 +1,8 @@
-use crate::uses::*;
 use concat_idents::concat_idents;
-use crate::sched::{Registers, thread_c};
-use crate::gdt;
-use crate::kdata;
+
+use crate::uses::*;
+use crate::sched::{thread_c, Registers};
+use crate::{gdt, kdata};
 use crate::arch::x64::CPUPrivLevel;
 
 pub const PICM_OFFSET: u8 = 32;
@@ -69,10 +69,11 @@ pub const IRQ_SECONDARY_ATA: u8 = PICS_OFFSET + 7;
 pub const INT_SCHED: u8 = 128;
 
 const MAX_HANDLERS: usize = 16;
-const IDT_SIZE: usize = 256; 
+const IDT_SIZE: usize = 256;
 
-static mut idt: Idt = Idt::new ();
-static mut int_handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE] = [[None; MAX_HANDLERS]; IDT_SIZE];
+static mut idt: Idt = Idt::new();
+static mut int_handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE] =
+	[[None; MAX_HANDLERS]; IDT_SIZE];
 
 pub type IntHandlerFunc = fn(&Registers, u64) -> Option<&Registers>;
 
@@ -90,20 +91,19 @@ struct IdtPointer
 
 impl Idt
 {
-	const fn new () -> Self
+	const fn new() -> Self
 	{
-		Idt([IdtEntry::none (); IDT_SIZE])
+		Idt([IdtEntry::none(); IDT_SIZE])
 	}
 
-	fn load (&self)
+	fn load(&self)
 	{
 		let idtptr = IdtPointer {
-			limit: (size_of::<Idt> () - 1) as _,
+			limit: (size_of::<Idt>() - 1) as _,
 			base: (self as *const _) as _,
 		};
-	
-		unsafe
-		{
+
+		unsafe {
 			asm!("lidt [{}]", in(reg) &idtptr, options(nostack));
 		}
 	}
@@ -129,12 +129,11 @@ pub enum IntHandlerType
 impl IntHandlerType
 {
 	// get attr flags for IdtEntry
-	fn get_attr_flags (&self, ring: CPUPrivLevel) -> u8
+	fn get_attr_flags(&self, ring: CPUPrivLevel) -> u8
 	{
-		match self
-		{
-			Self::Interrupt => 0x80 | ring.n () << 5 | 0xe,
-			Self::Trap => 0x80 | ring.n () << 5 | 0xf,
+		match self {
+			Self::Interrupt => 0x80 | ring.n() << 5 | 0xe,
+			Self::Trap => 0x80 | ring.n() << 5 | 0xf,
 		}
 	}
 }
@@ -155,20 +154,20 @@ struct IdtEntry
 
 impl IdtEntry
 {
-	fn new (addr: usize, htype: IntHandlerType, ring: CPUPrivLevel) -> Self
+	fn new(addr: usize, htype: IntHandlerType, ring: CPUPrivLevel) -> Self
 	{
 		IdtEntry {
-			addr1: get_bits (addr, 0..16) as _,
-			addr2: get_bits (addr, 16..32) as _,
-			addr3: get_bits (addr, 32..64) as _,
+			addr1: get_bits(addr, 0..16) as _,
+			addr2: get_bits(addr, 16..32) as _,
+			addr3: get_bits(addr, 32..64) as _,
 			code_selector: 8,
 			ist: 0,
-			attr: htype.get_attr_flags (ring),
+			attr: htype.get_attr_flags(ring),
 			zero: 0,
 		}
 	}
 
-	const fn none () -> Self
+	const fn none() -> Self
 	{
 		IdtEntry {
 			addr1: 0,
@@ -192,103 +191,86 @@ pub enum Handler
 impl Handler
 {
 	// will never put normal in first or last position
-	pub fn register (&self, vec: u8) -> Result<(), Err>
+	pub fn register(&self, vec: u8) -> Result<(), Err>
 	{
 		let vec = vec as usize;
-		unsafe
-		{
-			match self
-			{
+		unsafe {
+			match self {
 				Self::First(func) => {
-					if int_handlers[vec][0].is_none ()
-					{
+					if int_handlers[vec][0].is_none() {
 						int_handlers[vec][0] = Some(*func);
 						Ok(())
-					}
-					else
-					{
-						Err(Err::new ("couldn't register int handler for first position"))
+					} else {
+						Err(Err::new("couldn't register int handler for first position"))
 					}
 				},
 				Self::Normal(func) => {
-					for i in 1..MAX_HANDLERS
-					{
-						if int_handlers[vec][i].is_none ()
-						{
+					for i in 1..MAX_HANDLERS {
+						if int_handlers[vec][i].is_none() {
 							int_handlers[vec][i] = Some(*func);
 							return Ok(());
 						}
 					}
-					Err(Err::new ("couldn't register int handler for middle position"))
+					Err(Err::new(
+						"couldn't register int handler for middle position",
+					))
 				},
 				Self::Last(func) => {
-					if int_handlers[vec][MAX_HANDLERS - 1].is_none ()
-					{
+					if int_handlers[vec][MAX_HANDLERS - 1].is_none() {
 						int_handlers[vec][MAX_HANDLERS - 1] = Some(*func);
 						Ok(())
+					} else {
+						Err(Err::new("couldn't register int handler for first position"))
 					}
-					else
-					{
-						Err(Err::new ("couldn't register int handler for first position"))
-					}
-				}
+				},
 			}
 		}
 	}
 }
 
 #[no_mangle]
-extern "C" fn rust_int_handler (vec: u8, regs: &mut Registers, error_code: u64) -> Option<&Registers>
+extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
+	-> Option<&Registers>
 {
 	let vec = vec as usize;
 
 	// set call_rsp and call_save_rsp in regs data structure which are not set by assembly
 	{
-		let data = kdata::gs_data.lock ();
+		let data = kdata::gs_data.lock();
 		regs.call_rsp = data.call_rsp;
 		regs.call_save_rsp = data.call_save_rsp;
 	}
 
-	*thread_c ().regs.lock () = *regs;
+	*thread_c().regs.lock() = *regs;
 
 	let mut out = None;
 
-	for i in 0..MAX_HANDLERS
-	{
-		let func = unsafe {int_handlers[vec][i]};
-		if let Some(func) = func
-		{
-			if i == MAX_HANDLERS - 1
-			{
-				out = func (regs, error_code);
-			}
-			else
-			{
-				func (regs, error_code);
+	for i in 0..MAX_HANDLERS {
+		let func = unsafe { int_handlers[vec][i] };
+		if let Some(func) = func {
+			if i == MAX_HANDLERS - 1 {
+				out = func(regs, error_code);
+			} else {
+				func(regs, error_code);
 			}
 		}
 	}
 
-	if let Some(regs) = out
-	{
-		d ();
-		let mut tss = gdt::tss.lock ();
+	if let Some(regs) = out {
+		d();
+		let mut tss = gdt::tss.lock();
 		tss.rsp0 = regs.call_rsp as _;
-		let mut data = kdata::gs_data.lock ();
+		let mut data = kdata::gs_data.lock();
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
-	}
-	else
-	{
-		let thread = thread_c ();
-		let mut rcv_regs = thread.rcv_regs ().lock ();
+	} else {
+		let thread = thread_c();
+		let mut rcv_regs = thread.rcv_regs().lock();
 
-		if let Ok(regs) = *rcv_regs
-		{
+		if let Ok(regs) = *rcv_regs {
 			// don't need to set regs because these will be set at next interrupt
 			use crate::sched::out_regs;
-			unsafe
-			{
+			unsafe {
 				out_regs = regs;
 				out = Some(&out_regs);
 			}
@@ -313,7 +295,7 @@ macro_rules! minth {
 	}
 }
 
-pub fn init ()
+pub fn init()
 {
 	// TODO: set IntHandlerType correctly
 	minth!(0, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
@@ -366,8 +348,7 @@ pub fn init ()
 	minth!(47, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 	minth!(128, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 
-	unsafe
-	{
-		idt.load ();
+	unsafe {
+		idt.load();
 	}
 }

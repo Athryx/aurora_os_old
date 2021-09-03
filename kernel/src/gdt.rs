@@ -4,11 +4,10 @@ use crate::uses::*;
 
 const GDT_SIZE: usize = 5;
 
-lazy_static!
-{
-	static ref gdt: Gdt = Gdt::new ();
+lazy_static! {
+	static ref gdt: Gdt = Gdt::new();
 }
-pub static tss: IMutex<Tss> = IMutex::new (Tss::new ());
+pub static tss: IMutex<Tss> = IMutex::new(Tss::new());
 
 // TODO: compiler doesn't align these since they are packed, but that might slow things down
 
@@ -29,44 +28,42 @@ struct GdtPointer
 
 impl Gdt
 {
-	fn new () -> Self
+	fn new() -> Self
 	{
 		Gdt {
 			entries: [
-				GdtEntry::null (),
-				GdtEntry::kernel_code (),
-				GdtEntry::kernel_data (),
-				GdtEntry::user_data (),
-				GdtEntry::user_code (),
+				GdtEntry::null(),
+				GdtEntry::kernel_code(),
+				GdtEntry::kernel_data(),
+				GdtEntry::user_data(),
+				GdtEntry::user_code(),
 			],
-			tss: TssEntry::new (&tss.lock ()),
+			tss: TssEntry::new(&tss.lock()),
 		}
 	}
 
-	fn load (&self)
+	fn load(&self)
 	{
 		let gdtptr = GdtPointer {
-			limit: (size_of::<Gdt> () - 1) as _,
+			limit: (size_of::<Gdt>() - 1) as _,
 			base: (self as *const _) as _,
 		};
 
-		unsafe
-		{
+		unsafe {
 			asm! ("lgdt [{}]", in(reg) &gdtptr, options(nostack));
 		}
 	}
 
-	fn set (&mut self, index: usize, entry: GdtEntry)
+	fn set(&mut self, index: usize, entry: GdtEntry)
 	{
-		if index >= GDT_SIZE
-		{
+		if index >= GDT_SIZE {
 			return;
 		}
 
 		self.entries[index] = entry;
 	}
 
-	fn set_tss (&mut self, tss_in: TssEntry)
+	fn set_tss(&mut self, tss_in: TssEntry)
 	{
 		self.tss = tss_in;
 	}
@@ -86,43 +83,43 @@ struct GdtEntry
 
 impl GdtEntry
 {
-	const fn new (base: u32, limit: u32, access: u8, flags: u8) -> Self
+	const fn new(base: u32, limit: u32, access: u8, flags: u8) -> Self
 	{
 		let base = base as usize;
 		let limit = limit as usize;
 		GdtEntry {
-			base1: get_bits (base, 0..16) as _,
-			base2: get_bits (base, 16..24) as _,
-			base3: get_bits (base, 24..32) as _,
+			base1: get_bits(base, 0..16) as _,
+			base2: get_bits(base, 16..24) as _,
+			base3: get_bits(base, 24..32) as _,
 			access,
-			limit1: get_bits (limit, 0..16) as _,
-			limit2_flags: get_bits (limit, 16..20) as u8 | ((flags & 0xf) << 4),
+			limit1: get_bits(limit, 0..16) as _,
+			limit2_flags: get_bits(limit, 16..20) as u8 | ((flags & 0xf) << 4),
 		}
 	}
 
-	const fn null () -> Self
+	const fn null() -> Self
 	{
-		Self::new (0, 0, 0, 0)
+		Self::new(0, 0, 0, 0)
 	}
 
-	const fn kernel_code () -> Self
+	const fn kernel_code() -> Self
 	{
-		Self::new (0, 0xffffffff, 0x9a, 0x0a)
+		Self::new(0, 0xffffffff, 0x9a, 0x0a)
 	}
 
-	const fn kernel_data () -> Self
+	const fn kernel_data() -> Self
 	{
-		Self::new (0, 0xffffffff, 0x92, 0x0a)
+		Self::new(0, 0xffffffff, 0x92, 0x0a)
 	}
 
-	const fn user_code () -> Self
+	const fn user_code() -> Self
 	{
-		Self::new (0, 0xffffffff, 0xfa, 0x0a)
+		Self::new(0, 0xffffffff, 0xfa, 0x0a)
 	}
 
-	const fn user_data () -> Self
+	const fn user_data() -> Self
 	{
-		Self::new (0, 0xffffffff, 0xf2, 0x0a)
+		Self::new(0, 0xffffffff, 0xf2, 0x0a)
 	}
 }
 
@@ -149,7 +146,7 @@ pub struct Tss
 
 impl Tss
 {
-	const fn new () -> Self
+	const fn new() -> Self
 	{
 		Tss {
 			rsp0: 0,
@@ -168,7 +165,7 @@ impl Tss
 			zero4: 0,
 			//iomap: size_of::<Tss> () as _,
 			//iomap: 0,
-			iomap: size_of::<Tss> () as u16,
+			iomap: size_of::<Tss>() as u16,
 		}
 	}
 }
@@ -189,16 +186,16 @@ struct TssEntry
 
 impl TssEntry
 {
-	fn new (tss_in: &Tss) -> Self
+	fn new(tss_in: &Tss) -> Self
 	{
 		let addr = (tss_in as *const _) as usize;
 		TssEntry {
-			base1: get_bits (addr, 0..16) as _,
-			base2: get_bits (addr, 16..24) as _,
-			base3: get_bits (addr, 24..32) as _,
-			base4: get_bits (addr, 32..64) as _,
+			base1: get_bits(addr, 0..16) as _,
+			base2: get_bits(addr, 16..24) as _,
+			base3: get_bits(addr, 24..32) as _,
+			base4: get_bits(addr, 32..64) as _,
 			access: 0x89,
-			limit1: (size_of::<Tss> () - 1) as _, // length of tss
+			limit1: (size_of::<Tss>() - 1) as _, // length of tss
 			//limit1: size_of::<Tss> () as _, // length of tss
 			limit2_flags: 0, // both limit2 and flags are 0
 			zero: 0,
@@ -206,12 +203,11 @@ impl TssEntry
 	}
 }
 
-pub fn init ()
+pub fn init()
 {
-	gdt.load ();
+	gdt.load();
 
-	unsafe
-	{
+	unsafe {
 		asm! ("ltr di",
 			inout("di") 0x28 => _,
 		);

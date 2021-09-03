@@ -1,6 +1,5 @@
 //! Basic library that has code that is shared between userspace and kernel
 #![no_std]
-
 #![feature(asm)]
 #![feature(allocator_api)]
 #![feature(alloc_prelude)]
@@ -11,11 +10,11 @@ extern crate alloc;
 
 pub mod atomic;
 pub mod cell;
+pub mod collections;
 pub mod futex;
+pub mod mem;
 pub mod misc;
 pub mod ptr;
-pub mod mem;
-pub mod collections;
 
 mod uses;
 
@@ -25,49 +24,43 @@ static mut UTIL_CALLS: Option<&'static dyn UtilCalls> = None;
 
 pub trait UtilCalls
 {
-	fn block (&self, id: usize);
-	fn unblock (&self, id: usize);
+	fn block(&self, id: usize);
+	fn unblock(&self, id: usize);
 
-	fn alloc (&self, size: usize) -> Option<Allocation>;
-	fn dealloc (&self, mem: Allocation);
+	fn alloc(&self, size: usize) -> Option<Allocation>;
+	fn dealloc(&self, mem: Allocation);
 }
 
-fn block (addr: usize)
+fn block(addr: usize)
 {
-	unsafe
-	{
-		UTIL_CALLS.as_ref ().unwrap ().block (addr);
+	unsafe {
+		UTIL_CALLS.as_ref().unwrap().block(addr);
 	}
 }
 
-fn unblock (addr: usize)
+fn unblock(addr: usize)
 {
-	unsafe
-	{
-		UTIL_CALLS.as_ref ().unwrap ().unblock (addr);
+	unsafe {
+		UTIL_CALLS.as_ref().unwrap().unblock(addr);
 	}
 }
 
-fn alloc (size: usize) -> Option<Allocation>
+fn alloc(size: usize) -> Option<Allocation>
 {
-	unsafe
-	{
-		UTIL_CALLS.as_ref ().unwrap ().alloc (size)
-	}
+	unsafe { UTIL_CALLS.as_ref().unwrap().alloc(size) }
 }
 
-fn dealloc (mem: Allocation)
+fn dealloc(mem: Allocation)
 {
-	unsafe
-	{
-		UTIL_CALLS.as_ref ().unwrap ().dealloc (mem);
+	unsafe {
+		UTIL_CALLS.as_ref().unwrap().dealloc(mem);
 	}
 }
 
 /// safety: can only be called singel threaded, and cannot call any other library functions untill after this returns
-pub unsafe fn init (calls: &'static dyn UtilCalls)
+pub unsafe fn init(calls: &'static dyn UtilCalls)
 {
 	UTIL_CALLS = Some(calls);
 
-	mem::init ();
+	mem::init();
 }

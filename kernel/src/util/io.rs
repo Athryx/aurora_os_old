@@ -1,7 +1,9 @@
 use core::fmt::{self, Write};
+
 use volatile::Volatile;
 use lazy_static::lazy_static;
 use spin::Mutex;
+
 use crate::arch::x64::*;
 use crate::consts;
 use crate::syscall::SyscallVals;
@@ -12,20 +14,21 @@ const VGA_BUF_HEIGHT: usize = 25;
 
 const DEBUGCON_PORT: u16 = 0xe9;
 
-lazy_static!
-{
-	pub static ref WRITER: Mutex<Writer> = Mutex::new (Writer
-	{
+lazy_static! {
+	pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
 		xpos: 0,
 		ypos: 0,
-		color: ColorCode::new (Color::Yellow, Color::Black),
-		buffer: unsafe { ((*consts::KERNEL_VMA + 0xb8000) as *mut Buffer).as_mut ().unwrap () },
+		color: ColorCode::new(Color::Yellow, Color::Black),
+		buffer: unsafe {
+			((*consts::KERNEL_VMA + 0xb8000) as *mut Buffer)
+				.as_mut()
+				.unwrap()
+		},
 	});
 }
-pub static E_WRITER: Mutex<PortWriter> = Mutex::new (PortWriter::new (DEBUGCON_PORT));
+pub static E_WRITER: Mutex<PortWriter> = Mutex::new(PortWriter::new(DEBUGCON_PORT));
 // doesn't lock, so ideal for calling from interrupt handlers, but it is not synchronized
-pub static mut R_WRITER: PortWriter = PortWriter::new (DEBUGCON_PORT);
-
+pub static mut R_WRITER: PortWriter = PortWriter::new(DEBUGCON_PORT);
 
 #[repr(transparent)]
 struct Buffer
@@ -62,7 +65,7 @@ struct ColorCode(u8);
 
 impl ColorCode
 {
-	const fn new (foreground: Color, background: Color) -> Self
+	const fn new(foreground: Color, background: Color) -> Self
 	{
 		ColorCode((background as u8) << 4 | (foreground as u8))
 	}
@@ -78,9 +81,12 @@ struct ScreenChar
 
 impl ScreenChar
 {
-	fn new (cchar: u8, color: ColorCode) -> Self
+	fn new(cchar: u8, color: ColorCode) -> Self
 	{
-		ScreenChar {cchar, color}
+		ScreenChar {
+			cchar,
+			color,
+		}
 	}
 }
 
@@ -95,90 +101,78 @@ pub struct Writer
 impl Writer
 {
 	// when this is called previous calls would have gauranteed xpos and ypos are correct
-	pub fn write_byte (&mut self, byte: u8)
+	pub fn write_byte(&mut self, byte: u8)
 	{
-		match byte
-		{
+		match byte {
 			b'\n' => {
 				self.ypos += 1;
 				self.xpos = 0;
-				self.wrap_pos ();
+				self.wrap_pos();
 			},
 			_ => {
-				let ctow = ScreenChar::new (byte, self.color);
-				self.buffer.chars[self.ypos][self.xpos].write (ctow);
+				let ctow = ScreenChar::new(byte, self.color);
+				self.buffer.chars[self.ypos][self.xpos].write(ctow);
 				self.xpos += 1;
-				self.wrap_pos ();
+				self.wrap_pos();
 			},
 		}
 	}
 
-	pub fn write_string (&mut self, string: &str)
+	pub fn write_string(&mut self, string: &str)
 	{
-		for b in string.bytes ()
-		{
-			match b
-			{
-				0x20..=0x7e | b'\n' => self.write_byte (b),
-				_ => self.write_byte (0xfe),
+		for b in string.bytes() {
+			match b {
+				0x20..=0x7e | b'\n' => self.write_byte(b),
+				_ => self.write_byte(0xfe),
 			}
 		}
 	}
 
-	pub fn clear (&mut self)
+	pub fn clear(&mut self)
 	{
-		for y in 0..VGA_BUF_HEIGHT
-		{
-			self.clear_row (y);
+		for y in 0..VGA_BUF_HEIGHT {
+			self.clear_row(y);
 		}
 	}
 
-	fn scroll_down (&mut self, lines: usize)
+	fn scroll_down(&mut self, lines: usize)
 	{
-		if lines >= VGA_BUF_HEIGHT
-		{
-			for y in 0..VGA_BUF_HEIGHT
-			{
-				self.clear_row (y);
+		if lines >= VGA_BUF_HEIGHT {
+			for y in 0..VGA_BUF_HEIGHT {
+				self.clear_row(y);
 			}
 			return;
 		}
 
-		for y in 0..(VGA_BUF_HEIGHT - lines)
-		{
-			for x in 0..VGA_BUF_WIDTH
-			{
+		for y in 0..(VGA_BUF_HEIGHT - lines) {
+			for x in 0..VGA_BUF_WIDTH {
 				let buf = &mut self.buffer.chars;
-				buf[y][x].write (buf[y + lines][x].read ());
+				buf[y][x].write(buf[y + lines][x].read());
 			}
 		}
 
-		for y in (VGA_BUF_HEIGHT - lines)..VGA_BUF_HEIGHT
-		{
-			self.clear_row (y);
+		for y in (VGA_BUF_HEIGHT - lines)..VGA_BUF_HEIGHT {
+			self.clear_row(y);
 		}
 	}
 
-	fn clear_row (&mut self, row: usize)
+	fn clear_row(&mut self, row: usize)
 	{
-		let blank = ScreenChar::new (b' ', self.color);
+		let blank = ScreenChar::new(b' ', self.color);
 
-		for x in 0..VGA_BUF_WIDTH
-		{
-			self.buffer.chars[row][x].write (blank);
+		for x in 0..VGA_BUF_WIDTH {
+			self.buffer.chars[row][x].write(blank);
 		}
 	}
 
-	fn wrap_pos (&mut self)
+	fn wrap_pos(&mut self)
 	{
-		if self.xpos >= VGA_BUF_WIDTH
-		{
+		if self.xpos >= VGA_BUF_WIDTH {
 			self.xpos = 0;
 			self.ypos += 1;
 		}
-		if self.ypos >= VGA_BUF_HEIGHT
-		{
-			self.scroll_down (self.ypos - VGA_BUF_HEIGHT + 1);
+		if self.ypos >= VGA_BUF_HEIGHT {
+			self.scroll_down(self.ypos - VGA_BUF_HEIGHT + 1);
 			self.ypos = VGA_BUF_HEIGHT - 1;
 		}
 	}
@@ -186,9 +180,9 @@ impl Writer
 
 impl Write for Writer
 {
-	fn write_str (&mut self, s: &str) -> fmt::Result
+	fn write_str(&mut self, s: &str) -> fmt::Result
 	{
-		self.write_string (s);
+		self.write_string(s);
 		Ok(())
 	}
 }
@@ -205,9 +199,9 @@ macro_rules! println {
 }
 
 #[doc(hidden)]
-pub fn _print (args: fmt::Arguments)
+pub fn _print(args: fmt::Arguments)
 {
-	WRITER.lock ().write_fmt (args).unwrap ();
+	WRITER.lock().write_fmt(args).unwrap();
 }
 
 pub struct PortWriter
@@ -217,32 +211,31 @@ pub struct PortWriter
 
 impl PortWriter
 {
-	const fn new (port: u16) -> Self
+	const fn new(port: u16) -> Self
 	{
 		PortWriter {
-			port
+			port,
 		}
 	}
 
-	pub fn write_byte (&self, byte: u8)
+	pub fn write_byte(&self, byte: u8)
 	{
-		outb (self.port, byte);
+		outb(self.port, byte);
 	}
 
-	pub fn write_string (&self, string: &str)
+	pub fn write_string(&self, string: &str)
 	{
-		for b in string.bytes ()
-		{
-			self.write_byte (b);
+		for b in string.bytes() {
+			self.write_byte(b);
 		}
 	}
 }
 
 impl Write for PortWriter
 {
-	fn write_str (&mut self, s: &str) -> fmt::Result
+	fn write_str(&mut self, s: &str) -> fmt::Result
 	{
-		self.write_string (s);
+		self.write_string(s);
 		Ok(())
 	}
 }
@@ -259,9 +252,9 @@ macro_rules! eprintln {
 }
 
 #[doc(hidden)]
-pub fn _eprint (args: fmt::Arguments)
+pub fn _eprint(args: fmt::Arguments)
 {
-	E_WRITER.lock ().write_fmt (args).unwrap ();
+	E_WRITER.lock().write_fmt(args).unwrap();
 }
 
 #[macro_export]
@@ -276,24 +269,21 @@ macro_rules! rprintln {
 }
 
 #[doc(hidden)]
-pub fn _rprint (args: fmt::Arguments)
+pub fn _rprint(args: fmt::Arguments)
 {
-	unsafe
-	{
-		R_WRITER.write_fmt (args).unwrap ();
+	unsafe {
+		R_WRITER.write_fmt(args).unwrap();
 	}
 }
 
-pub extern "C" fn sys_print_debug (vals: &mut SyscallVals)
+pub extern "C" fn sys_print_debug(vals: &mut SyscallVals)
 {
-	fn print_bytes (bytes: usize, mut n: usize) -> usize
+	fn print_bytes(bytes: usize, mut n: usize) -> usize
 	{
 		let mut i = 0;
-		while i < core::mem::size_of::<usize> () && n > 0
-		{
-			unsafe
-			{
-				R_WRITER.write_byte (get_bits (bytes, (8 * i)..(8 * i + 8)) as u8);
+		while i < core::mem::size_of::<usize>() && n > 0 {
+			unsafe {
+				R_WRITER.write_byte(get_bits(bytes, (8 * i)..(8 * i + 8)) as u8);
 			}
 			i += 1;
 			n -= 1;
@@ -302,14 +292,14 @@ pub extern "C" fn sys_print_debug (vals: &mut SyscallVals)
 	}
 
 	let mut n = core::cmp::min(vals.options, 80) as usize;
-	n = print_bytes (vals.a1, n);
-	n = print_bytes (vals.a2, n);
-	n = print_bytes (vals.a3, n);
-	n = print_bytes (vals.a4, n);
-	n = print_bytes (vals.a5, n);
-	n = print_bytes (vals.a6, n);
-	n = print_bytes (vals.a7, n);
-	n = print_bytes (vals.a8, n);
-	n = print_bytes (vals.a9, n);
-	print_bytes (vals.a10, n);
+	n = print_bytes(vals.a1, n);
+	n = print_bytes(vals.a2, n);
+	n = print_bytes(vals.a3, n);
+	n = print_bytes(vals.a4, n);
+	n = print_bytes(vals.a5, n);
+	n = print_bytes(vals.a6, n);
+	n = print_bytes(vals.a7, n);
+	n = print_bytes(vals.a8, n);
+	n = print_bytes(vals.a9, n);
+	print_bytes(vals.a10, n);
 }

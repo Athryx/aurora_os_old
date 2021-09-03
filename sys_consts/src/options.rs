@@ -1,8 +1,7 @@
 //! options for epoch kernel syscalls
 use bitflags::bitflags;
 
-bitflags!
-{
+bitflags! {
 	pub struct FutexOptions: u32
 	{
 		const SHARE = 1;
@@ -11,8 +10,7 @@ bitflags!
 	}
 }
 
-bitflags!
-{
+bitflags! {
 	pub struct ReallocOptions: u32
 	{
 		const READ = 1;
@@ -22,8 +20,7 @@ bitflags!
 	}
 }
 
-bitflags!
-{
+bitflags! {
 	pub struct SallocOptions: u32
 	{
 		const READ = 1;
@@ -32,8 +29,7 @@ bitflags!
 	}
 }
 
-bitflags!
-{
+bitflags! {
 	pub struct RegOptions: u32
 	{
 		const BLOCK = 1;
@@ -45,16 +41,14 @@ bitflags!
 	}
 }
 
-bitflags!
-{
+bitflags! {
 	pub struct ConnectOptions: u32
 	{
 		const PID = 1;
 	}
 }
 
-bitflags!
-{
+bitflags! {
 	pub struct MsgOptions: u32
 	{
 		const PID = 1;

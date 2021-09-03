@@ -15,10 +15,9 @@ pub enum PrivLevel
 
 impl PrivLevel
 {
-	pub fn new (uid: usize) -> Self
+	pub fn new(uid: usize) -> Self
 	{
-		match uid
-		{
+		match uid {
 			KERNEL_UID => Self::Kernel,
 			SUPERUSER_UID => Self::SuperUser,
 			IOPRIV_UID => Self::IOPriv,
@@ -26,10 +25,9 @@ impl PrivLevel
 		}
 	}
 
-	pub fn uid (&self) -> usize
+	pub fn uid(&self) -> usize
 	{
-		match self
-		{
+		match self {
 			Self::Kernel => KERNEL_UID,
 			Self::SuperUser => SUPERUSER_UID,
 			Self::IOPriv => IOPRIV_UID,
@@ -37,10 +35,9 @@ impl PrivLevel
 		}
 	}
 
-	pub fn as_cpu_priv (&self) -> CPUPrivLevel
+	pub fn as_cpu_priv(&self) -> CPUPrivLevel
 	{
-		match self
-		{
+		match self {
 			Self::Kernel => CPUPrivLevel::Ring0,
 			_ => CPUPrivLevel::Ring3,
 		}
