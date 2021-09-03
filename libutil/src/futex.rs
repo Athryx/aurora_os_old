@@ -5,9 +5,12 @@ use core::cell::UnsafeCell;
 use crate::uses::*;
 use crate::{block, unblock};
 
+static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Debug)]
 pub struct Futex<T>
 {
+	id: AtomicUsize,
 	count: AtomicUsize,
 	data: UnsafeCell<T>,
 }
@@ -17,29 +20,33 @@ impl<T> Futex<T>
 	pub const fn new(data: T) -> Self
 	{
 		Futex {
+			id: AtomicUsize::new(usize::MAX),
 			count: AtomicUsize::new(0),
 			data: UnsafeCell::new(data),
 		}
 	}
 
-	/*pub fn lock(&self) -> FutexGuard<T>
+	fn id(&self) -> usize
 	{
-		loop {
-			match self.try_lock() {
-				Ok(guard) => return guard,
-				Err(_) => {
-					// FIXME: this futex has race condition which can cause thread calling lock to block even when futex is available
-					self.waiting.fetch_add(1, Ordering::Relaxed);
-					block(self as *const _ as usize);
-				},
-			}
+		let id = self.id.load(Ordering::Relaxed);
+		if id != usize::MAX {
+			return id;
 		}
-	}*/
+
+		let new_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+		match self
+			.id
+			.compare_exchange(usize::MAX, new_id, Ordering::Relaxed, Ordering::Relaxed)
+		{
+			Ok(_) => new_id,
+			Err(id) => id,
+		}
+	}
 
 	pub fn lock(&self) -> FutexGuard<T>
 	{
 		if self.count.fetch_add(1, Ordering::Relaxed) > 0 {
-			block(self as *const _ as usize);
+			block(self.id());
 		}
 		FutexGuard(self)
 	}
@@ -111,7 +118,7 @@ impl<T> Drop for FutexGuard<'_, T>
 	fn drop(&mut self)
 	{
 		if self.0.count.fetch_sub(1, Ordering::Relaxed) > 1 {
-			unblock(self.0 as *const _ as usize);
+			unblock(self.0.id());
 		}
 	}
 }
