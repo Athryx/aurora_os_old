@@ -3,6 +3,7 @@ use bitflags::bitflags;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
+use crate::sched::FutexMap;
 use super::*;
 use super::phys_alloc::{zm, Allocation};
 use super::virt_alloc::{PageMappingFlags, VirtLayoutElement, VirtLayout, AllocType};
@@ -35,6 +36,7 @@ pub struct SharedMem
 	flags: SMemFlags,
 	// this id is not used in any process to reference this shared memory, it is used for scheduler purposes to wait on shared futexes
 	id: usize,
+	futex: FutexMap,
 }
 
 impl SharedMem
@@ -42,16 +44,23 @@ impl SharedMem
 	pub fn new (size: usize, flags: SMemFlags) -> Option<Arc<Self>>
 	{
 		let allocation = zm.alloc (size)?;
+		let id = next_smid.fetch_add (1, Ordering::Relaxed);
 		Some(Arc::new (SharedMem {
 			mem: allocation,
 			flags,
-			id: next_smid.fetch_add (1, Ordering::Relaxed),
+			id,
+			futex: FutexMap::new_smem (id),
 		}))
 	}
 
 	pub fn id (&self) -> usize
 	{
 		self.id
+	}
+
+	pub fn futex (&self) -> &FutexMap
+	{
+		&self.futex
 	}
 
 	pub fn alloc_type (&self) -> AllocType

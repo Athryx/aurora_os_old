@@ -20,7 +20,7 @@ pub use process::{SpawnStartState, SpawnMapFlags, Process};
 pub use thread::{Thread, ThreadState, Stack, Tuid};
 pub use domain::*;
 pub use connection::*;
-pub use sync::{Fuid, KFutex};
+pub use sync::{Fuid, KFutex, FutexMap};
 pub use namespace::{Namespace, namespace_map};
 
 // TODO: clean up code, it is kind of ugly
@@ -75,7 +75,12 @@ fn time_handler (regs: &Registers, _: u64) -> Option<&Registers>
 	// FIXME: ugly
 	for tpointer in unsafe { unbound_mut (time_list).iter () }
 	{
-		let sleep_nsec = tpointer.state ().sleep_nsec ().unwrap ();
+		let sleep_nsec = match tpointer.state ()
+		{
+			ThreadState::Sleep(nsec) => nsec,
+			_ => panic! ("thread in sleep queue but state is not sleeping"),
+		};
+
 		if nsec >= sleep_nsec
 		{
 			Thread::move_to (tpointer, ThreadState::Ready, &mut thread_list);

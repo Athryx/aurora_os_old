@@ -1,39 +1,54 @@
 use crate::uses::*;
 use spin::{Mutex, MutexGuard};
-use core::cmp;
 use core::sync::atomic::{AtomicIsize, AtomicBool, Ordering};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use super::{thread_c, tlist, ThreadState};
 
-// a struct that uniqeuly identifies a futex for the scheduler
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Fuid
+pub struct FuidInner
 {
-	// can be a pid or smid
 	parent_id: usize,
-	// futex_id
 	fid: usize,
 }
 
-impl Fuid
+impl FuidInner
 {
-	pub fn new (parent_id: usize, fid: usize) -> Self
+	fn new (parent_id: usize, fid: usize) -> Self
 	{
-		Fuid {
+		FuidInner {
 			parent_id,
 			fid,
 		}
 	}
+}
 
-	pub fn parent_id (&self) -> usize
+// a struct that uniqeuly identifies a futex for the scheduler
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Fuid
+{
+	Process(FuidInner),
+	SMem(FuidInner),
+}
+
+impl Fuid
+{
+	pub fn new_process (parent_id: usize, fid: usize) -> Self
 	{
-		self.parent_id
+		Self::Process(FuidInner::new (parent_id, fid))
 	}
 
-	pub fn fid (&self) -> usize
+	pub fn new_smem (parent_id: usize, fid: usize) -> Self
 	{
-		self.fid
+		Self::SMem(FuidInner::new (parent_id, fid))
+	}
+}
+
+impl Default for Fuid
+{
+	fn default () -> Self
+	{
+		Self::Process(FuidInner::default ())
 	}
 }
 
@@ -158,6 +173,7 @@ impl KFutex
 #[derive(Debug)]
 pub struct FutexMap
 {
+	process: bool,
 	parent_id: usize,
 	// TODO: make this prettier
 	data: Mutex<BTreeMap<Fuid, Arc<KFutex>>>,
@@ -165,17 +181,34 @@ pub struct FutexMap
 
 impl FutexMap
 {
-	pub fn new (parent_id: usize) -> Self
+	pub fn new_process (pid: usize) -> Self
 	{
 		FutexMap {
-			parent_id,
+			process: true,
+			parent_id: pid,
+			data: Mutex::new (BTreeMap::new ()),
+		}
+	}
+
+	pub fn new_smem (smid: usize) -> Self
+	{
+		FutexMap {
+			process: false,
+			parent_id: smid,
 			data: Mutex::new (BTreeMap::new ()),
 		}
 	}
 
 	fn fuid (&self, id: usize) -> Fuid
 	{
-		Fuid::new (self.parent_id, id)
+		if self.process
+		{
+			Fuid::new_process (self.parent_id, id)
+		}
+		else
+		{
+			Fuid::new_smem (self.parent_id, id)
+		}
 	}
 
 	fn get_insert (&self, id: usize) -> Arc<KFutex>

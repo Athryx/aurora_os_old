@@ -127,34 +127,6 @@ impl ThreadState
 			_ => (),
 		}
 	}
-
-	// TODO: remove
-	pub fn sleep_nsec (&self) -> Option<u64>
-	{
-		match self
-		{
-			Self::Sleep(nsec) => Some(*nsec),
-			_ => None,
-		}
-	}
-
-	pub fn join_tid (&self) -> Option<usize>
-	{
-		match self
-		{
-			Self::Join(tid) => Some(tid.tid ()),
-			_ => None,
-		}
-	}
-
-	pub fn futex_wait_addr (&self) -> Option<usize>
-	{
-		match self
-		{
-			Self::FutexBlock(addr) => Some(0),
-			_ => None,
-		}
-	}
 }
 
 #[derive(Debug)]

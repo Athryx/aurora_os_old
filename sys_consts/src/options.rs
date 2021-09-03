@@ -3,6 +3,16 @@ use bitflags::bitflags;
 
 bitflags!
 {
+	pub struct FutexOptions: u32
+	{
+		const SHARE = 1;
+		// only used for futex_block
+		const TIMEOUT = 1 << 1;
+	}
+}
+
+bitflags!
+{
 	pub struct ReallocOptions: u32
 	{
 		const READ = 1;

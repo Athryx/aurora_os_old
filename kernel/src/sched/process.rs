@@ -142,7 +142,7 @@ impl Process
 			uid,
 			next_tid: AtomicUsize::new (0),
 			threads: Mutex::new (BTreeMap::new ()),
-			futex: FutexMap::new (pid),
+			futex: FutexMap::new_process (pid),
 			domains: Futex::new (DomainMap::new ()),
 			connections: Futex::new (ConnectionMap::new (pid)),
 			smem: Futex::new (SMemMap::new ()),

@@ -1,5 +1,5 @@
 use crate::uses::*;
-use sys_consts::options::{ConnectOptions, RegOptions};
+use sys_consts::options::{FutexOptions, ConnectOptions, RegOptions};
 use crate::syscall::{SyscallVals, udata::{UserData, UserArray, UserString, fetch_data}};
 use crate::sysret;
 use crate::mem::PAGE_SIZE;
@@ -70,87 +70,89 @@ pub extern "C" fn thread_block (vals: &mut SyscallVals)
 	sysret! (vals, SysErr::Ok.num ());
 }
 
+// TODO: handle timeout option
+// TODO: merge common code of futex syscalls together when cleanup kernel code
 pub extern "C" fn futex_block (vals: &mut SyscallVals)
 {
-	let addr = vals.a1;
+	let options = FutexOptions::from_bits_truncate (vals.options);
+	let id = vals.a1;
 
-	let vaddr = match VirtAddr::try_new (addr as u64)
-	{
-		Ok(addr) => addr,
-		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num ()),
-	};
-
-	// prevent race condition
 	let process = proc_c ();
-	let _slock = process.smem ().lock ();
 
-	match proc_c ().addr_space.get_smem_addr (vaddr)
+	if options.contains (FutexOptions::SHARE)
 	{
-		Some(smaddr) => thread_c ().block (ThreadState::ShareFutexBlock(smaddr)),
-		None => thread_c ().block (ThreadState::FutexBlock(FutexId::new (process.pid (), addr))),
-	};
+		let smid = vals.a2;
+		let slock = process.smem ().lock ();
+		let smem_entry = match slock.get (smid)
+		{
+			Some(smem) => smem,
+			None => sysret! (vals, SysErr::InvlId.num ()),
+		};
+		smem_entry.smem ().futex ().block (id);
+	}
+	else
+	{
+		process.futex ().block (id);
+	}
+
 	sysret! (vals, SysErr::Ok.num ());
 }
 
 pub extern "C" fn futex_unblock (vals: &mut SyscallVals)
 {
-	let addr = vals.a1;
-	let n = vals.a2;
-
-	let vaddr = match VirtAddr::try_new (addr as u64)
-	{
-		Ok(addr) => addr,
-		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num (), 0),
-	};
-
-	// prevent race condition
-	let process = proc_c ();
-	let _slock = process.smem ().lock ();
-
-	let move_count = match proc_c ().addr_space.get_smem_addr (vaddr)
-	{
-		Some(smaddr) => tlist.state_move (ThreadState::ShareFutexBlock(smaddr), ThreadState::Ready, n),
-		None => tlist.state_move (ThreadState::FutexBlock(FutexId::new (process.pid (), addr)), ThreadState::Ready, n),
-	};
-
-	sysret! (vals, SysErr::Ok.num (), move_count);
-}
-
-pub extern "C" fn futex_move (vals: &mut SyscallVals)
-{
-	let addr_old = vals.a1;
-	let addr_new = vals.a2;
+	let options = FutexOptions::from_bits_truncate (vals.options);
+	let id = vals.a1;
 	let n = vals.a3;
 
-	let vaddr_old = match VirtAddr::try_new (addr_old as u64)
-	{
-		Ok(addr) => addr,
-		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num (), 0),
-	};
-
-	let vaddr_new = match VirtAddr::try_new (addr_new as u64)
-	{
-		Ok(addr) => addr,
-		Err(_) => sysret! (vals, SysErr::InvlVirtAddr.num (), 0),
-	};
-
-	// prevent race condition
 	let process = proc_c ();
-	let _slock = process.smem ().lock ();
 
-	let new_state = match process.addr_space.get_smem_addr (vaddr_new)
+	let out = if options.contains (FutexOptions::SHARE)
 	{
-		Some(smaddr) => ThreadState::ShareFutexBlock(smaddr),
-		None => ThreadState::FutexBlock(FutexId::new (process.pid (), addr_new)),
+		let smid = vals.a2;
+		let slock = process.smem ().lock ();
+		let smem_entry = match slock.get (smid)
+		{
+			Some(smem) => smem,
+			None => sysret! (vals, SysErr::InvlId.num ()),
+		};
+		smem_entry.smem ().futex ().unblock (id, n)
+	}
+	else
+	{
+		process.futex ().unblock (id, n)
 	};
 
-	let move_count = match process.addr_space.get_smem_addr (vaddr_old)
+	sysret! (vals, SysErr::Ok.num (), out);
+}
+
+pub extern "C" fn futex_destroy (vals: &mut SyscallVals)
+{
+	let options = FutexOptions::from_bits_truncate (vals.options);
+	let id = vals.a1;
+
+	let process = proc_c ();
+
+	let out = if options.contains (FutexOptions::SHARE)
 	{
-		Some(smaddr) => tlist.state_move (ThreadState::ShareFutexBlock(smaddr), new_state, n),
-		None => tlist.state_move (ThreadState::FutexBlock(FutexId::new (process.pid (), addr_old)), new_state, n),
+		let smid = vals.a2;
+		let slock = process.smem ().lock ();
+		let smem_entry = match slock.get (smid)
+		{
+			Some(smem) => smem,
+			None => sysret! (vals, SysErr::InvlId.num ()),
+		};
+		smem_entry.smem ().futex ().destroy (id)
+	}
+	else
+	{
+		process.futex ().destroy (id)
 	};
 
-	sysret! (vals, SysErr::Ok.num (), move_count);
+	match out
+	{
+		Ok(n) => sysret! (vals, SysErr::Ok.num (), n),
+		Err(err) => sysret! (vals, err.num (), 0),
+	}
 }
 
 // TODO: handle reg_group option
