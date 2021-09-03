@@ -70,600 +70,312 @@ impl PageSize
 	}
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum PhysFrame
-{
-	K4(PhysAddr),
-	M2(PhysAddr),
-	G1(PhysAddr),
+macro_rules! impl_addr_range {
+	($addr:ident, $frame:ident, $range:ident, $iter:ident) => {
+		#[derive(Debug, Clone, Copy)]
+		pub enum $frame
+		{
+			K4($addr),
+			M2($addr),
+			G1($addr),
+		}
+		
+		impl $frame
+		{
+			pub fn new (addr: $addr, size: PageSize) -> Self
+			{
+				match size
+				{
+					PageSize::K4 => Self::K4(addr.align_down (size as u64)),
+					PageSize::M2 => Self::M2(addr.align_down (size as u64)),
+					PageSize::G1 => Self::G1(addr.align_down (size as u64)),
+				}
+			}
+		
+			pub fn start_addr (&self) -> $addr
+			{
+				match self
+				{
+					Self::K4(addr) => *addr,
+					Self::M2(addr) => *addr,
+					Self::G1(addr) => *addr,
+				}
+			}
+		
+			pub fn end_addr (&self) -> $addr
+			{
+				match self
+				{
+					Self::K4(addr) => *addr + PageSize::K4 as u64,
+					Self::M2(addr) => *addr + PageSize::M2 as u64,
+					Self::G1(addr) => *addr + PageSize::G1 as u64,
+				}
+			}
+		
+			pub fn get_size (&self) -> PageSize
+			{
+				match self
+				{
+					Self::K4(_) => PageSize::K4,
+					Self::M2(_) => PageSize::M2,
+					Self::G1(_) => PageSize::G1,
+				}
+			}
+		}
+		
+		#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+		pub struct $range
+		{
+			// NOTE: this field must be first because it is the first one compared
+			addr: $addr,
+			size: usize,
+		}
+		
+		impl $range
+		{
+			pub fn new (addr: $addr, size: usize) -> Self
+			{
+				Self {
+					addr: addr.align_down (PageSize::K4 as u64),
+					size: align_up (size, PageSize::K4 as _),
+				}
+			}
+		
+			// returns error if invalid virt addr or unaligned addr and size
+			pub fn try_new_usize (addr: usize, size: usize) -> Result<Self, SysErr>
+			{
+				let vaddr = $addr::try_new (addr as u64).or (Err(SysErr::InvlVirtAddr))?;
+				if align_of (addr) < PAGE_SIZE || align_of (size) < PAGE_SIZE
+				{
+					Err(SysErr::InvlPtr)
+				}
+				else
+				{
+					Ok(Self {
+						addr: vaddr,
+						size,
+					})
+				}
+			}
+		
+			// returns error if invalid virt addr or unaligned addr and size, or not in user mem zone
+			pub fn try_new_user (addr: usize, size: usize) -> Result<Self, SysErr>
+			{
+				let out = Self::try_new_usize (addr, size)?;
+				if !out.verify_umem ()
+				{
+					Err(SysErr::InvlPtr)
+				}
+				else
+				{
+					Ok(out)
+				}
+			}
+		
+			// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
+			pub fn new_aligned (addr: $addr, size: usize) -> Self
+			{
+				let addr2 = (addr + size).align_up (PageSize::K4 as u64);
+				Self {
+					addr: addr.align_down (PageSize::K4 as u64),
+					size: align_up ((addr2 - addr) as usize, PageSize::K4 as usize),
+				}
+			}
+		
+			pub fn new_unaligned (addr: $addr, size: usize) -> Self
+			{
+				Self {
+					addr,
+					size,
+				}
+			}
+		
+			pub fn null () -> Self
+			{
+				Self {
+					addr: $addr::new (0),
+					size: 0,
+				}
+			}
+		
+			pub fn aligned (&self) -> Self 
+			{
+				Self::new_aligned (self.addr, self.size)
+			}
+		
+			pub fn is_aligned (&self) -> bool
+			{
+				align_of (self.as_usize ()) >= PAGE_SIZE && align_of (self.end_usize ()) >= PAGE_SIZE
+			}
+		
+			pub fn addr (&self) -> $addr
+			{
+				self.addr
+			}
+		
+			pub fn as_usize (&self) -> usize
+			{
+				self.addr.as_u64 () as usize
+			}
+		
+			pub fn end_addr (&self) -> $addr
+			{
+				self.addr + self.size
+			}
+		
+			pub fn end_usize (&self) -> usize
+			{
+				self.as_usize () + self.size
+			}
+		
+			pub unsafe fn as_slice (&self) -> &[u8]
+			{
+				slice::from_raw_parts (self.as_usize () as *const u8, self.size)
+			}
+		
+			pub fn contains (&self, addr: $addr) -> bool
+			{
+				(addr >= self.addr) && (addr < (self.addr + self.size))
+			}
+		
+			// NOTE: this only returns if it intersects at all, not if the range is fully contained in this range
+			pub fn contains_range (&self, range: Self) -> bool
+			{
+				self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
+			}
+		
+			pub fn full_contains_range (&self, range: Self) -> bool
+			{
+				self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
+			}
+		
+			pub fn verify_umem (&self) -> bool
+			{
+				udata::verify_umem (self.as_usize (), self.size)
+			}
+		
+			pub fn merge (&self, other: Self) -> Option<Self>
+			{
+				if self.end_addr () == other.addr ()
+				{
+					Some(Self::new_unaligned (self.addr (), self.size () + other.size ()))
+				}
+				else if other.end_addr () == self.addr ()
+				{
+					Some(Self::new_unaligned (other.addr (), self.size () + other.size ()))
+				}
+				else
+				{
+					None
+				}
+			}
+		
+			pub fn split_at (&self, range: Self) -> (Option<Self>, Option<Self>)
+			{
+				let sbegin = self.addr;
+				let send = self.addr + self.size;
+		
+				let begin = range.addr ();
+				let end = begin + range.size ();
+		
+				if !self.contains_range (range)
+				{
+					(Some(*self), None)
+				}
+				else if begin <= sbegin && end >= send
+				{
+					(None, None)
+				}
+				else if self.contains (begin - 1u64) && !self.contains (end + 1u64)
+				{
+					(Some(Self::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
+				}
+				else if self.contains (end + 1u64) && !self.contains (begin - 1u64)
+				{
+					(Some(Self::new_unaligned (end, (send - end) as usize)), None)
+				}
+				else
+				{
+					(Some(Self::new_unaligned (sbegin, (begin - sbegin) as usize)),
+						Some(Self::new_unaligned (end, (send - end) as usize)))
+				}
+			}
+		
+			pub fn size (&self) -> usize
+			{
+				self.size
+			}
+		
+			pub fn get_take_size (&self) -> Option<PageSize>
+			{
+				PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_down_to_page_size (align_of (self.addr.as_u64 () as _))))
+			}
+		
+			pub fn take (&mut self, size: PageSize) -> Option<$frame>
+			{
+				let take_size = self.get_take_size ()?;
+				if size > take_size
+				{
+					None
+				}
+				else
+				{
+					let size = size as usize;
+					let addr = self.addr;
+					self.addr += size;
+					self.size -= size;
+					Some($frame::new (addr, PageSize::from_usize (size)))
+				}
+			}
+		
+			pub fn iter (&self) -> $iter
+			{
+				$iter {
+					start: self.addr,
+					end: self.addr + self.size,
+					life: PhantomData,
+				}
+			}
+		}
+		
+		#[derive(Debug, Clone, Copy)]
+		pub struct $iter<'a>
+		{
+			start: $addr,
+			end: $addr,
+			life: PhantomData<&'a $range>
+		}
+		
+		// FIXME
+		impl Iterator for $iter<'_>
+		{
+			type Item = $frame;
+		
+			fn next (&mut self) -> Option<Self::Item>
+			{
+				if self.start >= self.end
+				{
+					return None;
+				}
+		
+				let size = min (align_of (self.start.as_u64 () as _),
+					1 << log2 ((self.end - self.start) as _));
+				let size = align_down_to_page_size (size);
+				self.start += size;
+				let size = PageSize::from_u64 (size as _);
+				Some($frame::new (self.start, size))
+			}
+		}
+	}
 }
 
-impl PhysFrame
-{
-	pub fn new (addr: PhysAddr, size: PageSize) -> Self
-	{
-		match size
-		{
-			PageSize::K4 => Self::K4(addr.align_down (size as u64)),
-			PageSize::M2 => Self::M2(addr.align_down (size as u64)),
-			PageSize::G1 => Self::G1(addr.align_down (size as u64)),
-		}
-	}
-
-	pub fn start_addr (&self) -> PhysAddr
-	{
-		match self
-		{
-			Self::K4(addr) => *addr,
-			Self::M2(addr) => *addr,
-			Self::G1(addr) => *addr,
-		}
-	}
-
-	pub fn end_addr (&self) -> PhysAddr
-	{
-		match self
-		{
-			Self::K4(addr) => *addr + PageSize::K4 as u64,
-			Self::M2(addr) => *addr + PageSize::M2 as u64,
-			Self::G1(addr) => *addr + PageSize::G1 as u64,
-		}
-	}
-
-	pub fn get_size (&self) -> PageSize
-	{
-		match self
-		{
-			Self::K4(_) => PageSize::K4,
-			Self::M2(_) => PageSize::M2,
-			Self::G1(_) => PageSize::G1,
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PhysRange
-{
-	addr: PhysAddr,
-	size: usize,
-}
-
-impl PhysRange
-{
-	pub fn new (addr: PhysAddr, size: usize) -> Self
-	{
-		PhysRange {
-			addr: addr.align_down (PageSize::K4 as u64),
-			size: align_up (size, PageSize::K4 as _),
-		}
-	}
-
-	// returns error if invalid virt addr or unaligned addr and size
-	pub fn try_new_usize (addr: usize, size: usize) -> Result<Self, SysErr>
-	{
-		let paddr = PhysAddr::try_new (addr as u64).or (Err(SysErr::InvlVirtAddr))?;
-		if align_of (addr) < PAGE_SIZE || align_of (size) < PAGE_SIZE
-		{
-			Err(SysErr::InvlPtr)
-		}
-		else
-		{
-			Ok(PhysRange {
-				addr: paddr,
-				size,
-			})
-		}
-	}
-
-	// returns error if invalid virt addr or unaligned addr and size, or not in user mem zone
-	pub fn try_new_user (addr: usize, size: usize) -> Result<Self, SysErr>
-	{
-		let out = Self::try_new_usize (addr, size)?;
-		if !out.verify_umem ()
-		{
-			Err(SysErr::InvlPtr)
-		}
-		else
-		{
-			Ok(out)
-		}
-	}
-
-	// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
-	pub fn new_aligned (addr: PhysAddr, size: usize) -> Self
-	{
-		let addr2 = (addr + size).align_up (PageSize::K4 as u64);
-		PhysRange {
-			addr: addr.align_down (PageSize::K4 as u64),
-			size: align_up ((addr2 - addr) as usize, PageSize::K4 as usize),
-		}
-	}
-
-	pub fn new_unaligned (addr: PhysAddr, size: usize) -> Self
-	{
-		PhysRange {
-			addr,
-			size,
-		}
-	}
-
-	pub fn null () -> Self
-	{
-		PhysRange {
-			addr: PhysAddr::new (0),
-			size: 0,
-		}
-	}
-
-	pub fn aligned (&self) -> PhysRange
-	{
-		Self::new_aligned (self.addr, self.size)
-	}
-
-	pub fn is_aligned (&self) -> bool
-	{
-		align_of (self.as_usize ()) >= PAGE_SIZE && align_of (self.end_usize ()) >= PAGE_SIZE
-	}
-
-	pub fn addr (&self) -> PhysAddr
-	{
-		self.addr
-	}
-
-	pub fn as_usize (&self) -> usize
-	{
-		self.addr.as_u64 () as usize
-	}
-
-	pub fn end_addr (&self) -> PhysAddr
-	{
-		self.addr + self.size
-	}
-
-	pub fn end_usize (&self) -> usize
-	{
-		self.as_usize () + self.size
-	}
-
-	pub unsafe fn as_slice (&self) -> &[u8]
-	{
-		slice::from_raw_parts (self.as_usize () as *const u8, self.size)
-	}
-
-	pub fn contains (&self, addr: PhysAddr) -> bool
-	{
-		(addr >= self.addr) && (addr < (self.addr + self.size))
-	}
-
-	// NOTE: this only returns if it intersects at all, not if the range is fully contained in this range
-	pub fn contains_range (&self, range: Self) -> bool
-	{
-		self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
-	}
-
-	pub fn full_contains_range (&self, range: Self) -> bool
-	{
-		self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
-	}
-
-	pub fn verify_umem (&self) -> bool
-	{
-		udata::verify_umem (self.as_usize (), self.size)
-	}
-
-	pub fn merge (&self, other: Self) -> Option<Self>
-	{
-		if self.end_addr () == other.addr ()
-		{
-			Some(Self::new_unaligned (self.addr (), self.size () + other.size ()))
-		}
-		else if other.end_addr () == self.addr ()
-		{
-			Some(Self::new_unaligned (other.addr (), self.size () + other.size ()))
-		}
-		else
-		{
-			None
-		}
-	}
-
-	pub fn split_at (&self, range: Self) -> (Option<PhysRange>, Option<PhysRange>)
-	{
-		let sbegin = self.addr;
-		let send = self.addr + self.size;
-
-		let begin = range.addr ();
-		let end = begin + range.size ();
-
-		if !self.contains_range (range)
-		{
-			(Some(*self), None)
-		}
-		else if begin <= sbegin && end >= send
-		{
-			(None, None)
-		}
-		else if self.contains (begin - 1u64) && !self.contains (end + 1u64)
-		{
-			(Some(PhysRange::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
-		}
-		else if self.contains (end + 1u64) && !self.contains (begin - 1u64)
-		{
-			(Some(PhysRange::new_unaligned (end, (send - end) as usize)), None)
-		}
-		else
-		{
-			(Some(PhysRange::new_unaligned (sbegin, (begin - sbegin) as usize)),
-				Some(PhysRange::new_unaligned (end, (send - end) as usize)))
-		}
-	}
-
-	pub fn size (&self) -> usize
-	{
-		self.size
-	}
-
-	pub fn get_take_size (&self) -> Option<PageSize>
-	{
-		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_down_to_page_size (align_of (self.addr.as_u64 () as _))))
-	}
-
-	pub fn take (&mut self, size: PageSize) -> Option<PhysFrame>
-	{
-		let take_size = self.get_take_size ()?;
-		if size > take_size
-		{
-			None
-		}
-		else
-		{
-			let size = size as usize;
-			let addr = self.addr;
-			self.addr += size;
-			self.size -= size;
-			Some(PhysFrame::new (addr, PageSize::from_usize (size)))
-		}
-	}
-
-	pub fn iter (&self) -> PhysRangeIter
-	{
-		PhysRangeIter {
-			start: self.addr,
-			end: self.addr + self.size,
-			life: PhantomData,
-		}
-	}
-}
+impl_addr_range! {PhysAddr, PhysFrame, PhysRange, PhysRangeIter}
+impl_addr_range! {VirtAddr, VirtFrame, VirtRange, VirtRangeIter}
 
 impl From<Allocation> for PhysRange
 {
 	fn from (mem: Allocation) -> Self
 	{
 		Self::new (virt_to_phys (mem.addr ()), mem.len ())
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PhysRangeIter<'a>
-{
-	start: PhysAddr,
-	end: PhysAddr,
-	life: PhantomData<&'a PhysRange>
-}
-
-// FIXME
-impl Iterator for PhysRangeIter<'_>
-{
-	type Item = PhysFrame;
-
-	fn next (&mut self) -> Option<Self::Item>
-	{
-		if self.start >= self.end
-		{
-			return None;
-		}
-
-		// wrong
-		let size = min (align_of (self.start.as_u64 () as _),
-			1 << log2 ((self.end - self.start) as _));
-		let size = align_down_to_page_size (size);
-		self.start += size;
-		let size = PageSize::from_u64 (size as _);
-		Some(PhysFrame::new (self.start, size))
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum VirtFrame
-{
-	K4(VirtAddr),
-	M2(VirtAddr),
-	G1(VirtAddr),
-}
-
-impl VirtFrame
-{
-	pub fn new (addr: VirtAddr, size: PageSize) -> Self
-	{
-		match size
-		{
-			PageSize::K4 => Self::K4(addr.align_down (size as u64)),
-			PageSize::M2 => Self::M2(addr.align_down (size as u64)),
-			PageSize::G1 => Self::G1(addr.align_down (size as u64)),
-		}
-	}
-
-	pub fn start_addr (&self) -> VirtAddr
-	{
-		match self
-		{
-			Self::K4(addr) => *addr,
-			Self::M2(addr) => *addr,
-			Self::G1(addr) => *addr,
-		}
-	}
-
-	pub fn end_addr (&self) -> VirtAddr
-	{
-		match self
-		{
-			Self::K4(addr) => *addr + PageSize::K4 as u64,
-			Self::M2(addr) => *addr + PageSize::M2 as u64,
-			Self::G1(addr) => *addr + PageSize::G1 as u64,
-		}
-	}
-
-	pub fn get_size (&self) -> PageSize
-	{
-		match self
-		{
-			Self::K4(_) => PageSize::K4,
-			Self::M2(_) => PageSize::M2,
-			Self::G1(_) => PageSize::G1,
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct VirtRange
-{
-	// NOTE: this field must be first because it is the first one compared
-	addr: VirtAddr,
-	size: usize,
-}
-
-impl VirtRange
-{
-	pub fn new (addr: VirtAddr, size: usize) -> Self
-	{
-		VirtRange {
-			addr: addr.align_down (PageSize::K4 as u64),
-			size: align_up (size, PageSize::K4 as _),
-		}
-	}
-
-	// returns error if invalid virt addr or unaligned addr and size
-	pub fn try_new_usize (addr: usize, size: usize) -> Result<Self, SysErr>
-	{
-		let vaddr = VirtAddr::try_new (addr as u64).or (Err(SysErr::InvlVirtAddr))?;
-		if align_of (addr) < PAGE_SIZE || align_of (size) < PAGE_SIZE
-		{
-			Err(SysErr::InvlPtr)
-		}
-		else
-		{
-			Ok(VirtRange {
-				addr: vaddr,
-				size,
-			})
-		}
-	}
-
-	// returns error if invalid virt addr or unaligned addr and size, or not in user mem zone
-	pub fn try_new_user (addr: usize, size: usize) -> Result<Self, SysErr>
-	{
-		let out = Self::try_new_usize (addr, size)?;
-		if !out.verify_umem ()
-		{
-			Err(SysErr::InvlPtr)
-		}
-		else
-		{
-			Ok(out)
-		}
-	}
-
-	// this is a bugfix for new, but I am making a new fucntion incase anything relied on the old behavior of new
-	pub fn new_aligned (addr: VirtAddr, size: usize) -> Self
-	{
-		let addr2 = (addr + size).align_up (PageSize::K4 as u64);
-		VirtRange {
-			addr: addr.align_down (PageSize::K4 as u64),
-			size: align_up ((addr2 - addr) as usize, PageSize::K4 as usize),
-		}
-	}
-
-	pub fn new_unaligned (addr: VirtAddr, size: usize) -> Self
-	{
-		VirtRange {
-			addr,
-			size,
-		}
-	}
-
-	pub fn null () -> Self
-	{
-		VirtRange {
-			addr: VirtAddr::new (0),
-			size: 0,
-		}
-	}
-
-	pub fn aligned (&self) -> VirtRange
-	{
-		Self::new_aligned (self.addr, self.size)
-	}
-
-	pub fn is_aligned (&self) -> bool
-	{
-		align_of (self.as_usize ()) >= PAGE_SIZE && align_of (self.end_usize ()) >= PAGE_SIZE
-	}
-
-	pub fn addr (&self) -> VirtAddr
-	{
-		self.addr
-	}
-
-	pub fn as_usize (&self) -> usize
-	{
-		self.addr.as_u64 () as usize
-	}
-
-	pub fn end_addr (&self) -> VirtAddr
-	{
-		self.addr + self.size
-	}
-
-	pub fn end_usize (&self) -> usize
-	{
-		self.as_usize () + self.size
-	}
-
-	pub unsafe fn as_slice (&self) -> &[u8]
-	{
-		slice::from_raw_parts (self.as_usize () as *const u8, self.size)
-	}
-
-	pub fn contains (&self, addr: VirtAddr) -> bool
-	{
-		(addr >= self.addr) && (addr < (self.addr + self.size))
-	}
-
-	// NOTE: this only returns if it intersects at all, not if the range is fully contained in this range
-	pub fn contains_range (&self, range: Self) -> bool
-	{
-		self.contains (range.addr ()) || self.contains (range.addr () + range.size ())
-	}
-
-	pub fn full_contains_range (&self, range: Self) -> bool
-	{
-		self.contains (range.addr ()) && self.contains (range.addr () + range.size ())
-	}
-
-	pub fn verify_umem (&self) -> bool
-	{
-		udata::verify_umem (self.as_usize (), self.size)
-	}
-
-	pub fn merge (&self, other: Self) -> Option<Self>
-	{
-		if self.end_addr () == other.addr ()
-		{
-			Some(Self::new_unaligned (self.addr (), self.size () + other.size ()))
-		}
-		else if other.end_addr () == self.addr ()
-		{
-			Some(Self::new_unaligned (other.addr (), self.size () + other.size ()))
-		}
-		else
-		{
-			None
-		}
-	}
-
-	pub fn split_at (&self, range: Self) -> (Option<VirtRange>, Option<VirtRange>)
-	{
-		let sbegin = self.addr;
-		let send = self.addr + self.size;
-
-		let begin = range.addr ();
-		let end = begin + range.size ();
-
-		if !self.contains_range (range)
-		{
-			(Some(*self), None)
-		}
-		else if begin <= sbegin && end >= send
-		{
-			(None, None)
-		}
-		else if self.contains (begin - 1u64) && !self.contains (end + 1u64)
-		{
-			(Some(VirtRange::new_unaligned (sbegin, (begin - sbegin) as usize)), None)
-		}
-		else if self.contains (end + 1u64) && !self.contains (begin - 1u64)
-		{
-			(Some(VirtRange::new_unaligned (end, (send - end) as usize)), None)
-		}
-		else
-		{
-			(Some(VirtRange::new_unaligned (sbegin, (begin - sbegin) as usize)),
-				Some(VirtRange::new_unaligned (end, (send - end) as usize)))
-		}
-	}
-
-	pub fn size (&self) -> usize
-	{
-		self.size
-	}
-
-	pub fn get_take_size (&self) -> Option<PageSize>
-	{
-		PageSize::try_from_usize (min (align_down_to_page_size (self.size), align_down_to_page_size (align_of (self.addr.as_u64 () as _))))
-	}
-
-	pub fn take (&mut self, size: PageSize) -> Option<VirtFrame>
-	{
-		let take_size = self.get_take_size ()?;
-		if size > take_size
-		{
-			None
-		}
-		else
-		{
-			let size = size as usize;
-			let addr = self.addr;
-			self.addr += size;
-			self.size -= size;
-			Some(VirtFrame::new (addr, PageSize::from_usize (size)))
-		}
-	}
-
-	pub fn iter (&self) -> VirtRangeIter
-	{
-		VirtRangeIter {
-			start: self.addr,
-			end: self.addr + self.size,
-			life: PhantomData,
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct VirtRangeIter<'a>
-{
-	start: VirtAddr,
-	end: VirtAddr,
-	life: PhantomData<&'a VirtRange>
-}
-
-// FIXME
-impl Iterator for VirtRangeIter<'_>
-{
-	type Item = VirtFrame;
-
-	fn next (&mut self) -> Option<Self::Item>
-	{
-		if self.start >= self.end
-		{
-			return None;
-		}
-
-		let size = min (align_of (self.start.as_u64 () as _),
-			1 << log2 ((self.end - self.start) as _));
-		let size = align_down_to_page_size (size);
-		self.start += size;
-		let size = PageSize::from_u64 (size as _);
-		Some(VirtFrame::new (self.start, size))
 	}
 }
