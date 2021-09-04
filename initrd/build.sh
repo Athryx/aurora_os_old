@@ -12,3 +12,6 @@ do
 		exit 1
 	fi
 done
+
+# temp
+cp initfs/initfs.bin initrd

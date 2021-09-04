@@ -1,8 +1,9 @@
 #!/bin/sh
 
 IMG="disk.img"
-SUBDIRS="fs kernel"
+SUBDIRS="initrd kernel"
 KERNEL="kernel/kernel.bin"
+INITRD="initrd/initrd"
 
 cd $(dirname $0)
 
@@ -19,7 +20,7 @@ done
 
 if [[ $1 != sysroot ]] && [[ $1 != test ]]
 then
-	./gen-img.sh $KERNEL $IMG
+	./gen-img.sh $KERNEL $INITRD $IMG
 fi
 
 if [[ $1 = debug ]]

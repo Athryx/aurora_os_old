@@ -1,4 +1,5 @@
 use crate::uses::*;
+use core::str::Utf8Error;
 
 pub mod io;
 
@@ -50,6 +51,23 @@ impl UtilCalls for Calls
 			zm.dealloc(mem);
 		}
 	}
+}
+
+pub unsafe fn from_cstr<'a>(ptr: *const u8) -> Result<&'a str, Utf8Error>
+{
+	let mut len = 0;
+	let start = ptr;
+
+	loop {
+		if *ptr.add(len) != 0 {
+			len += 1;
+		} else {
+			break;
+		}
+	}
+
+	let slice = core::slice::from_raw_parts(start, len);
+	core::str::from_utf8(slice)
 }
 
 // code from some reddit post

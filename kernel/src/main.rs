@@ -112,7 +112,6 @@ registers:
 fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 {
 	util::io::WRITER.lock().clear();
-	misc::init(*consts::KERNEL_VMA as u64);
 
 	gdt::init();
 
@@ -144,8 +143,13 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 pub extern "C" fn _start(boot_info_addr: usize) -> !
 {
 	bochs_break();
+
 	// so you can tell when compiler output stops
 	eprintln!("=========================== start kernel debug output ===========================");
+
+	// needed for BootInfo::new
+	misc::init(*consts::KERNEL_VMA as u64);
+
 	let boot_info = unsafe { BootInfo::new(boot_info_addr) };
 
 	init(&boot_info).expect("kernel init failed");
@@ -155,7 +159,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	sti();
 
 	Process::from_elf(
-		*consts::INITFS,
+		boot_info.initrd,
 		PrivLevel::new(IOPRIV_UID),
 		"initfs".to_string(),
 	)

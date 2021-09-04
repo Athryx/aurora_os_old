@@ -123,6 +123,7 @@ impl<T> Drop for FutexGuard<'_, T>
 	}
 }
 
+// FIXME: this has minor race conditions
 #[derive(Debug)]
 pub struct RWFutex<T>
 {

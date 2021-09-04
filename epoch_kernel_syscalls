@@ -423,6 +423,7 @@ return valus:
 1: failure
 
 
+// TODO: specify who can create namespaces
 22: fn reg (domain: usize, rip: usize, | gid: usize) -> SysErr
 register function at instrcution pointer {rip} to handle messages with domain {domain}
 

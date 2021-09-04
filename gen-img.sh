@@ -1,10 +1,10 @@
 #!/bin/sh
 
-# kernel.bin in arg 1, output image name in arg 2
+# kernel.bin in arg 1, initrd in arg 2, output image name in arg 3
 
 cd $(dirname $0)
 
-IMG="$2"
+IMG="$3"
 BOOT_DIR="boot"
 PART_NUM="p1"
 DEV0="/dev/loop0"
@@ -18,6 +18,7 @@ sudo modprobe loop || exit 1
 rm -f $IMG
 rm -f $BOOT_DIR/kernel.bin
 cp $1 $BOOT_DIR/kernel.bin
+cp $2 $BOOT_DIR/initrd
 
 dd if=/dev/zero of=$IMG bs=512 count=131072 || exit 1
 

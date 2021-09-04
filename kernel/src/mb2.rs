@@ -1,9 +1,11 @@
 use crate::uses::*;
 use crate::mem::PhysRange;
 use crate::consts;
+use crate::util::{from_cstr, misc::phys_to_virt};
 
 // multiboot tag type ids
 const END: u32 = 0;
+const MODULE: u32 = 3;
 const MEMORY_MAP: u32 = 6;
 
 // multiboot memory type ids
@@ -19,6 +21,21 @@ struct TagHeader
 {
 	typ: u32,
 	size: u32,
+}
+
+impl TagHeader
+{
+	fn tag_ptr<T>(&self) -> *const T
+	{
+		unsafe {
+			(self as *const Self).add(1) as *const T
+		}
+	}
+
+	unsafe fn tag_data<T>(&self) -> &T
+	{
+		self.tag_ptr::<T>().as_ref().unwrap()
+	}
 }
 
 const MAX_MEMORY_REGIONS: usize = 16;
@@ -102,11 +119,21 @@ impl MemoryRegionType
 		}
 	}
 
-	fn new(region: &Mb2MemoryRegion) -> (Option<Self>, Option<Self>)
+	fn new(region: &Mb2MemoryRegion, initrd_range: PhysRange) -> [Option<Self>; 4]
 	{
 		let (prange1, prange2) =
 			PhysRange::new_unaligned(PhysAddr::new(region.addr), region.len as usize)
 				.split_at(*consts::KERNEL_PHYS_RANGE);
+
+		let (prange1, prange3) = match prange1 {
+			Some(prange) => prange.split_at(initrd_range),
+			None => (None, None),
+		};
+
+		let (prange2, prange4) = match prange2 {
+			Some(prange) => prange.split_at(initrd_range),
+			None => (None, None),
+		};
 
 		let convert_func = |prange| match region.typ {
 			USABLE => Self::Usable(prange),
@@ -116,7 +143,7 @@ impl MemoryRegionType
 			_ => Self::Reserved(prange),
 		};
 
-		(prange1.map(convert_func), prange2.map(convert_func))
+		[prange1.map(convert_func), prange2.map(convert_func), prange3.map(convert_func), prange4.map(convert_func)]
 	}
 
 	fn range(&self) -> PhysRange
@@ -143,14 +170,32 @@ struct Mb2MemoryRegion
 	reserved: u32,
 }
 
-// multiboot 2 structure
+#[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-pub struct BootInfo
+struct Mb2Module
 {
-	pub memory_map: MemoryMap,
+	mod_start: u32,
+	mod_end: u32,
 }
 
-impl BootInfo
+impl Mb2Module
+{
+	unsafe fn string(&self) -> &str
+	{
+		let ptr = (self as *const Self).add(1) as *const u8;
+		from_cstr(ptr).expect("bootloader did not pass valid utf-8 string for module name")
+	}
+}
+
+// multiboot 2 structure
+#[derive(Debug, Clone, Copy)]
+pub struct BootInfo<'a>
+{
+	pub memory_map: MemoryMap,
+	pub initrd: &'a [u8],
+}
+
+impl BootInfo<'_>
 {
 	pub unsafe fn new(addr: usize) -> Self
 	{
@@ -160,40 +205,58 @@ impl BootInfo
 		// add 8 to get past initial entry which is always there
 		let mut ptr = (addr + 8) as *const u8;
 
+		let mut initrd_range = None;
+		let mut initrd_slice = None;
+
 		let mut memory_map = MemoryMap::new();
+		let mut memory_map_tag = None;
 
 		loop {
 			let tag_header = (ptr as *const TagHeader).as_ref().unwrap();
 			match tag_header.typ {
 				END => break,
-				MEMORY_MAP => {
-					let mut rptr = ptr.add(16) as *const Mb2MemoryRegion;
+				MODULE => {
+					let data: &Mb2Module = tag_header.tag_data();
+					if data.string() == "initrd" {
+						let size = (data.mod_end - data.mod_start) as usize;
+						let paddr = PhysAddr::new(data.mod_start as u64);
+						initrd_range = Some(PhysRange::new_unaligned(paddr, size));
 
-					let len = (tag_header.size - 16) / 24;
-
-					for _ in 0..len {
-						let region = rptr.as_ref().unwrap();
-
-						let (reg1, reg2) = MemoryRegionType::new(region);
-
-						if let Some(reg1) = reg1 {
-							memory_map.push(reg1);
-							if let Some(reg2) = reg2 {
-								memory_map.push(reg2);
-							}
-						}
-
-						rptr = rptr.add(1);
+						let initrd_ptr = phys_to_virt(paddr).as_u64() as *const u8;
+						initrd_slice = Some(core::slice::from_raw_parts(initrd_ptr, size));
 					}
-
-					ptr = ptr.add(align_up(tag_header.size as _, 8));
 				},
-				_ => ptr = ptr.add(align_up(tag_header.size as _, 8)),
+				MEMORY_MAP => memory_map_tag = Some(tag_header),
+				_ => (),
+			}
+
+			ptr = ptr.add(align_up(tag_header.size as _, 8));
+		}
+
+		// have to do this at the end, because it needs to know where multiboot modules are
+		if let Some(tag_header) = memory_map_tag {
+			let mut ptr = (tag_header as *const _ as *const u8).add(16) as *const Mb2MemoryRegion;
+
+			let len = (tag_header.size - 16) / 24;
+
+			for _ in 0..len {
+				let region = ptr.as_ref().unwrap();
+	
+				let regions = MemoryRegionType::new(region, initrd_range.expect("no initrd"));
+
+				for region in regions {
+					if let Some(region) = region {
+						memory_map.push(region);
+					}
+				}
+
+				ptr = ptr.add(1);
 			}
 		}
 
 		BootInfo {
 			memory_map,
+			initrd: initrd_slice.expect("no initrd"),
 		}
 	}
 }
