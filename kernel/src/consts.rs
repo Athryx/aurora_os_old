@@ -23,9 +23,6 @@ extern "C" {
 	static stack_bottom: usize;
 	static stack_top: usize;
 	static PDP_table: usize;
-
-	static initfs: u8;
-	static initfs_len: usize;
 }
 
 lazy_static! {
@@ -56,6 +53,4 @@ lazy_static! {
 	);
 	pub static ref KZONE_PAGE_TABLE_POINTER: PhysAddr =
 		PhysAddr::new(unsafe { &PDP_table } as *const _ as u64);
-	pub static ref INITFS: &'static [u8] =
-		unsafe { slice::from_raw_parts(&initfs as *const u8, &initfs_len as *const _ as usize) };
 }

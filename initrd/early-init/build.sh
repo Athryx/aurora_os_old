@@ -12,4 +12,4 @@ cargo build $RFLAG || exit 1
 BIN=target/x86_64-os-userland/debug/initfs
 [[ $1 = release ]] && BIN=target/x86_64-os-userland/release/initfs
 
-cp $BIN initfs.bin
+cp $BIN early-init.bin

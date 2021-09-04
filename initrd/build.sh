@@ -1,6 +1,6 @@
 #!/bin/sh
 
-SUBDIRS="initfs"
+SUBDIRS="early-init"
 
 cd $(dirname $0)
 
@@ -14,4 +14,4 @@ do
 done
 
 # temp
-cp initfs/initfs.bin initrd
+cp early-init/early-init.bin initrd
