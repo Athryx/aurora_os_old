@@ -1,4 +1,4 @@
-//! Epoch kernel system calls
+//! Aurora kernel system calls
 #![no_std]
 #![feature(asm)]
 

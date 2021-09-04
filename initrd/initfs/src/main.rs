@@ -1,6 +1,6 @@
 #![feature(asm)]
 
-use std::os::epoch::sys::{print_debug, realloc, ReallocOptions};
+use std::os::aurora::sys::{print_debug, realloc, ReallocOptions};
 
 mod uses;
 

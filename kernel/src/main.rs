@@ -154,7 +154,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 	init(&boot_info).expect("kernel init failed");
 
-	println!("epoch v0.0.1");
+	println!("aurora kernel v0.0.1");
 
 	sti();
 
