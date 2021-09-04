@@ -9,7 +9,7 @@ cd $(dirname $0)
 
 cargo build $RFLAG || exit 1
 
-BIN=target/x86_64-os-userland/debug/initfs
-[[ $1 = release ]] && BIN=target/x86_64-os-userland/release/initfs
+BIN=target/x86_64-os-userland/debug/early-init
+[[ $1 = release ]] && BIN=target/x86_64-os-userland/release/early-init
 
 cp $BIN early-init.bin
