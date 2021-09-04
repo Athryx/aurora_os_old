@@ -1,6 +1,6 @@
 #!/bin/sh
 
-NAME="ealy-init"
+NAME="ext2-server"
 
 cd $(dirname $0)
 [[ $1 = clean ]] && cargo clean && exit 0
