@@ -1,6 +1,6 @@
 #!/bin/sh
 
-NAME="ealy-init"
+NAME="early-init"
 
 cd $(dirname $0)
 [[ $1 = clean ]] && cargo clean && exit 0

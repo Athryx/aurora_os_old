@@ -18,7 +18,7 @@ do
 	fi
 done
 
-if [[ $1 != sysroot ]] && [[ $1 != test ]]
+if [[ $1 != sysroot ]] && [[ $1 != test ]] && [[ $1 != clean ]] && [[ $1 != fmt ]]
 then
 	./gen-img.sh $KERNEL $INITRD $IMG
 fi

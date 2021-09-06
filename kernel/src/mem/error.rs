@@ -1,5 +1,3 @@
-use core::option::NoneError;
-
 use crate::uses::*;
 
 // TODO: in futrue, make a macro to generate these enums that are just subsets of the SysErr enum
@@ -32,14 +30,6 @@ impl Error for MemErr
 	fn get_error(&self) -> &str
 	{
 		self.as_str()
-	}
-}
-
-impl From<NoneError> for MemErr
-{
-	fn from(_: NoneError) -> Self
-	{
-		Self::OutOfMem("out of memory due to none being returned")
 	}
 }
 

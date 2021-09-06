@@ -1,8 +1,5 @@
 //! Crate for constants related to epoch kernel system calls
 #![no_std]
-#![feature(try_trait)]
-
-use core::option::NoneError;
 
 pub mod options;
 pub mod syscalls;
@@ -64,14 +61,6 @@ impl SysErr
 			Self::InvlOp => "invalid operation",
 			Self::Unknown => "unknown error",
 		}
-	}
-}
-
-impl From<NoneError> for SysErr
-{
-	fn from(_: NoneError) -> Self
-	{
-		SysErr::Unknown
 	}
 }
 

@@ -5,7 +5,6 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(array_methods)]
 #![feature(alloc_error_handler)]
-#![feature(try_trait)]
 #![feature(arc_new_cyclic)]
 #![feature(const_btree_new)]
 #![feature(alloc_prelude)]

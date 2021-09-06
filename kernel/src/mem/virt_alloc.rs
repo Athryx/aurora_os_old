@@ -1269,7 +1269,8 @@ impl<T: FrameAllocator> VirtMapper<T>
 			));
 		}
 
-		let mut phys_zones = btree.remove(&virt_zone)?;
+		// ok to unwrap because it is checked earlier
+		let mut phys_zones = btree.remove(&virt_zone).unwrap();
 
 		let iter = PageMappingIterator::new_unmapper(&phys_zones, &virt_zone);
 		self.map_internal(iter);

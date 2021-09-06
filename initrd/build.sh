@@ -1,6 +1,6 @@
 #!/bin/sh
 
-SUBDIRS="early-init"
+SUBDIRS="early-init ahci-server fs-server ext2-server"
 
 cd $(dirname $0)
 
@@ -13,6 +13,9 @@ do
 	fi
 done
 
-# temp
-#cp early-init/early-init.bin initrd
+[[ $1 = clean ]] && exit 0
+[[ $1 = sysroot ]] && exit 0
+[[ $1 = test ]] && exit 0
+[[ $1 = fmt ]] && exit 0
+
 gen-initrd --ahci ahci-server/ahci-server.bin --init early-init/early-init.bin --fs fs-server/fs-server.bin --ext2 ext2-server/ext2-server.bin --part-list part-list -o initrd

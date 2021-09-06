@@ -41,16 +41,16 @@ impl Stack
 	pub fn user_new(size: usize, mapper: &VirtMapper<FAllocerType>) -> Result<Self, Err>
 	{
 		let elem_vec = vec![
-			VirtLayoutElement::new(PAGE_SIZE, PageMappingFlags::NONE)?,
+			VirtLayoutElement::new(PAGE_SIZE, PageMappingFlags::NONE).ok_or(Err::new("out of memory"))?,
 			VirtLayoutElement::new(
 				size,
 				PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::USER,
-			)?,
+			).ok_or(Err::new("Out of memory"))?,
 		];
 
 		let vlayout = VirtLayout::from(elem_vec, AllocType::Protected);
 
-		let vrange = unsafe { mapper.map(vlayout)? };
+		let vrange = unsafe { mapper.map(vlayout).map_err(|_| Err::new("could not map stack in memory"))? };
 
 		Ok(Self::User(vrange))
 	}
@@ -58,7 +58,7 @@ impl Stack
 	// TODO: put guard page in this one
 	pub fn kernel_new(size: usize) -> Result<Self, Err>
 	{
-		let allocation = zm.alloc(size)?;
+		let allocation = zm.alloc(size).ok_or(Err::new("Out of mem"))?;
 
 		Ok(Self::Kernel(allocation))
 	}

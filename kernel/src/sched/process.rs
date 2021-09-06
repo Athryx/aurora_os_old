@@ -284,7 +284,7 @@ impl Process
 
 		let smid_offset = align_up(mem_ptr_size, core::mem::align_of::<usize>());
 
-		let mut mem = zm.alloc(total_size)?;
+		let mut mem = zm.alloc(total_size).ok_or(SysErr::OutOfMem)?;
 
 		let mem_ptr_slice =
 			unsafe { core::slice::from_raw_parts_mut(mem.as_mut_ptr(), mem_ptr_arr.len()) };
