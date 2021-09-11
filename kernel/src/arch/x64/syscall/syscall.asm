@@ -3,7 +3,6 @@
 global syscall_entry
 
 extern syscalls
-;extern _ZN5sched8thread_cE	; FIXME: change this to extern "C" in c++ code
 
 section .text
 bits 64
@@ -41,7 +40,7 @@ syscall_entry:
 	shl rax, 32		; cant use and because it messes things up
 	shr rax, 32
 
-	cmp rax, 28		; make sure it is a valid syscall
+	cmp rax, 37		; make sure it is a valid syscall
 	jg .invalid_syscall
 
 	mov rdi, rsp

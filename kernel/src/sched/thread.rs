@@ -11,6 +11,7 @@ use ptr::NonNull;
 use sys_consts::SysErr;
 
 use crate::uses::*;
+use crate::ipc::Ipcid;
 use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{
 	AllocType, FAllocerType, PageMappingFlags, VirtLayout, VirtLayoutElement, VirtMapper,
@@ -22,7 +23,7 @@ use crate::util::{
 };
 use crate::time::timer;
 use super::process::Process;
-use super::{int_sched, thread_c, tlist, ConnPid, KFutex, MsgArgs, Registers, ThreadList};
+use super::{int_sched, thread_c, tlist, KFutex, Registers, ThreadList};
 
 // TODO: implement support for growing stack
 #[derive(Debug)]
@@ -119,7 +120,7 @@ pub enum ThreadState
 	// virtual address currently waiting on
 	FutexBlock(*const KFutex),
 	// connection cpid we are waiting for a reply from
-	Listening(ConnPid),
+	Listening(Ipcid),
 }
 
 impl ThreadState
@@ -362,7 +363,7 @@ impl Thread
 		*self.state.lock() = state;
 	}
 
-	pub fn rcv_regs(&self) -> &IMutex<Result<Registers, SysErr>>
+	/*pub fn rcv_regs(&self) -> &IMutex<Result<Registers, SysErr>>
 	{
 		&self.msg_recieve_regs
 	}
@@ -426,7 +427,7 @@ impl Thread
 			old_stack.dealloc(&self.process().unwrap().addr_space);
 		}
 		Ok(())
-	}
+	}*/
 
 	// returns false if failed to remove
 	pub fn remove_from_current<'a, T>(ptr: T, list: &mut ThreadList) -> MemOwner<Thread>

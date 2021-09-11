@@ -1,2 +1,3 @@
 pub mod channel;
-pub mod reply;
+
+crate::make_id_type!(Ipcid);

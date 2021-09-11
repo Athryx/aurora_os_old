@@ -1,6 +1,7 @@
 use sys_consts::options::*;
 
 use crate::uses::*;
+use crate::cap::CapFlags;
 use crate::sysret;
 use crate::syscall::{SysErr, SyscallVals};
 use super::{VirtRange, PAGE_SIZE};
@@ -167,48 +168,16 @@ pub extern "C" fn realloc(vals: &mut SyscallVals)
 
 pub extern "C" fn mprotect(vals: &mut SyscallVals) {}
 
-pub extern "C" fn salloc(vals: &mut SyscallVals)
+pub extern "C" fn smem_new(vals: &mut SyscallVals)
 {
 	let size = vals.a1 * PAGE_SIZE;
-	let options = SMemFlags::from_bits_truncate(vals.options as u8);
+	let options = CapFlags::from_bits_truncate(vals.options as usize);
 
 	let smem = match SharedMem::new(size, options) {
 		Some(smem) => smem,
 		None => sysret!(vals, SysErr::OutOfMem.num(), 0),
 	};
 
-	let smid = proc_c().smem().lock().insert(smem);
-	sysret!(vals, SysErr::Ok.num(), smid);
+	let cid = proc_c().smem().insert(smem);
+	sysret!(vals, SysErr::Ok.num(), cid.into());
 }
-
-pub extern "C" fn sdealloc(vals: &mut SyscallVals)
-{
-	let smid = vals.a1;
-	if proc_c().remove_smem(smid).is_none() {
-		sysret!(vals, SysErr::InvlId.num());
-	} else {
-		sysret!(vals, SysErr::Ok.num());
-	}
-}
-
-pub extern "C" fn smap(vals: &mut SyscallVals)
-{
-	let smid = vals.a1;
-	match proc_c().map_smem(smid) {
-		Ok(vmem) => sysret!(
-			vals,
-			SysErr::Ok.num(),
-			vmem.as_usize(),
-			vmem.size() / PAGE_SIZE
-		),
-		Err(err) => sysret!(vals, err.num(), 0, 0),
-	}
-}
-
-pub extern "C" fn sunmap(vals: &mut SyscallVals)
-{
-	let smid = vals.a1;
-	sysret!(vals, proc_c().unmap_smem(smid).num());
-}
-
-pub extern "C" fn smem_info(vals: &mut SyscallVals) {}

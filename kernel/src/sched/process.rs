@@ -10,22 +10,23 @@ use spin::Mutex;
 use bitflags::bitflags;
 
 use crate::uses::*;
+use crate::cap::CapMap;
+use crate::key::Key;
+use crate::ipc::channel::Channel;
 use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{
 	AllocType, FAllocerType, PageMappingFlags, VirtLayout, VirtLayoutElement, VirtMapper,
 };
-use crate::mem::shared_mem::{SMemMap, SharedMem};
+use crate::mem::shared_mem::SharedMem;
 use crate::upriv::PrivLevel;
 use crate::util::{AvlTree, Futex, IMutex, LinkedList, MemOwner, UniqueMut, UniqueRef};
 use crate::syscall::udata::{UserArray, UserData, UserPageArray};
 use super::{
-	int_sched, proc_c, proc_list, thread_c, tlist, Namespace, Registers, TLTreeNode, ThreadList,
+	int_sched, proc_c, proc_list, thread_c, tlist, Registers, TLTreeNode, ThreadList,
 };
 use super::thread::{ConnSaveState, Stack, Thread, ThreadState};
 use super::elf::{ElfParser, Section};
-use super::domain::{BlockMode, DomainMap};
-use super::connection::{Connection, ConnectionMap, MsgArgs};
 use super::sync::FutexMap;
 
 static NEXT_PID: AtomicUsize = AtomicUsize::new(0);
@@ -113,7 +114,8 @@ impl SpawnMapFlags
 pub struct Process
 {
 	pid: usize,
-	name: Arc<Namespace>,
+	name: String,
+	launch_path: String,
 	self_ref: Weak<Self>,
 
 	uid: PrivLevel,
@@ -122,11 +124,9 @@ pub struct Process
 	threads: Mutex<BTreeMap<usize, MemOwner<Thread>>>,
 
 	futex: FutexMap,
-	// TODO: change these to use internel futexes to be consistant with FutexMap, which has to use an internal spinlock
-	domains: Futex<DomainMap>,
-	// NOTE: don't lock proc_list while this is locked
-	connections: Futex<ConnectionMap>,
-	smem: Futex<SMemMap>,
+	smem: CapMap<SharedMem>,
+	channels: CapMap<Channel>,
+	keys: CapMap<Key>,
 
 	pub addr_space: VirtMapper<FAllocerType>,
 }
@@ -134,20 +134,21 @@ pub struct Process
 impl Process
 {
 	// NOTE: must insert into process list before making a thread
-	pub fn new(uid: PrivLevel, name: String) -> Arc<Self>
+	pub fn new(uid: PrivLevel, name: String, launch_path: String) -> Arc<Self>
 	{
 		let pid = NEXT_PID.fetch_add(1, Ordering::Relaxed);
 		Arc::new_cyclic(|weak| Self {
 			pid,
-			name: Namespace::new(name),
+			name,
+			launch_path,
 			self_ref: weak.clone(),
 			uid,
 			next_tid: AtomicUsize::new(0),
 			threads: Mutex::new(BTreeMap::new()),
-			futex: FutexMap::new_process(pid),
-			domains: Futex::new(DomainMap::new()),
-			connections: Futex::new(ConnectionMap::new(pid)),
-			smem: Futex::new(SMemMap::new()),
+			futex: FutexMap::new(),
+			smem: CapMap::new(),
+			channels: CapMap::new(),
+			keys: CapMap::new(),
 			addr_space: VirtMapper::new(&zm),
 		})
 	}
@@ -155,9 +156,9 @@ impl Process
 	// NOTE: this doesn't quite adhere to elf format I think
 	// ignores align field, does not enforce that p_vaddr == P_offset % p_align
 	// different segments also must not have any overlapping page frames
-	pub fn from_elf(elf_data: &[u8], uid: PrivLevel, name: String) -> Result<Arc<Self>, Err>
+	pub fn from_elf(elf_data: &[u8], uid: PrivLevel, name: String, launch_path: String) -> Result<Arc<Self>, Err>
 	{
-		let process = Process::new(uid, name);
+		let process = Process::new(uid, name, launch_path);
 
 		let elf = ElfParser::new(elf_data)?;
 		let sections = elf.program_headers();
@@ -223,10 +224,10 @@ impl Process
 		Ok(process)
 	}
 
-	pub fn spawn(uid: PrivLevel, name: String, state: SpawnStartState)
+	pub fn spawn(uid: PrivLevel, name: String, launch_path: String, state: SpawnStartState)
 		-> Result<Arc<Self>, SysErr>
 	{
-		let process = Process::new(uid, name);
+		/*let process = Process::new(uid, name, launch_path);
 		let proc_curr = proc_c();
 
 		let mem_arr = state.mem_arr.try_fetch().ok_or(SysErr::InvlPtr)?;
@@ -325,7 +326,8 @@ impl Process
 			})
 			.or(Err(SysErr::OutOfMem))?;
 
-		Ok(process)
+		Ok(process)*/
+		todo!();
 	}
 
 	pub fn pid(&self) -> usize
@@ -335,12 +337,11 @@ impl Process
 
 	pub fn name(&self) -> &String
 	{
-		self.name.name()
+		&self.name
 	}
 
-	pub fn namespace(&self) -> &Arc<Namespace>
-	{
-		&self.name
+	pub fn launch_path(&self) -> &String {
+		&self.launch_path
 	}
 
 	pub fn uid(&self) -> PrivLevel
@@ -358,91 +359,19 @@ impl Process
 		&self.futex
 	}
 
-	pub fn domains(&self) -> &Futex<DomainMap>
-	{
-		&self.domains
-	}
-
-	pub fn connections(&self) -> &Futex<ConnectionMap>
-	{
-		&self.connections
-	}
-
-	pub fn insert_connection(&self, connection: Arc<Connection>)
-	{
-		self.connections.lock().insert(connection);
-	}
-
-	pub fn smem(&self) -> &Futex<SMemMap>
+	pub fn smem(&self) -> &CapMap<SharedMem>
 	{
 		&self.smem
 	}
 
-	pub fn get_smem(&self, smid: usize) -> Option<Arc<SharedMem>>
+	pub fn channels(&self) -> &CapMap<Channel>
 	{
-		Some(self.smem.lock().get(smid)?.smem().clone())
+		&self.channels
 	}
 
-	pub fn insert_smem(&self, smem: Arc<SharedMem>) -> usize
+	pub fn keys(&self) -> &CapMap<Key>
 	{
-		self.smem.lock().insert(smem)
-	}
-
-	pub fn remove_smem(&self, smid: usize) -> Option<Arc<SharedMem>>
-	{
-		let entry = self.smem.lock().remove(smid)?;
-		if let Some(vmem) = entry.virt_mem {
-			unsafe {
-				self.addr_space
-					.unmap(vmem, entry.smem().alloc_type())
-					.unwrap();
-			}
-		}
-		Some(entry.into_smem())
-	}
-
-	pub fn map_smem(&self, smid: usize) -> Result<VirtRange, SysErr>
-	{
-		let mut slock = self.smem.lock();
-		let entry = slock.get_mut(smid);
-		match entry {
-			Some(entry) => {
-				if entry.virt_mem.is_none() {
-					let vlayout = entry.smem().virt_layout();
-					unsafe {
-						// do this to use the from trait
-						let out = self.addr_space.map(vlayout)?;
-						entry.virt_mem = Some(out);
-						Ok(out)
-					}
-				} else {
-					Err(SysErr::InvlOp)
-				}
-			},
-			None => Err(SysErr::InvlId),
-		}
-	}
-
-	pub fn unmap_smem(&self, smid: usize) -> SysErr
-	{
-		let mut slock = self.smem.lock();
-		let entry = slock.get_mut(smid);
-		match entry {
-			Some(entry) => {
-				if let Some(vmem) = entry.virt_mem {
-					unsafe {
-						self.addr_space
-							.unmap(vmem, entry.smem().alloc_type())
-							.unwrap();
-					}
-					entry.virt_mem = None;
-					SysErr::Ok
-				} else {
-					SysErr::InvlOp
-				}
-			},
-			None => SysErr::InvlId,
-		}
+		&self.keys
 	}
 
 	pub fn get_thread(&self, tid: usize) -> Option<MemOwner<Thread>>

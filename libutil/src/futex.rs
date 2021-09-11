@@ -3,56 +3,49 @@ use core::ops::{Deref, DerefMut};
 use core::cell::UnsafeCell;
 
 use crate::uses::*;
-use crate::{block, unblock};
-
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+use crate::{futex_new, futex_destroy, block, unblock};
 
 #[derive(Debug)]
-pub struct Futex<T>
-{
+struct RawFutex {
 	id: AtomicUsize,
 	count: AtomicUsize,
-	data: UnsafeCell<T>,
 }
 
-impl<T> Futex<T>
-{
-	pub const fn new(data: T) -> Self
-	{
-		Futex {
+impl RawFutex {
+	const fn new() -> Self {
+		RawFutex {
 			id: AtomicUsize::new(usize::MAX),
 			count: AtomicUsize::new(0),
-			data: UnsafeCell::new(data),
 		}
 	}
 
-	fn id(&self) -> usize
-	{
+	fn id(&self) -> usize {
 		let id = self.id.load(Ordering::Relaxed);
 		if id != usize::MAX {
 			return id;
 		}
 
-		let new_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+		let new_id = futex_new();
 		match self
 			.id
 			.compare_exchange(usize::MAX, new_id, Ordering::Relaxed, Ordering::Relaxed)
 		{
 			Ok(_) => new_id,
-			Err(id) => id,
+			Err(id) => {
+				futex_destroy(new_id);
+				id
+			},
 		}
 	}
 
-	pub fn lock(&self) -> FutexGuard<T>
-	{
+	fn lock(&self) {
 		if self.count.fetch_add(1, Ordering::Relaxed) > 0 {
 			block(self.id());
 		}
-		FutexGuard(self)
 	}
 
-	pub fn try_lock(&self) -> Result<FutexGuard<T>, ()>
-	{
+	// returns true if succesfully locked
+	fn try_lock(&self) -> bool {
 		let closure = |n| {
 			if n == 0 {
 				Some(n + 1)
@@ -61,12 +54,54 @@ impl<T> Futex<T>
 			}
 		};
 
-		match self
-			.count
-			.fetch_update(Ordering::Relaxed, Ordering::Relaxed, closure)
-		{
-			Ok(_) => Ok(FutexGuard(self)),
-			Err(_) => Err(()),
+		self.count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, closure).is_ok()
+	}
+
+	fn unlock(&self) {
+		if self.count.fetch_sub(1, Ordering::Relaxed) > 1 {
+			unblock(self.id());
+		}
+	}
+}
+
+impl Drop for RawFutex {
+	fn drop(&mut self) {
+		let id = self.id.load(Ordering::Acquire);
+		if id != usize::MAX {
+			futex_destroy(id);
+		}
+	}
+}
+
+#[derive(Debug)]
+pub struct Futex<T>
+{
+	inner: RawFutex,
+	data: UnsafeCell<T>,
+}
+
+impl<T> Futex<T>
+{
+	pub const fn new(data: T) -> Self
+	{
+		Futex {
+			inner: RawFutex::new(),
+			data: UnsafeCell::new(data),
+		}
+	}
+
+	pub fn lock(&self) -> FutexGuard<T>
+	{
+		self.inner.lock();
+		FutexGuard(self)
+	}
+
+	pub fn try_lock(&self) -> Result<FutexGuard<T>, ()>
+	{
+		if self.inner.try_lock() {
+			Ok(FutexGuard(self))
+		} else {
+			Err(())
 		}
 	}
 
@@ -117,13 +152,12 @@ impl<T> Drop for FutexGuard<'_, T>
 {
 	fn drop(&mut self)
 	{
-		if self.0.count.fetch_sub(1, Ordering::Relaxed) > 1 {
-			unblock(self.0.id());
-		}
+		self.0.inner.unlock();
 	}
 }
 
 // FIXME: this has minor race conditions
+// FIXME: doesn't work
 #[derive(Debug)]
 pub struct RWFutex<T>
 {

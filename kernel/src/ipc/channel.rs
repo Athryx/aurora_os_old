@@ -1,7 +1,10 @@
 use crate::uses::*;
 use crate::cap::{CapObject, CapObjectType};
+use super::Ipcid;
 
+#[derive(Debug)]
 pub struct Channel {
+	id: Ipcid,
 }
 
 impl CapObject for Channel {
@@ -9,5 +12,6 @@ impl CapObject for Channel {
 		CapObjectType::Channel
 	}
 
-	fn inc_ref(&self, n: i8) {}
+	fn inc_ref(&self) {}
+	fn dec_ref(&self) {}
 }

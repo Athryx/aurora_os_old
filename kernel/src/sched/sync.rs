@@ -10,6 +10,8 @@ use super::{thread_c, tlist, ThreadState};
 
 crate::make_id_type!(Fuid);
 
+static NEXT_FUID: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Debug)]
 pub struct KFutex
 {
@@ -22,20 +24,20 @@ pub struct KFutex
 
 impl KFutex
 {
-	fn new(id: Fuid) -> Arc<Self>
+	pub fn new() -> Capability<Self>
 	{
-		let out = KFutex {
-			id,
+		let out = Arc::new(KFutex {
+			id: Fuid::from(NEXT_FUID.fetch_add(1, Ordering::Relaxed)),
 			wait_count: AtomicIsize::new(0),
 			alive: AtomicBool::new(true),
 			block_lock: Mutex::new(()),
 			ref_count: AtomicUsize::new(0),
-		};
+		});
 
-		let state = ThreadState::FutexBlock(&out as *const _);
+		let state = ThreadState::FutexBlock(Arc::as_ptr(&out));
 		tlist.ensure(state);
 
-		Arc::new(out)
+		Capability::new(out, CapFlags::READ)
 	}
 
 	pub fn fuid(&self) -> Fuid
@@ -63,17 +65,6 @@ impl KFutex
 			core::hint::spin_loop();
 		}
 	}
-
-	/*pub fn wait_count (&self) -> isize
-	{
-		self.wait_count.get ()
-	}
-
-	pub fn inc_wait_count (&self, n: isize)
-	{
-		let old = self.wait_count.get ();
-		self.wait_count.set (old + n);
-	}*/
 
 	// returns true if successfully blocked
 	fn block(&self) -> bool
@@ -142,30 +133,33 @@ impl CapObject for KFutex {
 #[derive(Debug)]
 pub struct FutexMap
 {
-	process: bool,
-	parent_id: usize,
 	// TODO: make this prettier
 	data: Mutex<BTreeMap<CapId, Capability<KFutex>>>,
+	next_id: AtomicUsize,
 }
 
 impl FutexMap
 {
-	pub fn new_process(pid: usize) -> Self
+	pub fn new() -> Self
 	{
 		FutexMap {
-			process: true,
-			parent_id: pid,
 			data: Mutex::new(BTreeMap::new()),
+			next_id: AtomicUsize::new(0),
 		}
 	}
 
-	pub fn new_smem(smid: usize) -> Self
+	pub fn insert(&self, mut futex: Capability<KFutex>) -> CapId {
+		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+		let id = futex.set_base_id(id);
+		let mut lock = self.data.lock();
+		lock.insert(id, futex);
+		id
+	}
+
+	pub fn remove(&self, cid: CapId) -> Result<Capability<KFutex>, SysErr>
 	{
-		FutexMap {
-			process: false,
-			parent_id: smid,
-			data: Mutex::new(BTreeMap::new()),
-		}
+		let mut lock = self.data.lock();
+		Ok(lock.remove(&cid).ok_or(SysErr::InvlId)?)
 	}
 
 	pub fn block(&self, cid: CapId) -> Result<(), SysErr>
@@ -193,12 +187,24 @@ impl FutexMap
 		// don't need to repeatedly retrt because we hold lock the whole time
 		let mut lock = self.data.lock();
 		let futex = lock.get(&cid).ok_or(SysErr::InvlId)?;
-		Ok(futex.object().unblock(n))
+
+		if !futex.flags().contains(CapFlags::READ) {
+			Err(SysErr::InvlCap)
+		} else {
+			Ok(futex.object().unblock(n))
+		}
 	}
 
-	pub fn remove(&self, cid: CapId) -> Result<Capability<KFutex>, SysErr>
-	{
-		let mut lock = self.data.lock();
-		Ok(lock.remove(&cid).ok_or(SysErr::InvlId)?)
+	pub fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId> {
+		let lock = self.data.lock();
+		let cap = lock.get(&id)?;
+		let new_cap = Capability::and_from_flags(cap, flags);
+		drop(lock);
+		Some(self.insert(new_cap))
+	}
+
+	pub fn clone_from(&self, id: CapId) -> Option<Capability<KFutex>> {
+		let lock = self.data.lock();
+		Some(lock.get(&id)?.clone())
 	}
 }

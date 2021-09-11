@@ -10,10 +10,7 @@ use alloc::alloc::{Allocator, Global, Layout};
 use spin::Mutex;
 pub use process::{Process, SpawnMapFlags, SpawnStartState};
 pub use thread::{Stack, Thread, ThreadState, Tuid};
-pub use domain::*;
-pub use connection::*;
 pub use sync::{Fuid, FutexMap, KFutex};
-pub use namespace::{namespace_map, Namespace};
 
 use crate::uses::*;
 use crate::int::idt::{Handler, INT_SCHED, IRQ_TIMER};
@@ -25,6 +22,7 @@ use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::gdt::tss;
+use crate::ipc::Ipcid;
 
 // TODO: clean up code, it is kind of ugly
 // use new interrupt disabling machanism
@@ -40,10 +38,7 @@ use crate::gdt::tss;
 
 // FIXME: there is a current race condition that occurs when using proc_c () function
 
-mod connection;
-mod domain;
 mod elf;
-mod namespace;
 mod process;
 mod sync;
 pub mod sys;
@@ -263,7 +258,7 @@ impl<T: Default + Copy> TLTreeNode<T>
 unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 
 libutil::impl_tree_node!(Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
-libutil::impl_tree_node!(ConnPid, TLTreeNode<ConnPid>, parent, left, right, id, bf);
+libutil::impl_tree_node!(Ipcid, TLTreeNode<Ipcid>, parent, left, right, id, bf);
 libutil::impl_tree_node!(Fuid, TLTreeNode<Fuid>, parent, left, right, id, bf);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -303,7 +298,7 @@ pub struct ThreadList
 	sleep: LinkedList<Thread>,
 	join: AvlTree<Tuid, TLTreeNode<Tuid>>,
 	wait: AvlTree<Tuid, TLTreeNode<Tuid>>,
-	conn_wait: AvlTree<ConnPid, TLTreeNode<ConnPid>>,
+	conn_wait: AvlTree<Ipcid, TLTreeNode<Ipcid>>,
 	futex: AvlTree<Fuid, TLTreeNode<Fuid>>,
 }
 
@@ -616,13 +611,6 @@ impl Registers
 		out
 	}
 
-	pub const fn from_msg_args(msg_args: &MsgArgs) -> Self
-	{
-		let mut out = Registers::zero();
-		out.apply_msg_args(msg_args);
-		out
-	}
-
 	pub fn apply_stack(&mut self, stack: &Stack) -> &mut Self
 	{
 		self.rsp = stack.top() - 8;
@@ -657,22 +645,6 @@ impl Registers
 		}
 		self
 	}
-
-	pub const fn apply_msg_args(&mut self, msg_args: &MsgArgs) -> &mut Self
-	{
-		self.rax = SysErr::MsgResp.num() | (msg_args.smem_mask as usize) << 8;
-		self.rbx = msg_args.sender_pid;
-		self.rdx = msg_args.domain;
-		self.rsi = msg_args.a1;
-		self.rdi = msg_args.a2;
-		self.r8 = msg_args.a3;
-		self.r9 = msg_args.a4;
-		self.r12 = msg_args.a5;
-		self.r13 = msg_args.a6;
-		self.r14 = msg_args.a7;
-		self.r15 = msg_args.a8;
-		self
-	}
 }
 
 pub fn thread_c<'a>() -> UniqueRef<'a, Thread>
@@ -700,7 +672,7 @@ pub fn init() -> Result<(), Err>
 	let efer_msr = rdmsr(EFER_MSR);
 	wrmsr(EFER_MSR, efer_msr | EFER_EXEC_DISABLE);
 
-	let kernel_proc = Process::new(PrivLevel::Kernel, "kernel".to_string());
+	let kernel_proc = Process::new(PrivLevel::Kernel, "kernel".to_string(), "kernel".to_string());
 
 	kernel_proc.new_thread(thread_cleaner as usize, Some("thread_cleaner".to_string()))?;
 

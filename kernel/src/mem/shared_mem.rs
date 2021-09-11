@@ -1,146 +1,66 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
 
-use bitflags::bitflags;
-
 use crate::uses::*;
-use crate::sched::FutexMap;
+use crate::util::{Futex, FutexGuard};
+use crate::cap::{CapId, CapFlags, Capability, CapObject, CapObjectType, Map};
 use super::*;
 use super::phys_alloc::{zm, Allocation};
 use super::virt_alloc::{AllocType, PageMappingFlags, VirtLayout, VirtLayoutElement};
 
-bitflags! {
-	pub struct SMemFlags: u8
-	{
-		const NONE =		0;
-		const READ =		1;
-		const WRITE =		1 << 1;
-		const EXEC =		1 << 2;
-	}
-}
-
-impl SMemFlags
-{
-	fn exists(&self) -> bool
-	{
-		self.intersects(SMemFlags::READ | SMemFlags::WRITE | SMemFlags::EXEC)
-	}
-}
-
-static next_smid: AtomicUsize = AtomicUsize::new(0);
-
 #[derive(Debug)]
-pub struct SharedMem
-{
+pub struct SharedMem {
 	mem: Allocation,
-	flags: SMemFlags,
-	// this id is not used in any process to reference this shared memory, it is used for scheduler purposes to wait on shared futexes
-	id: usize,
-	futex: FutexMap,
+	cap_data: Futex<BTreeMap<CapId, VirtRange>>,
 }
 
 impl SharedMem
 {
-	pub fn new(size: usize, flags: SMemFlags) -> Option<Arc<Self>>
+	pub fn new(size: usize, flags: CapFlags) -> Option<Capability<Self>>
 	{
 		let allocation = zm.alloc(size)?;
-		let id = next_smid.fetch_add(1, Ordering::Relaxed);
-		Some(Arc::new(SharedMem {
+		let arc = Arc::new(SharedMem {
 			mem: allocation,
-			flags,
-			id,
-			futex: FutexMap::new_smem(id),
-		}))
+			cap_data: Futex::new(BTreeMap::new()),
+		});
+		Some(Capability::new(arc, flags))
+	}
+}
+
+impl CapObject for SharedMem {
+	fn cap_object_type() -> CapObjectType {
+		CapObjectType::SMem
 	}
 
-	pub fn id(&self) -> usize
-	{
-		self.id
-	}
+	fn inc_ref(&self) {}
+	fn dec_ref(&self) {}
+}
 
-	pub fn futex(&self) -> &FutexMap
-	{
-		&self.futex
-	}
+type MapT = BTreeMap<CapId, VirtRange>;
 
-	pub fn alloc_type(&self) -> AllocType
-	{
-		AllocType::Shared(self.id)
-	}
-
-	// returns a virtual layout that can be mapped by the virtual memory mapper
-	pub fn virt_layout(&self) -> VirtLayout
-	{
+impl Map<MapT> for SharedMem {
+	fn virt_layout(&self, flags: CapFlags) -> VirtLayout {
 		let elem = VirtLayoutElement::from_range(
 			self.mem.into(),
-			PageMappingFlags::from_shared_flags(self.flags),
+			PageMappingFlags::from_cap_flags(flags),
 		);
 		VirtLayout::from(vec![elem], self.alloc_type())
 	}
-}
 
-#[derive(Debug)]
-pub struct SMemMapEntry
-{
-	smem: Arc<SharedMem>,
-	pub virt_mem: Option<VirtRange>,
-}
-
-impl SMemMapEntry
-{
-	pub fn smem(&self) -> &Arc<SharedMem>
-	{
-		&self.smem
+	fn alloc_type(&self) -> AllocType {
+		AllocType::Shared
 	}
 
-	pub fn into_smem(self) -> Arc<SharedMem>
-	{
-		self.smem
-	}
-}
-
-#[derive(Debug)]
-pub struct SMemMap
-{
-	data: BTreeMap<usize, SMemMapEntry>,
-	next_id: usize,
-}
-
-impl SMemMap
-{
-	pub fn new() -> Self
-	{
-		SMemMap {
-			data: BTreeMap::new(),
-			next_id: 0,
-		}
+	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, FutexGuard<MapT>) {
+		let lock = self.cap_data.lock();
+		let out = lock.get(&id).map(|vr| *vr);
+		(out, lock)
 	}
 
-	pub fn insert(&mut self, smem: Arc<SharedMem>) -> usize
-	{
-		let id = self.next_id;
-		self.next_id += 1;
-		let entry = SMemMapEntry {
-			smem,
-			virt_mem: None,
+	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, mut lock: FutexGuard<MapT>) {
+		match data {
+			Some(virt_range) => lock.insert(id, virt_range),
+			None => lock.remove(&id),
 		};
-		self.data.insert(id, entry);
-		id
-	}
-
-	pub fn get(&self, id: usize) -> Option<&SMemMapEntry>
-	{
-		self.data.get(&id)
-	}
-
-	pub fn get_mut(&mut self, id: usize) -> Option<&mut SMemMapEntry>
-	{
-		self.data.get_mut(&id)
-	}
-
-	pub fn remove(&mut self, id: usize) -> Option<SMemMapEntry>
-	{
-		self.data.remove(&id)
 	}
 }

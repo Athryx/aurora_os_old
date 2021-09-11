@@ -5,10 +5,10 @@ use crate::arch::x64::{
 	rdmsr, wrmsr, EFER_MSR, EFER_SYSCALL_ENABLE, FMASK_MSR, LSTAR_MSR, STAR_MSR,
 };
 use crate::sched::sys::{
-	conn_info, connect, disconnect, futex_block, futex_destroy, futex_unblock, msg, msg_return,
-	reg, spawn, thread_block, thread_new,
+	futex_new, futex_block, futex_unblock,
+	spawn, thread_block, thread_new,
 };
-use crate::mem::sys::{mprotect, realloc, salloc, sdealloc, smap, smem_info, sunmap};
+use crate::mem::sys::{mprotect, realloc, smem_new};
 use crate::util::io::sys_print_debug;
 
 pub mod udata;
@@ -20,44 +20,73 @@ extern "C" {
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
-static syscalls: [SyscallFunc; 29] = [
-	// TODO: info
-	sys_nop,
+static syscalls: [SyscallFunc; 38] = [
+	sys_print_debug,
 	spawn,
-	thread_new,
-	thread_block,
-	sys_nop,
 	// TODO: exit
 	sys_nop,
-	futex_block,
-	futex_unblock,
-	futex_destroy,
-	// TODO: set_proc_properties
+	// TODO: set_priv
 	sys_nop,
-	// TODO: set_thread_properties
-	sys_nop,
+	thread_new,
+	thread_block,
 	realloc,
-	// TODO: mmio_map
+	mprotect,
+	// TODO: cap_destroy
 	sys_nop,
-	// TODO: mmio_unmap
+	// TODO: cap_clone
+	sys_nop,
+	// TODO: cap_map
+	sys_nop,
+	// TODO: cap_unmap
+	sys_nop,
+	// TODO: cap_info
+	sys_nop,
+	// TODO: port_new
 	sys_nop,
 	// TODO: port_map
 	sys_nop,
 	// TODO: port_unmap
 	sys_nop,
-	salloc,
-	sdealloc,
-	smap,
-	sunmap,
-	smem_info,
-	mprotect,
-	reg,
-	connect,
-	disconnect,
-	conn_info,
-	msg,
-	msg_return,
-	sys_print_debug,
+	// TODO: mmio_new
+	sys_nop,
+	// TODO: int_new
+	sys_nop,
+	// TODO: int_wait
+	sys_nop,
+	// TODO: int_eoi
+	sys_nop,
+	smem_new,
+	futex_new,
+	futex_block,
+	futex_unblock,
+	// TODO: key_new
+	sys_nop,
+	// TODO: key_id
+	sys_nop,
+	// TODO: channel_new
+	sys_nop,
+	// TODO: msg_buf_new
+	sys_nop,
+	// TODO: msg_buf_destroy
+	sys_nop,
+	// TODO: send
+	sys_nop,
+	// TODO: recv
+	sys_nop,
+	// TODO: nbsend
+	sys_nop,
+	// TODO: nbrecv
+	sys_nop,
+	// TODO: asend
+	sys_nop,
+	// TODO: arecv
+	sys_nop,
+	// TODO: reply_recv
+	sys_nop,
+	// TODO: call
+	sys_nop,
+	// TODO: acall
+	sys_nop,
 ];
 
 // TODO: figure out if packed is needed

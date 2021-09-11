@@ -1,10 +1,16 @@
 use crate::uses::*;
-use crate::make_id_type;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
 use bitflags::bitflags;
+use crate::util::FutexGuard;
+use crate::make_id_type;
+use crate::mem::VirtRange;
+use crate::sched::proc_c;
+use crate::mem::virt_alloc::{VirtLayout, AllocType};
 use crate::util::Futex;
+
+pub mod sys;
 
 bitflags! {
 	pub struct CapFlags: usize {
@@ -13,28 +19,27 @@ bitflags! {
 	}
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapObjectType {
 	Channel = 0,
-	Reply = 1,
-	Futex = 2,
-	SMem = 3,
-	Key = 4,
-	Mmio = 5,
-	Interrupt = 6,
-	Port = 7,
+	Futex = 1,
+	SMem = 2,
+	Key = 3,
+	Mmio = 4,
+	Interrupt = 5,
+	Port = 6,
 }
 
 impl CapObjectType {
 	fn from(n: usize) -> Option<CapObjectType> {
 		Some(match n {
 			0 => Self::Channel,
-			1 => Self::Reply,
-			2 => Self::Futex,
-			3 => Self::SMem,
-			4 => Self::Key,
-			5 => Self::Mmio,
-			6 => Self::Interrupt,
-			7 => Self::Port,
+			1 => Self::Futex,
+			2 => Self::SMem,
+			3 => Self::Key,
+			4 => Self::Mmio,
+			5 => Self::Interrupt,
+			6 => Self::Port,
 			_ => return None,
 		})
 	}
@@ -50,6 +55,44 @@ pub trait CapObject {
 	fn cap_object_type() -> CapObjectType;
 	fn inc_ref(&self);
 	fn dec_ref(&self);
+}
+
+pub trait Map<T>: CapObject {
+	fn virt_layout(&self, flags: CapFlags) -> VirtLayout;
+	fn alloc_type(&self) -> AllocType;
+	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, FutexGuard<T>);
+	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, lock: FutexGuard<T>);
+
+	fn map(&self, id: CapId) -> Result<VirtRange, SysErr> {
+		let (layout, guard) = self.cap_map_data(id);
+
+		match layout {
+			Some(_) => Err(SysErr::InvlOp),
+			None => {
+				let layout = self.virt_layout(id.flags());
+				let virt_range = unsafe {
+					proc_c().addr_space.map(layout)?
+				};
+				self.set_cap_map_data(id, Some(virt_range), guard);
+				Ok(virt_range)
+			},
+		}
+	}
+
+	fn unmap(&self, id: CapId) -> Result<(), SysErr> {
+		let (layout, guard) = self.cap_map_data(id);
+
+		match layout {
+			Some(layout) => {
+				unsafe {
+					proc_c().addr_space.unmap(layout, self.alloc_type()).unwrap();
+				}
+				self.set_cap_map_data(id, None, guard);
+				Ok(())
+			},
+			None => Err(SysErr::InvlOp),
+		}
+	}
 }
 
 make_id_type!(CapId);
@@ -81,6 +124,12 @@ impl<T: CapObject> Capability<T> {
 		}
 	}
 
+	pub fn and_from_flags(cap: &Self, flags: CapFlags) -> Self {
+		let mut out = cap.clone();
+		out.flags &= flags;
+		out
+	}
+
 	pub fn object(&self) -> &T {
 		&self.object
 	}
@@ -95,12 +144,6 @@ impl<T: CapObject> Capability<T> {
 
 	pub fn arc_clone(&self) -> Arc<T> {
 		self.object.clone()
-	}
-
-	pub fn and_from_flags(cap: &Self, flags: CapFlags) -> Self {
-		let mut out = cap.clone();
-		out.flags &= flags;
-		out
 	}
 
 	pub fn set_base_id(&mut self, id: usize) -> CapId {
@@ -141,7 +184,7 @@ impl<T: CapObject> CapMap<T> {
 		}
 	}
 
-	pub fn insert(&self, cap: Capability<T>) -> CapId {
+	pub fn insert(&self, mut cap: Capability<T>) -> CapId {
 		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 		let id = cap.set_base_id(id);
 		self.data.lock().insert(id, cap);
@@ -166,5 +209,10 @@ impl<T: CapObject> CapMap<T> {
 		let new_cap = Capability::and_from_flags(cap, flags);
 		drop(lock);
 		Some(self.insert(new_cap))
+	}
+
+	pub fn clone_from(&self, id: CapId) -> Option<Capability<T>> {
+		let lock = self.data.lock();
+		Some(lock.get(&id)?.clone())
 	}
 }

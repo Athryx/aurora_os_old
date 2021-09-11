@@ -24,6 +24,8 @@ static mut UTIL_CALLS: Option<&'static dyn UtilCalls> = None;
 
 pub trait UtilCalls
 {
+	fn futex_new(&self) -> usize;
+	fn futex_destroy(&self, id: usize);
 	fn block(&self, id: usize);
 	fn unblock(&self, id: usize);
 
@@ -31,17 +33,31 @@ pub trait UtilCalls
 	fn dealloc(&self, mem: Allocation);
 }
 
-fn block(addr: usize)
+fn futex_new() -> usize
 {
 	unsafe {
-		UTIL_CALLS.as_ref().unwrap().block(addr);
+		UTIL_CALLS.as_ref().unwrap().futex_new()
 	}
 }
 
-fn unblock(addr: usize)
+fn futex_destroy(id: usize)
 {
 	unsafe {
-		UTIL_CALLS.as_ref().unwrap().unblock(addr);
+		UTIL_CALLS.as_ref().unwrap().futex_destroy(id)
+	}
+}
+
+fn block(id: usize)
+{
+	unsafe {
+		UTIL_CALLS.as_ref().unwrap().block(id);
+	}
+}
+
+fn unblock(id: usize)
+{
+	unsafe {
+		UTIL_CALLS.as_ref().unwrap().unblock(id);
 	}
 }
 

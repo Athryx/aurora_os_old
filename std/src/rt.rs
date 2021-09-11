@@ -10,14 +10,22 @@ struct Calls();
 
 impl UtilCalls for Calls
 {
-	fn block(&self, addr: usize)
-	{
-		futex_block(addr);
+	fn futex_new(&self) -> usize {
+		todo!();
 	}
 
-	fn unblock(&self, addr: usize)
+	fn futex_destroy(&self, id: usize) {
+		todo!();
+	}
+
+	fn block(&self, id: usize)
 	{
-		futex_unblock(addr, 1);
+		futex_block(id);
+	}
+
+	fn unblock(&self, id: usize)
+	{
+		futex_unblock(id, 1);
 	}
 
 	fn alloc(&self, size: usize) -> Option<Allocation>

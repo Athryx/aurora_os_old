@@ -5,11 +5,11 @@ use bitflags::bitflags;
 use crate::uses::*;
 use crate::arch::x64::{get_cr3, invlpg, set_cr3};
 use crate::consts;
+use crate::cap::CapFlags;
 use crate::util::{Futex, FutexGuard};
 use crate::syscall::udata::UserPageArray;
 use crate::sched::SpawnMapFlags;
 use super::phys_alloc::{zm, Allocation, ZoneManager};
-use super::shared_mem::SMemFlags;
 use super::error::MemErr;
 use super::*;
 
@@ -95,19 +95,14 @@ bitflags! {
 
 impl PageMappingFlags
 {
-	pub fn from_shared_flags(flags: SMemFlags) -> Self
-	{
+	pub fn from_cap_flags(flags: CapFlags) -> Self {
 		let mut out = PageMappingFlags::USER;
-		if flags.contains(SMemFlags::READ) {
+		if flags.contains(CapFlags::READ) {
 			out |= PageMappingFlags::READ;
 		}
 
-		if flags.contains(SMemFlags::WRITE) {
-			out |= PageMappingFlags::READ;
-		}
-
-		if flags.contains(SMemFlags::EXEC) {
-			out |= PageMappingFlags::READ;
+		if flags.contains(CapFlags::WRITE) {
+			out |= PageMappingFlags::WRITE;
 		}
 
 		out
@@ -482,9 +477,10 @@ impl VirtLayoutElement
 pub enum AllocType
 {
 	VirtMem,
+	// TODO: probably remove
 	PhysMap,
-	// shared id
-	Shared(usize),
+	// any capability managed mem
+	Shared,
 	Protected,
 }
 

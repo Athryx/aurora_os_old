@@ -20,7 +20,8 @@ pub use libutil::mem::MemOwner;
 use libutil::mem::Allocation;
 use libutil::UtilCalls;
 
-use crate::sched::{proc_c, thread_c, tlist, FutexId, ThreadState};
+use crate::sched::{proc_c, thread_c, tlist, FutexId, ThreadState, KFutex};
+use crate::cap::CapId;
 use crate::mem::phys_alloc::zm;
 
 pub static CALLS: Calls = Calls();
@@ -29,15 +30,25 @@ pub struct Calls();
 
 impl UtilCalls for Calls
 {
+	fn futex_new(&self) -> usize {
+		let futex = KFutex::new();
+		proc_c().futex().insert(futex).into()
+	}
+
+	fn futex_destroy(&self, id: usize) {
+		let id = CapId::from(id);
+		proc_c().futex().remove(id).unwrap();
+	}
+
 	// NOTE: chage if kernel ever blocks on shared memory
 	fn block(&self, id: usize)
 	{
-		proc_c().futex().block(id);
+		proc_c().futex().block(CapId::from(id)).unwrap();
 	}
 
 	fn unblock(&self, id: usize)
 	{
-		proc_c().futex().unblock(id, 1);
+		proc_c().futex().unblock(CapId::from(id), 1).unwrap();
 	}
 
 	fn alloc(&self, size: usize) -> Option<Allocation>

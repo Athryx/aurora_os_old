@@ -34,6 +34,7 @@ mod consts;
 mod gdt;
 mod id;
 mod kdata;
+mod key;
 mod mb2;
 mod upriv;
 mod uses;
@@ -161,12 +162,13 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 	sti();
 
-	Process::from_elf(
+	/*Process::from_elf(
 		boot_info.initrd,
 		PrivLevel::new(IOPRIV_UID),
-		"initfs".to_string(),
+		"early-init".to_string(),
+		"initrd;/early-init".to_string(),
 	)
-	.unwrap();
+	.unwrap();*/
 
 	test();
 
@@ -300,6 +302,8 @@ fn test()
 	}
 
 	eprintln!("{}", *temp.lock());
+	drop(temp);
+	eprintln!("test");
 
 	unsafe {
 		let tid = proc_c()
