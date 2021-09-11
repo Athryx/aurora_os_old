@@ -3,14 +3,9 @@ more descriptive error values
 error values are written in kernel, just not described well heare
 slightly more consistant names
 
-pledge like syscall
-
-syscall to get groups that pid is part of
-figure out how user permissions would work
-
-asynrchronously recieve messages for multithreaded servers
-
 specify layout of global information table
+
+specify atomicity of syscalls
 
 IMPLEMANTATION ISSUES:
 io syscalls unimpleted
@@ -103,9 +98,10 @@ bit 2-4 (cap_type): specifies what type of object the capability refers to
 1: reply
 2: futex
 3: shared memory
-4: mmio memory
-5: interrupt
-6: port
+4: Key
+5: mmio memory
+6: interrupt
+7: port
 
 // Process id
 type pid = usize;
@@ -254,12 +250,13 @@ thread id
 blocks the calling thread with reason {reason}
 
 reason:
-0: yield, sets thread to running state and switches to another thread, if available
+0: yield, sets thread to ready state and switches to another thread, if available
 if no threads other than the idle thread are ready to run, the current thread will continue to run
 1: destroy, switches to another thread and terminates the current thread
-if another thread is waiting on this thread for a message reply, than that thread is unblocked
 2: sleep, will sleep until {nsec} nanoseconds after boot
 3: join, will block until thread with id {thread_id} terminates
+4: await, will wait until any pending asynchronous messages are recieved
+if there are no pending asynchronous messages, this will do nothing, and the thread will continue to run as normal
 any other number will do nothing
 
 return value:
@@ -340,19 +337,7 @@ return valus:
 1: failure
 
 
-8: fn port_map (port: usize) -> SysErr
-allows the process to use port {port}
-
-return value:
-syserr code:
-InvlPriv: does not have privalidge to call this syscall
-
-
-9: fn port_unmap (port: usize)
-the process can no longer use port {port}
-
-
-10: fn cap_destroy<T> (cap: Cap<T>) -> SysErr
+8: fn cap_destroy<T> (cap: Cap<T>) -> SysErr
 destroys the capability {cap}
 when the object referenced by {cap} has 0 references left, it is freed
 
@@ -361,11 +346,11 @@ syserr code:
 InvlId: no capability with cid {cap} exists
 
 
-11: fn cap_clone<T> (cap: Cap<T>) -> (err: SysErr, cap2: Cap<T>)
+9: fn cap_clone<T> (cap: Cap<T>) -> (err: SysErr, cap2: Cap<T>)
 clones the capability {cap} with different privalidges
 
 options:
-bit 0-1 (mmio_cap_flags): CapPriv representing privalidges of new capability
+bit 0-1 (cap_flags): CapPriv representing privalidges of new capability
 these privalidges are anded with the privalidges {cap} already has, so clone can only create capabilities with the same or less privalidges as the original
 
 return value:
@@ -376,7 +361,7 @@ InvlPriv: calling process had insuficiant privalidges to call this syscall
 cap2: cid of new capability
 
 
-12: fn cmap<T: Map> (cap: Cap<T>, at_addr: usize) -> (err: SysErr, addr: usize)
+10: fn cmap<T: Map> (cap: Cap<T>, at_addr: usize) -> (err: SysErr, addr: usize)
 maps a capability {cap} that can be mapped into memory into memory
 the mapped memory is always not executable, and the read and write flags depend on the capability permissions
 if {at_addr} is not 0, cmap will try to map the capability into memory starting at {at_addr}
@@ -391,7 +376,7 @@ InvlVirtMem: the value passed in for at_addr causes the mapped memory to overlap
 addr: address of mapped memory
 
 
-13: fn cunmap<T: Map> (cap: Cap<T>) -> SysErr
+11: fn cunmap<T: Map> (cap: Cap<T>) -> SysErr
 unmaps memory mapped by cmap
 
 return value:
@@ -401,10 +386,42 @@ InvlId: no capability with cid {cap} exists
 InvlOp: the capability is not mapped into this process' address space
 
 
-14: fn cap_info<T> (cap: Cap<T>) -> SysErr
+12: fn cap_info<T> (cap: Cap<T>) -> SysErr
 
 
-15: fn mmio_new (phys_addr: usize, n: usize) -> (err: SysErr, cap: Cap<Mmio>)
+13: fn port_new (port: u16) -> (err: SysErr, cap: Cap<Port>)
+creates a capability referencing a port object on the specified port
+
+return value:
+syserr code:
+InvlPriv: does not have privalidge to call this syscall
+InvlArgs: port passed to port_new is reserved by the kernel
+InvlOp: another capability referencing this port already exists
+
+cap: capability referencing the port
+
+
+14: fn port_map (cap: Cap<Port>) -> SysErr
+allows the process to use the port referenced by {cap}
+
+return value:
+syserr code:
+InvlPriv: does not have privalidge to call this syscall
+InvlId: no capability with cid {cap} exists, or capability is not a port capability
+InvlOp: process had already mapped port
+
+
+15: fn port_unmap (cap: Cap<Port>) -> SysErr
+the process can no longer use the port referenced by {cap}
+
+return value:
+syserr code:
+InvlPriv: does not have privalidge to call this syscall
+InvlId: no capability with cid {cap} exists, or capability is not a port capability
+InvlOp: process had not yet mapped port
+
+
+16: fn mmio_new (phys_addr: usize, n: usize) -> (err: SysErr, cap: Cap<Mmio>)
 creates a new capability that references memory mapped io
 
 option:
@@ -419,12 +436,21 @@ InvlOp: another capability referencing this memory already exists
 cap: cid of memory mapped io
 
 
-16: fn salloc (pages: usize) -> (err: SysErr, cap: Cap<SMem>)
+17: fn interrupt_new (int: usize) -> (err: SysErr, cap: Cap<Interrupt>)
+
+
+18: fn interrupt_wait (cap: Cap<Interrupt>) -> (err: SysErr, n: usize)
+
+
+19: fn interrupt_eoi (cap: Cap<Interrupt>) -> SysErr
+
+
+20: fn smem_new (pages: usize) -> (err: SysErr, cap: Cap<SMem>)
 allocate shared memory to be shared with msg
 returns the capability referencing this shared memory
 
 options:
-bit 0-1 (salloc_cap_flags): CapPriv representing read and write privalidges over this memory
+bit 0-1 (smem_cap_flags): CapPriv representing read and write privalidges over this memory
 
 return value:
 syserr code:
@@ -435,21 +461,12 @@ OutOfMem: not enough memory to allocate shared memory
 cap: cid of shared memory
 
 
-17: fn interrupt_new (int: usize) -> (err: SysErr, cap: Cap<Interrupt>)
-
-
-18: fn interrupt_wait (cap: Cap<Interrupt>) -> (err: SysErr, n: usize)
-
-
-19: fn interrupt_eoi (cap: Cap<Interrupt>) -> SysErr
-
-
-20: fn futex_new () -> Cap<Futex>
+21: fn futex_new () -> Cap<Futex>
 
 
 // TODO: priority inheritance once I write a real scheduler
 // TODO: timeout
-21: fn futex_block (futex: Cap<Futex>, | timeout_nsec: usize) -> SysErr
+22: fn futex_block (futex: Cap<Futex>, | timeout_nsec: usize) -> SysErr
 bloocks the thread on futex {futex} until woken by another thread via futex_unblock
 incraments block count on the futex
 this may not actually block the thread if there are a negative amount of threads waiting on this futex
@@ -465,23 +482,39 @@ InvlId: capability id
 OkTimeout: timout exceeded, and the thread was unblocked
 
 
-22: fn futex_unblock (futex: Cap<Futex>, n: usize) -> (err: SysErr, n: usize)
+23: fn futex_unblock (futex: Cap<Futex>, n: usize) -> (err: SysErr, n: usize)
 unblocks {n} threads waiting on futex {fid} and returns how many real threads were unblocked
 decrements the wait count by {n}
 if {n} exceeds the amount of threads waiting on the futex, the wait count will be negative
 
-options:
-bit 0 (futex_share):
-shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
-
 return value:
 syserr code:
-InvlId: capability id
+InvlId: incalid capability id
 
 n: number of real threads unblocked
 
 
-23: fn connection_new () -> (err: SysErr, cap: Cap<Connection>)
+24: fn key_new () -> (err: SysErr, cap: Cap<Key>)
+ceates a new key object
+keys are used by userpace servers to identify sessions, and manage permissions
+each key is a globally unique integer, and this integer can be obtained with the key_id syscall
+
+return value:
+cap: key capability id
+
+
+25: fn key_id (key: Cap<Key>) -> (err: SysErr, id: usize)
+returns the key's id
+
+return value:
+syserr code:
+InvlId: invalid capability id
+InvlOp: {key} capability does not reference a key object
+
+id: the key's id
+
+
+26: fn connection_new () -> (err: SysErr, cap: Cap<Connection>)
 creates a new connection object
 
 options:
@@ -489,15 +522,35 @@ bit 0 (conn_sc_resist): resist side channel attacks
 if set, all non blocking calls will return SysErr::Obscured
 
 
-24: fn msg_buf_new () -> (err: SysErr, addr: usize)
+27: fn msg_buf_new () -> (err: SysErr, addr: usize)
 allocates a new message buffer, and returns the address it is located at
 the length of the message buffer in pages can be obtained from the global information table
+
+the format of the message buffer is described bellow
+word means the size of a word (64 bits on x64, not 16 bits)
+word 1: length of the message, in words
+when the message is sent, the kernel will clamp the word to ensure it is less than the lenghth of the message buffer, and greater than the position of the last sent capability
+word 2: flags
+bit 0 (reply):
+if this bit is set, a capability to a reply object is sent in the reply object word, and the reciever should reply with reply_recv to this reply
+if this bit is not set, the reply word will be zeroed
+bit 32-63 (cap_count):
+the number of capabilities to send / the number that were sent
+the kernel will clamp this value if it exceeds the message buffer length
+if any capability does not exist, the kernel will ignore that value, and decrement the length by 1
+word 3: reply
+a capability to a reply object, zeroed if unused
+
+after these words, there will be all the capabilities
+after the capabilities, there will be all the data words
+the data words continue to the end of the message buffer
+
 
 return value:
 addr: address of the message buffer
 
 
-25: fn msg_buf_destroy (addr: usize) -> SysErr
+28: fn msg_buf_destroy (addr: usize) -> SysErr
 deallocates the message buffer at addres addr
 
 return value:
@@ -505,9 +558,9 @@ syserr code:
 InvlAddr: no message buffer is present at address addr
 
 
-26: fn send<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
+29: fn send<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
 sends a message, blocks until someone recieves
-{msg_buff} specifies which message buffer to send the message from
+{msg_buff} specifies the message buffer to send the message from
 
 return value:
 syserr code:
@@ -518,150 +571,120 @@ InvlPriv: pocess does not have sufficient privalidges to call send
 InvlCap: capability does not have send privalidges
 
 
-27: fn nbsend<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
-sends a message if someone is waiting, otherwise return
-{msg_buff} specifies which message buffer to send the message from
+30: fn recv<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
+recieves a message, blocks until someone sends message
+{msg_buff} specifies the message buffer to recieve the message into
 
 return value:
 syserr code:
 InvlId: no capability with id {cap} exists
 InvlOp: {cap} does not reference an object that implements Communicate
 InvlAddr: {msg_buff} does not point to a valid message buffer
-InvlPriv: pocess does not have sufficient privalidges to call send
+InvlPriv: pocess does not have sufficient privalidges to call recv
+InvlCap: capability does not have recieve privalidges
+
+
+31: fn nbsend<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
+sends a message if someone is waiting to recieve a message, otherwise return
+{msg_buff} specifies the message buffer to send the message from
+
+return value:
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference an object that implements Communicate
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call nbsend
 InvlCap: capability does not have send privalidges
 Obscured: capability has conn_sc_resist set
-OkUnreach: nobody was waiting for a message
+OkUnreach: nobody was waiting to recieve a message
 
 
-28: fn asend<T: Communicate> (cap: Cap<T>, msg_buff: usize, func: usize) -> SysErr
-asynchronously send a message to a connection
-{msg_buff} specifies which message buffer to send the message from
-
-
-// TODO: specify who can create namespaces
-22: fn reg (domain: usize, rip: usize, | gid: usize) -> SysErr
-register function at instrcution pointer {rip} to handle messages with domain {domain}
-
-options:
-bit 0 (reg_block):
-0: will spawn a new thread to handle the message
-1: will block the current thread and switch to a new stack
-can exit this stack and restore state by calling msg_return
-
-bit 1 (reg_default):
-0: reg registers function only for specified domain
-1: reg registers function to respond to all domains that don't have an individual function registered to handle them
-
-bit 2 (reg_global):
-0: local, registers handler to respond to messages sent by pid
-1: global, registers handler to respond to messages sent by executable name
-
-bit 3 (reg_public):
-0: private, processes can only message this domain when replying to a connection which was listening asynchronously
-1: public, and process can message this domain
-
-bit 4 (reg_remove):
-0: reg behaves normally
-1: reg removes the registered handler if any are registered
-
-bit 5 (reg_group):
-0: ignore gid argument
-1: applications must be member of group specified by {gid} to message this domain
-repated calls with {rip} == 0 and reg_group bit set will allow multiple groups to access this domain
+32: fn nbrecv<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
+recieves a message if someone is waiting to send a message, otherwise return
+{msg_buff} specifies the message buffer to recieve the message into
 
 return value:
 syserr code:
-InvlPriv:
-could not register handler for domain under executable name because another process already registered a handler
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference an object that implements Communicate
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call nbrecv
+InvlCap: capability does not have recieve privalidges
+Obscured: capability has conn_sc_resist set
+OkUnreach: nobody was waiting to send a message
 
 
-23: fn connect (exec_name: *const char | pid: usize, exec_name_len: usize |, domain: usize) -> (err: SysErr, cid: usize)
-open a connection with another process (can not open connection to self)
-
-options:
-bit 0 (connect_pid):
-0: open connection with domain handler registered for {exec_name}
-1: open connection with domain handler registered for process with pid {pid}
-
-return value:
-cid: connection id
-err: syserr code
-
-
-24: fn disconnect (cid: usize) -> SysErr
-close connection with cid {cid}
+33: fn asend<T: Communicate> (cap: Cap<T>, msg_buff: usize, func: usize) -> SysErr
+asynchronously send a message
+{msg_buff} specifies the message buffer to send the message from
+{func} specifies the callback to call once the message is sent
 
 return value:
 syserr code:
-InvlId: no connection with cid {cid} exists
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference an object that implements Communicate
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call asend
+InvlCap: capability does not have send privalidges
 
 
-25: conn_info (cid: usize)
-
-
-26: fn msg (cid: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize) -> SysErr
-send a message to another process (process cannot message itself)
-note: this syscall returns using the message handler api
-the first msg sent will call the DomainHandler registered at the time of calling connect
-if the other process asynchronously awaits reply, subsequent replies will use the processess locally registered handler at the time of calling msg
-
-options:
-bit 1 (msg_block):
-0: do not wait for reply from other process
-if the other process replies, the handler registered for the reply domain will be called
-1: block until other process replies
-if the other process replies, the data will be put in this processes registers
-
-bit 8-15 (smem_transfer_mask):
-transfers shared memory references by smid in a certain register to other process
-the recieving process recieves an smid that can be mapped with smap
-bit 8 set: transfers a1
-bit 9 set: transfers a2
-bit 10 set: transfers a3
-bit 11 set: transfers a4
-bit 12 set: transfers a5
-bit 13 set: transfers a6
-bit 14 set: transfers a7
-bit 15 set: transfers a8
+34: fn arecv<T: Communicate> (cap: Cap<T>, msg_buff: usize, func: usize) -> SysErr
+asynchronously recieve a message
+{msg_buff} specifies the message buffer to recieve the message into
+{func} specifies the callback to call once the message is recieved
 
 return value:
-this syscall returns using the message handler api if it is called with msg_reply flag set
-if it is not called with msg_reply, it will return msg_return_value normaly, wich is a syserr code
-
-message handler abi:
-rax: flags
-rbx: sender pid
-rcx: unused
-rdx: domain
-rbp: unused
-rsp: unused
-rsi: arg 1
-rdi: arg 2
-r8: arg 3
-r9: arg 4
-r10: unused
-r11: unused
-r12: arg 5
-r13: arg 6
-r14: arg 7
-r15: arg 8
-
-options:
-bits 0-7 (msg_return_value):
-syserr code
-it is not specified if original registers are preserved
-
-bit 8-15 (smem_transfer_mask):
-this bitmask specifies which args contain smids
-bit 8 set: arg 1 has smid
-bit 9 set: arg 2 has smid
-bit 10 set: arg 3 has smid
-bit 11 set: arg 4 has smid
-bit 12 set: arg 5 has smid
-bit 13 set: arg 6 has smid
-bit 14 set: arg 7 has smid
-bit 15 set: arg 8 has smid
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference an object that implements Communicate
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call arecv
+InvlCap: capability does not have recieve privalidges
 
 
-27: fn msg_return () -> SysErr
-returns of msg stack
+35: fn reply_recv (cap: Cap<Reply>, msg_buff: usize) -> SysErr
+reply to a reply object, than listen on the channel the reply object was created on
+reply_recv first does a nbsend to the reply, and will destroy the capability referencing the reply
+reply_recv then calls recv on the channel that the reply was created on
+{msg_buff} specifies the message buffer to reply with and recieve into
+
+return value:
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference a reply
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call reply_recv
+InvlCap: reply capability does not have send privalidges, or channel referenced by reply does not have recieve privalidges
+
+
+36: fn call (cap: Cap<Channel>, msg_buff: usize) -> SysErr
+call a channel
+call first creates a reply referencing the channel, and then performs send on the channel
+call will send the reply capability in the reply slot in the message
+after the message is recieved, call than performs a recv on the reply, and will wait for a responce from the server
+{msg_buff} specifies the message buffer to send from and recieve into
+
+return value:
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference a channel
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call call
+InvlCap: channel capability does not have send privalidges
+
+
+37: fn acall (cap: Cap<Channel>, msg_buff: usize, func: usize) -> SysErr
+asynchronously call a channel
+acall first creates a reply referencing the channel, and then performs asend on the channel
+acall will send the reply capability in the reply slot in the message
+after the message is recieved, acall than performs an arecv on the reply, and will wait for a responce from the server
+after the msg is recieved, acall calls the callback funnction specified in {func} and passes in the {msg_buff} pointer
+{msg_buff} specifies the message buffer to send from and recieve into
+
+return value:
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference a channel
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call acall
+InvlCap: channel capability does not have send privalidges

@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 

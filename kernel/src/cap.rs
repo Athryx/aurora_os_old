@@ -18,9 +18,10 @@ pub enum CapObjectType {
 	Reply = 1,
 	Futex = 2,
 	SMem = 3,
-	Mmio = 4,
-	Interrupt = 5,
-	Port = 6,
+	Key = 4,
+	Mmio = 5,
+	Interrupt = 6,
+	Port = 7,
 }
 
 impl CapObjectType {
@@ -30,9 +31,10 @@ impl CapObjectType {
 			1 => Self::Reply,
 			2 => Self::Futex,
 			3 => Self::SMem,
-			4 => Self::Mmio,
-			5 => Self::Interrupt,
-			6 => Self::Port,
+			4 => Self::Key,
+			5 => Self::Mmio,
+			6 => Self::Interrupt,
+			7 => Self::Port,
 			_ => return None,
 		})
 	}
