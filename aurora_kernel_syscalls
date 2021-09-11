@@ -7,6 +7,14 @@ specify layout of global information table
 
 specify atomicity of syscalls
 
+specify all the privalidge flags
+
+write descriptions of all syscalls that don't have a description yet
+
+syscalls to add: async_abort, exception handling syscall, return from async or exception handler syscall, killing processes
+
+decide if mprotect is needed
+
 IMPLEMANTATION ISSUES:
 io syscalls unimpleted
 realloc does not correctly follow all flags
@@ -85,8 +93,8 @@ bit 2 (priv_any): allows process to set its privalidge to any arbritrary value, 
 
 CapPriv(usize)
 a bitmask representing the permissions of a capability
-bit 0 (cap_read): allows reading of the object referenced by this capability
-bit 1 (cap_write): allows writing to the object referenced by this capability
+bit 0 (cap_read): allows reading of or sending to the object referenced by this capability
+bit 1 (cap_write): allows writing to or recieving from the object referenced by this capability
 
 CapFlags(usize)
 a bitmask representing the various properties of a capability
@@ -218,7 +226,7 @@ pid:
 pid of new process
 
 
-2: fn exit ()
+2: fn exit () -> !
 terminates the calling process
 
 
@@ -461,7 +469,7 @@ OutOfMem: not enough memory to allocate shared memory
 cap: cid of shared memory
 
 
-21: fn futex_new () -> Cap<Futex>
+21: fn futex_new () -> (err: SysErr, cap: Cap<Futex>)
 
 
 // TODO: priority inheritance once I write a real scheduler
