@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+
 #![feature(asm)]
 #![feature(const_fn_trait_bound)]
 #![feature(maybe_uninit_uninit_array)]
@@ -21,14 +22,17 @@ extern crate alloc;
 
 mod arch;
 mod int;
+mod ipc;
 mod mem;
 mod sched;
 mod syscall;
 mod time;
 mod util;
 
+mod cap;
 mod consts;
 mod gdt;
+mod id;
 mod kdata;
 mod mb2;
 mod upriv;

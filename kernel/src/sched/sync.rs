@@ -5,54 +5,10 @@ use alloc::sync::Arc;
 use spin::{Mutex, MutexGuard};
 
 use crate::uses::*;
+use crate::cap::{CapObject, CapObjectType, CapFlags, Capability, CapId};
 use super::{thread_c, tlist, ThreadState};
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FuidInner
-{
-	parent_id: usize,
-	fid: usize,
-}
-
-impl FuidInner
-{
-	fn new(parent_id: usize, fid: usize) -> Self
-	{
-		FuidInner {
-			parent_id,
-			fid,
-		}
-	}
-}
-
-// a struct that uniqeuly identifies a futex for the scheduler
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Fuid
-{
-	Process(FuidInner),
-	SMem(FuidInner),
-}
-
-impl Fuid
-{
-	pub fn new_process(parent_id: usize, fid: usize) -> Self
-	{
-		Self::Process(FuidInner::new(parent_id, fid))
-	}
-
-	pub fn new_smem(parent_id: usize, fid: usize) -> Self
-	{
-		Self::SMem(FuidInner::new(parent_id, fid))
-	}
-}
-
-impl Default for Fuid
-{
-	fn default() -> Self
-	{
-		Self::Process(FuidInner::default())
-	}
-}
+crate::make_id_type!(Fuid);
 
 #[derive(Debug)]
 pub struct KFutex
@@ -61,6 +17,7 @@ pub struct KFutex
 	wait_count: AtomicIsize,
 	alive: AtomicBool,
 	block_lock: Mutex<()>,
+	ref_count: AtomicUsize,
 }
 
 impl KFutex
@@ -72,6 +29,7 @@ impl KFutex
 			wait_count: AtomicIsize::new(0),
 			alive: AtomicBool::new(true),
 			block_lock: Mutex::new(()),
+			ref_count: AtomicUsize::new(0),
 		};
 
 		let state = ThreadState::FutexBlock(&out as *const _);
@@ -138,7 +96,6 @@ impl KFutex
 		true
 	}
 
-	// call while btree of futexes is locked, otherwise might cause a race condition
 	fn unblock(&self, n: usize) -> usize
 	{
 		let state = ThreadState::FutexBlock(self as *const _);
@@ -151,7 +108,6 @@ impl KFutex
 		tlock.inner_state_move(state, ThreadState::Ready, n)
 	}
 
-	// call while btree of futexes is locked, otherwise might cause a race condition
 	fn destroy(&self) -> usize
 	{
 		self.alive.store(false, Ordering::Release);
@@ -167,13 +123,29 @@ impl KFutex
 	}
 }
 
+impl CapObject for KFutex {
+	fn cap_object_type() -> CapObjectType {
+		CapObjectType::Futex
+	}
+
+	fn inc_ref(&self) {
+		self.ref_count.fetch_add(1, Ordering::Relaxed);
+	}
+
+	fn dec_ref(&self) {
+		if self.ref_count.fetch_sub(1, Ordering::Relaxed) == 0 {
+			self.destroy();
+		}
+	}
+}
+
 #[derive(Debug)]
 pub struct FutexMap
 {
 	process: bool,
 	parent_id: usize,
 	// TODO: make this prettier
-	data: Mutex<BTreeMap<Fuid, Arc<KFutex>>>,
+	data: Mutex<BTreeMap<CapId, Capability<KFutex>>>,
 }
 
 impl FutexMap
@@ -196,41 +168,37 @@ impl FutexMap
 		}
 	}
 
-	fn fuid(&self, id: usize) -> Fuid
+	pub fn block(&self, cid: CapId) -> Result<(), SysErr>
 	{
-		if self.process {
-			Fuid::new_process(self.parent_id, id)
+		// I don't think this is a race condition
+		let lock = self.data.lock();
+		let cap = lock.get(&cid).ok_or(SysErr::InvlId)?;
+		let futex = cap.arc_clone();
+		let flags = cap.flags();
+		drop(lock);
+
+		if !flags.contains(CapFlags::READ) {
+			Err(SysErr::InvlCap)
 		} else {
-			Fuid::new_smem(self.parent_id, id)
+			if futex.block() {
+				Ok(())
+			} else {
+				Err(SysErr::InvlId)
+			}
 		}
 	}
 
-	fn get_insert(&self, id: usize) -> Arc<KFutex>
-	{
-		let fuid = self.fuid(id);
-		let mut lock = self.data.lock();
-		lock.entry(fuid).or_insert(KFutex::new(fuid)).clone()
-	}
-
-	pub fn block(&self, id: usize)
-	{
-		while !self.get_insert(id).block() {}
-	}
-
-	pub fn unblock(&self, id: usize, n: usize) -> usize
+	pub fn unblock(&self, cid: CapId, n: usize) -> Result<usize, SysErr>
 	{
 		// don't need to repeatedly retrt because we hold lock the whole time
-		let fuid = self.fuid(id);
 		let mut lock = self.data.lock();
-		let futex = lock.entry(fuid).or_insert(KFutex::new(fuid));
-		futex.unblock(n)
+		let futex = lock.get(&cid).ok_or(SysErr::InvlId)?;
+		Ok(futex.object().unblock(n))
 	}
 
-	pub fn destroy(&self, id: usize) -> Result<usize, SysErr>
+	pub fn remove(&self, cid: CapId) -> Result<Capability<KFutex>, SysErr>
 	{
-		let fuid = self.fuid(id);
 		let mut lock = self.data.lock();
-		let futex = lock.remove(&fuid).ok_or(SysErr::InvlId)?;
-		Ok(futex.destroy())
+		Ok(lock.remove(&cid).ok_or(SysErr::InvlId)?)
 	}
 }

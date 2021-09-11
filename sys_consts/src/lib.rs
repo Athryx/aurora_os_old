@@ -10,19 +10,19 @@ pub mod syscalls;
 pub enum SysErr
 {
 	Ok = 0,
-	MsgResp = 1,
-	MsgUnreach = 2,
-	MsgTerm = 3,
-	OutOfMem = 4,
-	InvlVirtMem = 5,
-	InvlPtr = 6,
-	InvlVirtAddr = 7,
-	InvlArgs = 8,
-	InvlPriv = 9,
-	InvlId = 10,
+	OkUnreach = 1,
+	OutOfMem = 2,
+	InvlVirtMem = 3,
+	InvlPtr = 4,
+	InvlVirtAddr = 5,
+	InvlArgs = 6,
+	InvlId = 7,
+	InvlPriv = 8,
+	InvlCap = 9,
 	InvlString = 11,
 	InvlOp = 12,
-	Unknown = 13,
+	Obscured = 13,
+	Unknown = 14,
 }
 
 impl SysErr
@@ -45,20 +45,18 @@ impl SysErr
 	{
 		match self {
 			Self::Ok => "no error",
-			Self::MsgResp => "blocking message sent, and a response was recieved",
-			Self::MsgUnreach => {
-				"cannot send message, no waiting thread or registered domain handler"
-			},
-			Self::MsgTerm => "cannot send message, connection terminated",
+			Self::OkUnreach => "ipc message not sent or recieved because there was no waiting thread",
 			Self::OutOfMem => "out of memory",
 			Self::InvlVirtMem => "virtual memory collision",
 			Self::InvlPtr => "invalid pointer",
 			Self::InvlVirtAddr => "non canonical pointer",
 			Self::InvlArgs => "invalid arguments",
-			Self::InvlPriv => "insufficent priveledge",
 			Self::InvlId => "invalid identifier",
+			Self::InvlPriv => "insufficent priveledge",
+			Self::InvlCap => "invalid capability permissions",
 			Self::InvlString => "invalid utf-8 string",
 			Self::InvlOp => "invalid operation",
+			Self::Obscured => "operation does not return information about error state",
 			Self::Unknown => "unknown error",
 		}
 	}

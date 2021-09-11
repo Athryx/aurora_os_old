@@ -10,9 +10,9 @@ figure out how user permissions would work
 
 asynrchronously recieve messages for multithreaded servers
 
+specify layout of global information table
+
 IMPLEMANTATION ISSUES:
-futex syscalls do not translate over shared memory
-info syscalls unimpleted
 io syscalls unimpleted
 realloc does not correctly follow all flags
 
@@ -80,37 +80,80 @@ struct UserPageArray {
 addr must be page aligned
 len is number of pages
 
+PrivFlags(usize)
+a bitmask of syscalls that a process is allowed to make
+bit 0-1 (spawn_priv):
+0: process is forbidden from calling spawn
+1: process can call spawn, but it cannot spawn a process which has privalidges that it itself does not have
+2: process can call spawn, and can spawn a process with higher privalidges than itself
+bit 2 (priv_any): allows process to set its privalidge to any arbritrary value, instead of only being able to revoke privalidges it already has
 
-0: fn info ()
+CapPriv(usize)
+a bitmask representing the permissions of a capability
+bit 0 (cap_read): allows reading of the object referenced by this capability
+bit 1 (cap_write): allows writing to the object referenced by this capability
+
+CapFlags(usize)
+a bitmask representing the various properties of a capability
+bit 0-1 (cap_priv): specifies the privalidges of a capability
+uses bits 0-1 of the CapPriv type
+// TODO: figure out if ports and maybe even normal memory should have a capability
+bit 2-4 (cap_type): specifies what type of object the capability refers to
+0: connection
+1: reply
+2: futex
+3: shared memory
+4: mmio memory
+5: interrupt
+6: port
+
+// Process id
+type pid = usize;
+
+// Thread id
+type tid = usize;
+
+// Capability id
+// when picking an id for a capability, the kernel ensures that the bottom 6 bits match the CapFlags that represent information about the capability
+type Cap<T> = usize;
+// in the documentation, generic types will be used to denote which functions can accept which types of capabilities
+// the following generic traits will also be used:
+trait Map {}
+impl Map for SMem {}
+impl Map for Mmio {}
+
+trait Communicate {}
+impl Communicate for Connection {}
+impl Communicate for Reply {}
 
 
-1: fn spawn (name: usize, name_len: usize, uid: usize, pstate: *const SpawnStartState) -> (err: SysErr, pid: usize)
+0: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
+prints the characters specified in the arguments to the debug console
+this syscall is only for debugging until I write a terminal emulator
+each argument is a combination of 8 bit characters to print to the screen
+the order the characters are printed is as follows:
+lower number arguments are printed before higher numbered arguments (a1 before a2 before a3, etc)
+least significant bytes in each argument are printed first (a1 bits 0-7, a1 bits 8-15, a1 bits 16-23, etc)
+
+options:
+bits 0-7 (debug_print_num):
+specifies the number of characters to print (max 80 on x86_64)
+
+
+1: fn spawn (name: usize, name_len: usize, priv: PrivFlags, pstate: *const SpawnStartState) -> (err: SysErr, pid: pid)
 spawns a new process
 must be a superuser process to call this syscall
 {name} must point to a valid utf-8 string, and {name_len} is the length of this string in bytes
-{uid} specifies the uid of the spawned process
+{priv} specifies the privalidges of the spawned process
 {pstate} must be properly aligned and point to a valid SpawnStartState structure
-
-{addr} points to the start of the memory containing the elf executable to be loaded, {len} is the length of the elf executable in bytes
-
-{mem_addr} and {mem_pages} specify the location and length, respectively, of memory that will have its data copied and mapped into the spawn process
-this data can be command line arguments, or other information
-the address of this memory will be placed in rax, and the length in pages placed in rbx on process start
-{mem_addr} must be page aligned and {mem_pages} specifies the length in pages
-
-{smem_array} is a pointer that points to an array of shared memory ids with len {smem_array_len}
-the newly spaned process can call smap on these ids to map them into its memory
-the address of the shared memory id array will be placed in rcx, and the number of shared memory ids will be placed in rdx
-{smem_array} must be word aligned (8 bytes on 64 bit system, etc)
 
 {pstate} contains additional information used by spawn syscall, and is defined as follows:
 struct SpawnStartState {
 	entry: usize,
 	mem_arr: UserArray<SpawnMemMap>,
-	smem_arr: UserArray<usize>,
+	cap_arr: UserArray<Cap>,
 }
 
-{rcx} through {r15} specify what values will be stored in the registers on process start
 {entry} specifies which address the process should start executing code from
 
 {mem_arr} is an array of SpawnMemMap structs which specify memory to be mapped into the new process
@@ -159,25 +202,46 @@ bit 0 (read): allows reading of memory
 bit 1 (write): allows writing to memory
 bit 2 (exec): allows executing code from memory
 
-{smem_arr} is an array of smids that will be shared to the new process
+{cap_arr} is an array of capabilities that will be shared to the new process
 a pointer to this array will be put in rcx, and the number of smids will be put in rdx
+
+// TODO: specify git layout
+a pointer to the global information table, which can be used to obtain information about the system and read the time, is placed in rdi
+the global information table is always 1 page in length
 
 return value:
 syserr code:
-InvlPriv: calling process was not superuser
+InvlPriv: calling process had insuficiant privalidges
 InvlPtr: a pointer was not correctly alligned or did not point to valid memory,
 or the lengths were to long and they passed over invalid memory
 InvlVirtAddr: non cannonical pointer
 OutOfMem: not enough memory to load new process
-InvlId: smid in {smem_arr} is invalid
+InvlId: capability in {cap_arr} is invalid
 
 pid:
 pid of new process
 
 
-2: fn thread_new (rip: usize) -> (err: SysErr, tid: usize)
+2: fn exit ()
+terminates the calling process
+
+
+3: fn set_priv (priv: PrivLevel) -> SysErr
+sets the calling processes privalidges
+
+options:
+bit 0 (priv_any): if this bit is set, the calling process can set its privalidges to {priv}
+otherwise, the new value is current_priv & {priv}
+
+return value:
+syserr code:
+InvlPriv: priv_any was set, but the calling proess did not have the priv_any privalidge
+
+
+4: fn thread_new (rip: usize) -> (err: SysErr, tid: tid)
 creates a new thread and returns its id
 the thread function should not return, it should call thread_block with destroy in order to terminate itself
+thread new will set rsp to a valid stack and will set rip to the value passed in
 
 return value:
 err:
@@ -186,7 +250,7 @@ tid:
 thread id
 
 
-3: fn thread_block (reason: usize, | nsec: usize | thread_id: usize) -> SysErr
+5: fn thread_block (reason: usize, | nsec: usize | thread_id: tid) -> SysErr
 blocks the calling thread with reason {reason}
 
 reason:
@@ -203,69 +267,7 @@ syserr code:
 InvlArgs: invalid reason passed to thread_block
 
 
-5: fn exit (code: usize)
-terminates process with exit code {code}
-
-
-// TODO: priority inheritance once I write a real scheduler
-// TODO: timeout
-6: fn futex_block (fid: usize, | smid: usize, | timeout_nsec: usize) -> SysErr
-bloocks the thread on futix id {fid} until woken by another thread via futex_unblock
-incraments block count on the futex
-this may not actually block the thread if there are a negative amount of threads waiting on this futex
-futexes do not have to be created, if no futex with {fid} exists, futex_block will create a new one
-
-options:
-bit 0 (futex_share):
-shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
-bit 1 (futex_timeout):
-if the thread has not been unblocked by {timeout_nsec} nanoseconds after boot, the thread will be unblocked,
-the waiting thread count will be decremented, and futex_block will return OkTimeout
-
-return value:
-syserr code:
-InvlId: invalid smid
-OkTimeout: timout exceeded, and the thread was unblocked
-
-
-7: fn futex_unblock (fid: usize, | smid: usize, n: usize) -> (err: SysErr, n: usize)
-unblocks {n} threads waiting on futex {fid} and returns how many real threads were unblocked
-decrements the wait count by {n}
-if {n} exceeds the amount of threads waiting on the futex, the wait count will be negative
-
-options:
-bit 0 (futex_share):
-shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
-
-return value:
-syserr code:
-InvlId: invalid smid
-
-n: number of real threads unblocked
-
-
-8: fn futex_destroy (fid: usize, | smid: usize) -> (err: SysErr, n: usize)
-destroys the futex and changes any threads waiting on the futex back to the runnable state
-
-options:
-bit 0 (futex_share):
-shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
-
-return value:
-syserr code:
-InvlId: ivalid fid or smid
-
-n: number of real threads unblocked that were waiting on the futex when destroyed
-
-
-9: set_proc_properties
-// I don't know if this will stay
-
-
-10: set_thread_properties
-
-
-11: fn realloc (mem: usize, len: usize, at_addr: usize) -> (err: SysErr, mem: usize, len: usize)
+6: fn realloc (mem: usize, len: usize, at_addr: usize) -> (err: SysErr, mem: usize, len: usize)
 allocates, rellocates, or frees memory pointed to by mem
 
 if {mem} == 0:
@@ -319,92 +321,7 @@ length of memory allocated in pages, this is guarenteed to ba at least {len} pag
 but it could be longer than specified, unless the realloc_exact option is specified
 
 
-12: fn mmio_map (phys_addr: usize, n: usize) -> (err: SysErr, addr: usize)
-maps n pages starting at physical address phys_addr into the calling process's address space
-only superuser or iopriv processes can call mmap
-
-return value:
-err: syserr code
-addr: virtual address of mapped region
-
-
-13: fn mmio_unmap (virt_addr: usize)
-unmaps memory previously mapped by mmap
-only superuser or iopriv processes can call munmap
-
-
-14: fn port_map (port: usize) -> SysErr
-allows the process to use port {port}
-only superuser or iopriv processes can call munmap
-
-return value:
-syserr code
-
-
-15: fn port_unmap (port: usize)
-the process can no longer use port {port}
-only superuser or iopriv processes can call munmap
-
-
-16: fn salloc (pages: usize) -> (err: SysErr, smid: usize)
-allocate shared memory to be shared with msg
-returns the shared memory id (smid) that can be mapped with smap or shared with msg
-NOTE: smids are process local, so they must be shared with msg, and they cannot be shared using other shared memory
-
-options:
-bit 0 (read):
-allows reading of shared memory
-
-bit 1 (write):
-allows writing to shared memory
-
-bit 2 (exec):
-allows executing instrcutions from shared memory
-
-return value:
-syserr code:
-OutOfMem: not enough memory to allocate shared memory
-smid: shared memory id
-
-
-17: fn sdealloc (smid: usize) -> SysErr
-free shared memory allocated by salloc or recieved by another process
-unmaps the shared memory if it has not yet been unmapped, and it invalidates {smid}
-once all processess that had the shared memory free it, the shared memory is deallocated from physical memory
-
-return value:
-syserr code:
-InvlId: no shared memory with id {smid} exists
-
-
-18: fn smap (smid: usize) -> (err: SysErr, addr: usize, pages: usize)
-mappes the shared memory with id {smid}
-
-return value:
-syserr code:
-InvlId: no shared memory with id {smid} exists
-InvlOp: shared memory with id {smid} is already mapped
-InvlVirtMem: not enough virtual memory to map shared memory
-
-addr: address of shared memory
-pages: length of shared memory region in pages
-
-
-19: fn sunmap (smid: usize) -> SysErr
-unmaps the shared memory with id {smid}
-
-return value:
-syserr code:
-InvlId: no shared memory with id {smid} exists
-InvlOp: shared memory with id {smid} is not mapped
-
-
-20: fn smem_info (smid: usize) -> usize
-returns the size of shared memory at {smid} in pages
-returns 0 if there is no shared memory with id {smid}
-
-
-21: fn mprotect (addr: usize) -> usize
+7: fn mprotect (addr: usize) -> usize
 sets the read, write, and execute permissions on a chunk of memory
 mprotect cannot be called on shared memory
 
@@ -421,6 +338,204 @@ allows executing instrcutions from memory
 return valus:
 0: success
 1: failure
+
+
+8: fn port_map (port: usize) -> SysErr
+allows the process to use port {port}
+
+return value:
+syserr code:
+InvlPriv: does not have privalidge to call this syscall
+
+
+9: fn port_unmap (port: usize)
+the process can no longer use port {port}
+
+
+10: fn cap_destroy<T> (cap: Cap<T>) -> SysErr
+destroys the capability {cap}
+when the object referenced by {cap} has 0 references left, it is freed
+
+return value:
+syserr code:
+InvlId: no capability with cid {cap} exists
+
+
+11: fn cap_clone<T> (cap: Cap<T>) -> (err: SysErr, cap2: Cap<T>)
+clones the capability {cap} with different privalidges
+
+options:
+bit 0-1 (mmio_cap_flags): CapPriv representing privalidges of new capability
+these privalidges are anded with the privalidges {cap} already has, so clone can only create capabilities with the same or less privalidges as the original
+
+return value:
+syserr code:
+InvlId: no capability with cid {cap} exists
+InvlPriv: calling process had insuficiant privalidges to call this syscall
+
+cap2: cid of new capability
+
+
+12: fn cmap<T: Map> (cap: Cap<T>, at_addr: usize) -> (err: SysErr, addr: usize)
+maps a capability {cap} that can be mapped into memory into memory
+the mapped memory is always not executable, and the read and write flags depend on the capability permissions
+if {at_addr} is not 0, cmap will try to map the capability into memory starting at {at_addr}
+
+return value:
+syserr code:
+InvlPriv: calling process has insuficiant privalidges to call this syscall
+InvlId: no capability with cid {cap} exists
+InvlOp: the capability is already mapped into this process' address space, or the capability cannot be mapped into memory
+InvlVirtMem: the value passed in for at_addr causes the mapped memory to overlap with other virtual memory
+
+addr: address of mapped memory
+
+
+13: fn cunmap<T: Map> (cap: Cap<T>) -> SysErr
+unmaps memory mapped by cmap
+
+return value:
+syserr code:
+InvlPriv: calling process has insuficiant privalidges to call this syscall
+InvlId: no capability with cid {cap} exists
+InvlOp: the capability is not mapped into this process' address space
+
+
+14: fn cap_info<T> (cap: Cap<T>) -> SysErr
+
+
+15: fn mmio_new (phys_addr: usize, n: usize) -> (err: SysErr, cap: Cap<Mmio>)
+creates a new capability that references memory mapped io
+
+option:
+bit 0-1 (mmio_cap_flags): CapPriv representing read and write privalidges over this memory
+
+return value:
+err: syserr code:
+InvlPriv: does not have privalidge to call this syscall
+InvlArgs: memory reagion passed to mmio_new is not a valid mmio region
+InvlOp: another capability referencing this memory already exists
+
+cap: cid of memory mapped io
+
+
+16: fn salloc (pages: usize) -> (err: SysErr, cap: Cap<SMem>)
+allocate shared memory to be shared with msg
+returns the capability referencing this shared memory
+
+options:
+bit 0-1 (salloc_cap_flags): CapPriv representing read and write privalidges over this memory
+
+return value:
+syserr code:
+InvlPriv: calling process had insuficiant privalidges to call this syscall
+InvlPriv: does not have privalidge to call this syscall
+OutOfMem: not enough memory to allocate shared memory
+
+cap: cid of shared memory
+
+
+17: fn interrupt_new (int: usize) -> (err: SysErr, cap: Cap<Interrupt>)
+
+
+18: fn interrupt_wait (cap: Cap<Interrupt>) -> (err: SysErr, n: usize)
+
+
+19: fn interrupt_eoi (cap: Cap<Interrupt>) -> SysErr
+
+
+20: fn futex_new () -> Cap<Futex>
+
+
+// TODO: priority inheritance once I write a real scheduler
+// TODO: timeout
+21: fn futex_block (futex: Cap<Futex>, | timeout_nsec: usize) -> SysErr
+bloocks the thread on futex {futex} until woken by another thread via futex_unblock
+incraments block count on the futex
+this may not actually block the thread if there are a negative amount of threads waiting on this futex
+
+options:
+bit 1 (futex_timeout):
+if the thread has not been unblocked by {timeout_nsec} nanoseconds after boot, the thread will be unblocked,
+the waiting thread count will be decremented, and futex_block will return OkTimeout
+
+return value:
+syserr code:
+InvlId: capability id
+OkTimeout: timout exceeded, and the thread was unblocked
+
+
+22: fn futex_unblock (futex: Cap<Futex>, n: usize) -> (err: SysErr, n: usize)
+unblocks {n} threads waiting on futex {fid} and returns how many real threads were unblocked
+decrements the wait count by {n}
+if {n} exceeds the amount of threads waiting on the futex, the wait count will be negative
+
+options:
+bit 0 (futex_share):
+shares the futex id for the smem referenced by {smid}, so that other processess can block and unblock on this futex
+
+return value:
+syserr code:
+InvlId: capability id
+
+n: number of real threads unblocked
+
+
+23: fn connection_new () -> (err: SysErr, cap: Cap<Connection>)
+creates a new connection object
+
+options:
+bit 0 (conn_sc_resist): resist side channel attacks
+if set, all non blocking calls will return SysErr::Obscured
+
+
+24: fn msg_buf_new () -> (err: SysErr, addr: usize)
+allocates a new message buffer, and returns the address it is located at
+the length of the message buffer in pages can be obtained from the global information table
+
+return value:
+addr: address of the message buffer
+
+
+25: fn msg_buf_destroy (addr: usize) -> SysErr
+deallocates the message buffer at addres addr
+
+return value:
+syserr code:
+InvlAddr: no message buffer is present at address addr
+
+
+26: fn send<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
+sends a message, blocks until someone recieves
+{msg_buff} specifies which message buffer to send the message from
+
+return value:
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference an object that implements Communicate
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call send
+InvlCap: capability does not have send privalidges
+
+
+27: fn nbsend<T: Communicate> (cap: Cap<T>, msg_buff: usize) -> SysErr
+sends a message if someone is waiting, otherwise return
+{msg_buff} specifies which message buffer to send the message from
+
+return value:
+syserr code:
+InvlId: no capability with id {cap} exists
+InvlOp: {cap} does not reference an object that implements Communicate
+InvlAddr: {msg_buff} does not point to a valid message buffer
+InvlPriv: pocess does not have sufficient privalidges to call send
+InvlCap: capability does not have send privalidges
+Obscured: capability has conn_sc_resist set
+OkUnreach: nobody was waiting for a message
+
+
+28: fn asend<T: Communicate> (cap: Cap<T>, msg_buff: usize, func: usize) -> SysErr
+asynchronously send a message to a connection
+{msg_buff} specifies which message buffer to send the message from
 
 
 // TODO: specify who can create namespaces
@@ -550,16 +665,3 @@ bit 15 set: arg 8 has smid
 
 27: fn msg_return () -> SysErr
 returns of msg stack
-
-
-28: fn print_debug (a1: usize, a2: usize, a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize)
-prints the characters specified in the arguments to the debug console
-this syscall is only for debugging until I write a terminal emulator
-each argument is a combination of 8 bit characters to print to the screen
-the order the characters are printed is as follows:
-lower number arguments are printed before higher numbered arguments (a1 before a2 before a3, etc)
-least significant bytes in each argument are printed first (a1 bits 0-7, a1 bits 8-15, a1 bits 16-23, etc)
-
-options:
-bits 0-7 (debug_print_num):
-specifies the number of characters to print (max 80 on 64 bit system)
