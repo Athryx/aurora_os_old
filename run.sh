@@ -25,14 +25,14 @@ fi
 
 if [[ $1 = debug ]]
 then
-	qemu-system-x86_64 -m 5120 -debugcon stdio -s -S $IMG & $TERM -e "$HOME/.cargo/bin/rust-gdb" "-x" "debug.gdb"
+	qemu-system-x86_64 -m 5120 -debugcon stdio -s -S -drive file=$IMG,format=raw & $TERM -e "$HOME/.cargo/bin/rust-gdb" "-x" "debug.gdb"
 elif [[ $1 = release ]] && [[ $2 = debug ]]
 then
-	qemu-system-x86_64 -m 5120 -debugcon stdio -s -S $IMG & $TERM -e "$HOME/.cargo/bin/rust-gdb" "-x" "debug-release.gdb"
+	qemu-system-x86_64 -m 5120 -debugcon stdio -s -S -drive file=$IMG,format=raw & $TERM -e "$HOME/.cargo/bin/rust-gdb" "-x" "debug-release.gdb"
 elif [[ $1 = bochs ]]
 then
 	$TERM -e bochs -f bochsrc
 elif [[ -z $1 ]] || [[ $1 = release ]]
 then
-	qemu-system-x86_64 -m 5120 -debugcon stdio $IMG
+	qemu-system-x86_64 -m 5120 -debugcon stdio -drive file=$IMG,format=raw
 fi
