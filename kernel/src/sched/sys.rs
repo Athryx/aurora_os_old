@@ -5,7 +5,7 @@ use crate::syscall::udata::{fetch_data, UserArray, UserData, UserString};
 use crate::syscall::SyscallVals;
 use crate::sysret;
 use crate::mem::PAGE_SIZE;
-use crate::cap::CapId;
+use crate::cap::{CapId, CapabilityMap};
 use super::*;
 
 // FIXME: make sure uid is valid once uid system is added to kernel

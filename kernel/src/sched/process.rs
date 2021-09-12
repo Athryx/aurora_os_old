@@ -10,7 +10,7 @@ use spin::Mutex;
 use bitflags::bitflags;
 
 use crate::uses::*;
-use crate::cap::CapMap;
+use crate::cap::{CapMap, CapabilityMap};
 use crate::key::Key;
 use crate::ipc::channel::Channel;
 use crate::mem::{VirtRange, PAGE_SIZE};

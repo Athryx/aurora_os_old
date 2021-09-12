@@ -14,6 +14,8 @@
 #![feature(stmt_expr_attributes)]
 #![feature(map_try_insert)]
 #![feature(const_mut_refs)]
+#![feature(generic_associated_types)]
+
 #![allow(non_upper_case_globals)]
 #![allow(dead_code)]
 #![allow(clippy::suspicious_else_formatting)]

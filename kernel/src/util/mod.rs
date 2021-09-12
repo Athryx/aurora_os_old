@@ -21,7 +21,7 @@ use libutil::mem::Allocation;
 use libutil::UtilCalls;
 
 use crate::sched::{proc_c, thread_c, tlist, FutexId, ThreadState, KFutex};
-use crate::cap::CapId;
+use crate::cap::{CapId, CapabilityMap};
 use crate::mem::phys_alloc::zm;
 
 pub static CALLS: Calls = Calls();

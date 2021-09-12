@@ -1,7 +1,7 @@
 use sys_consts::options::*;
 
 use crate::uses::*;
-use crate::cap::CapFlags;
+use crate::cap::{CapFlags, CapabilityMap};
 use crate::sysret;
 use crate::syscall::{SysErr, SyscallVals};
 use super::{VirtRange, PAGE_SIZE};

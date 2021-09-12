@@ -1,5 +1,6 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use core::ops::DerefMut;
 use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
 use bitflags::bitflags;
@@ -57,14 +58,16 @@ pub trait CapObject {
 	fn dec_ref(&self);
 }
 
-pub trait Map<T>: CapObject {
+pub trait Map: CapObject {
+	type Lock<'a>;
+
 	fn virt_layout(&self, flags: CapFlags) -> VirtLayout;
 	fn alloc_type(&self) -> AllocType;
-	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, FutexGuard<T>);
-	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, lock: FutexGuard<T>);
+	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, Self::Lock<'_>);
+	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, lock: Self::Lock<'_>);
 
 	fn map(&self, id: CapId) -> Result<VirtRange, SysErr> {
-		let (layout, guard) = self.cap_map_data(id);
+		let (layout, lock) = self.cap_map_data(id);
 
 		match layout {
 			Some(_) => Err(SysErr::InvlOp),
@@ -73,21 +76,21 @@ pub trait Map<T>: CapObject {
 				let virt_range = unsafe {
 					proc_c().addr_space.map(layout)?
 				};
-				self.set_cap_map_data(id, Some(virt_range), guard);
+				self.set_cap_map_data(id, Some(virt_range), lock);
 				Ok(virt_range)
 			},
 		}
 	}
 
 	fn unmap(&self, id: CapId) -> Result<(), SysErr> {
-		let (layout, guard) = self.cap_map_data(id);
+		let (layout, lock) = self.cap_map_data(id);
 
 		match layout {
 			Some(layout) => {
 				unsafe {
 					proc_c().addr_space.unmap(layout, self.alloc_type()).unwrap();
 				}
-				self.set_cap_map_data(id, None, guard);
+				self.set_cap_map_data(id, None, lock);
 				Ok(())
 			},
 			None => Err(SysErr::InvlOp),
@@ -170,6 +173,46 @@ impl<T: CapObject> Drop for Capability<T> {
 	}
 }
 
+pub trait CapabilityMap<T: CapObject> {
+	type Lock<'a>: DerefMut<Target = BTreeMap<CapId, Capability<T>>> + Drop
+		where T: 'a;
+
+	fn lock(&self) -> Self::Lock<'_>;
+	fn next_base_id(&self) -> usize;
+
+	fn insert(&self, mut cap: Capability<T>) -> CapId {
+		let id = self.next_base_id();
+		let id = cap.set_base_id(id);
+		self.lock().insert(id, cap);
+		id
+	}
+
+	fn remove(&self, id: CapId) -> Option<Capability<T>> {
+		self.lock().remove(&id)
+	}
+
+	fn call<F, U>(&self, id: CapId, f: F) -> Option<U>
+		where F: FnOnce(&T, CapFlags) -> U
+	{
+		let lock = self.lock();
+		let cap = lock.get(&id)?;
+		Some(f(&cap.object, cap.flags))
+	}
+
+	fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId> {
+		let lock = self.lock();
+		let cap = lock.get(&id)?;
+		let new_cap = Capability::and_from_flags(cap, flags);
+		drop(lock);
+		Some(self.insert(new_cap))
+	}
+
+	fn clone_from(&self, id: CapId) -> Option<Capability<T>> {
+		let lock = self.lock();
+		Some(lock.get(&id)?.clone())
+	}
+}
+
 #[derive(Debug)]
 pub struct CapMap<T: CapObject> {
 	data: Futex<BTreeMap<CapId, Capability<T>>>,
@@ -183,36 +226,16 @@ impl<T: CapObject> CapMap<T> {
 			next_id: AtomicUsize::new(0),
 		}
 	}
+}
 
-	pub fn insert(&self, mut cap: Capability<T>) -> CapId {
-		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-		let id = cap.set_base_id(id);
-		self.data.lock().insert(id, cap);
-		id
+impl<T: CapObject> CapabilityMap<T> for CapMap<T> {
+	type Lock<'a> where T: 'a = FutexGuard<'a, BTreeMap<CapId, Capability<T>>>;
+
+	fn lock (&self) -> Self::Lock<'_> {
+		self.data.lock()
 	}
 
-	pub fn remove(&self, id: CapId) -> Option<Capability<T>> {
-		self.data.lock().remove(&id)
-	}
-
-	pub fn call<F, U>(&self, id: CapId, f: F) -> Option<U>
-		where F: FnOnce(&T, CapFlags) -> U
-	{
-		let lock = self.data.lock();
-		let cap = lock.get(&id)?;
-		Some(f(&cap.object, cap.flags))
-	}
-
-	pub fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId> {
-		let lock = self.data.lock();
-		let cap = lock.get(&id)?;
-		let new_cap = Capability::and_from_flags(cap, flags);
-		drop(lock);
-		Some(self.insert(new_cap))
-	}
-
-	pub fn clone_from(&self, id: CapId) -> Option<Capability<T>> {
-		let lock = self.data.lock();
-		Some(lock.get(&id)?.clone())
+	fn next_base_id(&self) -> usize {
+		self.next_id.fetch_add(1, Ordering::Relaxed)
 	}
 }

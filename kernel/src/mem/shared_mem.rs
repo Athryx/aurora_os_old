@@ -36,9 +36,9 @@ impl CapObject for SharedMem {
 	fn dec_ref(&self) {}
 }
 
-type MapT = BTreeMap<CapId, VirtRange>;
+impl Map for SharedMem {
+	type Lock<'a> = FutexGuard<'a, BTreeMap<CapId, VirtRange>>;
 
-impl Map<MapT> for SharedMem {
 	fn virt_layout(&self, flags: CapFlags) -> VirtLayout {
 		let elem = VirtLayoutElement::from_range(
 			self.mem.into(),
@@ -51,13 +51,13 @@ impl Map<MapT> for SharedMem {
 		AllocType::Shared
 	}
 
-	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, FutexGuard<MapT>) {
+	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, Self::Lock<'_>) {
 		let lock = self.cap_data.lock();
 		let out = lock.get(&id).map(|vr| *vr);
 		(out, lock)
 	}
 
-	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, mut lock: FutexGuard<MapT>) {
+	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, mut lock: Self::Lock<'_>) {
 		match data {
 			Some(virt_range) => lock.insert(id, virt_range),
 			None => lock.remove(&id),
