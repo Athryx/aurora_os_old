@@ -21,7 +21,7 @@ extern "C" {
 pub type SyscallFunc = extern "C" fn(&mut SyscallVals) -> ();
 
 #[no_mangle]
-static syscalls: [SyscallFunc; 41] = [
+static syscalls: [SyscallFunc; 42] = [
 	sys_print_debug,
 	// TODO: spawn
 	spawn,
@@ -91,6 +91,8 @@ static syscalls: [SyscallFunc; 41] = [
 	// TODO: call
 	sys_nop,
 	// TODO: acall
+	sys_nop,
+	// TODO: aabort
 	sys_nop,
 ];
 

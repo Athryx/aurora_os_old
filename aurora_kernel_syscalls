@@ -11,8 +11,6 @@ specify all the privalidge flags
 
 write descriptions of all syscalls that don't have a description yet
 
-syscalls to add: async_abort
-
 decide if mprotect is needed
 
 IMPLEMANTATION ISSUES:
@@ -119,6 +117,9 @@ type pid = usize;
 
 // Thread id
 type tid = usize;
+
+// Async id
+type aid = usize;
 
 // Capability id
 // when picking an id for a capability, the kernel ensures that the bottom 6 bits match the CapFlags that represent information about the capability
@@ -657,7 +658,7 @@ Obscured: capability has conn_sc_resist set
 OkUnreach: nobody was waiting to send a message
 
 
-36: fn asend (cap: Cap<Channel>, msg_buff: usize, func: usize) -> SysErr
+36: fn asend (cap: Cap<Channel>, msg_buff: usize, func: usize) -> (err: SysErr, id: aid)
 asynchronously send a message
 {msg_buff} specifies the message buffer to send the message from
 {func} specifies the callback to call once the message is sent
@@ -670,8 +671,10 @@ InvlAddr: {msg_buff} does not point to a valid message buffer
 InvlPriv: pocess does not have sufficient privalidges to call asend
 InvlCap: capability does not have send privalidges
 
+id: the aid of the asynchronous action
 
-37: fn arecv (cap: Cap<Channel>, msg_buff: usize, func: usize) -> SysErr
+
+37: fn arecv (cap: Cap<Channel>, msg_buff: usize, func: usize) -> (err: SysErr, id: aid)
 asynchronously recieve a message
 {msg_buff} specifies the message buffer to recieve the message into
 {func} specifies the callback to call once the message is recieved
@@ -683,6 +686,8 @@ InvlOp: {cap} does not reference an object that implements Communicate
 InvlAddr: {msg_buff} does not point to a valid message buffer
 InvlPriv: pocess does not have sufficient privalidges to call arecv
 InvlCap: capability does not have recieve privalidges
+
+id: the aid of the asynchronous action
 
 
 38: fn reply_recv (reply_cap: Cap<Channel>, recv_cap: Cap<Channel>, msg_buff: usize) -> SysErr
@@ -717,7 +722,7 @@ InvlPriv: pocess does not have sufficient privalidges to call call
 InvlCap: channel capability does not have send privalidges
 
 
-40: fn acall (cap: Cap<Channel>, msg_buff: usize, func: usize) -> SysErr
+40: fn acall (cap: Cap<Channel>, msg_buff: usize, func: usize) -> (err: SysErr, id: aid)
 asynchronously call a channel
 acall first creates a reply channel, and then performs asend on {cap}
 acall will send the reply channel capability in the reply slot in the message
@@ -732,3 +737,14 @@ InvlOp: {cap} does not reference a channel
 InvlAddr: {msg_buff} does not point to a valid message buffer
 InvlPriv: pocess does not have sufficient privalidges to call acall
 InvlCap: channel capability does not have send privalidges
+
+id: the aid of the asynchronous action
+
+
+41: fn aabort (id: aid) -> SysErr
+aborts the asynchronous action specified by {id}
+
+return value:
+syserr code:
+InvlId: no no asynchronous action with aid {id} exists
+this could be because an asynchrounous action with that id never existed, or because the action already completed
