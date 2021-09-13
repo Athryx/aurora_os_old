@@ -1,7 +1,7 @@
 use sys_consts::options::*;
 
 use crate::uses::*;
-use crate::cap::{CapFlags, CapabilityMap};
+use crate::cap::CapFlags;
 use crate::sysret;
 use crate::syscall::{SysErr, SyscallVals};
 use super::{VirtRange, PAGE_SIZE};
@@ -166,7 +166,9 @@ pub extern "C" fn realloc(vals: &mut SyscallVals)
 	}
 }
 
-pub extern "C" fn mprotect(vals: &mut SyscallVals) {}
+pub extern "C" fn mprotect(vals: &mut SyscallVals) {
+	todo!();
+}
 
 pub extern "C" fn smem_new(vals: &mut SyscallVals)
 {

@@ -1,3 +1,5 @@
+use sys::PAGE_SIZE;
+
 use core::ops::Range;
 use alloc::alloc::Layout;
 
@@ -30,6 +32,11 @@ pub fn align_of(addr: usize) -> usize
 	}
 
 	1 << out
+}
+
+pub fn page_aligned(addr: usize) -> bool
+{
+	align_of(addr) >= PAGE_SIZE
 }
 
 pub const fn get_bits(n: usize, bits: Range<usize>) -> usize

@@ -9,6 +9,7 @@ use crate::sched::sys::{
 	spawn, thread_block, thread_new,
 };
 use crate::mem::sys::{mprotect, realloc, smem_new};
+use crate::cap::sys::{cap_destroy, cap_clone, cap_map, cap_unmap, cap_info};
 use crate::util::io::sys_print_debug;
 
 pub mod udata;
@@ -30,17 +31,14 @@ static syscalls: [SyscallFunc; 38] = [
 	thread_new,
 	thread_block,
 	realloc,
+	// TODO: mprotect
 	mprotect,
-	// TODO: cap_destroy
-	sys_nop,
-	// TODO: cap_clone
-	sys_nop,
-	// TODO: cap_map
-	sys_nop,
-	// TODO: cap_unmap
-	sys_nop,
+	cap_destroy,
+	cap_clone,
+	cap_map,
+	cap_unmap,
 	// TODO: cap_info
-	sys_nop,
+	cap_info,
 	// TODO: port_new
 	sys_nop,
 	// TODO: port_map

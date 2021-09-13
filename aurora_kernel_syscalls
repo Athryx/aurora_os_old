@@ -366,7 +366,7 @@ InvlPriv: calling process had insuficiant privalidges to call this syscall
 cap2: cid of new capability
 
 
-10: fn cap_map<T: Map> (cap: Cap<T>, at_addr: usize) -> (err: SysErr, addr: usize)
+10: fn cap_map<T: Map> (cap: Cap<T>, at_addr: usize) -> (err: SysErr, addr: usize, len: usize)
 maps a capability {cap} that can be mapped into memory into memory
 the mapped memory is always not executable, and the read and write flags depend on the capability permissions
 if {at_addr} is not 0, cmap will try to map the capability into memory starting at {at_addr}
@@ -374,11 +374,15 @@ if {at_addr} is not 0, cmap will try to map the capability into memory starting 
 return value:
 syserr code:
 InvlPriv: calling process has insuficiant privalidges to call this syscall
-InvlId: no capability with cid {cap} exists
-InvlOp: the capability is already mapped into this process' address space, or the capability cannot be mapped into memory
+InvlId: no mappable capability with cid {cap} exists
+InvlOp: the capability is already mapped into this process' address space
+InvlVirtAddr: at_addr is non canonical
+InvlAlign: at_addr is not page aligned
 InvlVirtMem: the value passed in for at_addr causes the mapped memory to overlap with other virtual memory
 
 addr: address of mapped memory
+
+len: length of mapped memory in pages
 
 
 11: fn cap_unmap<T: Map> (cap: Cap<T>) -> SysErr
@@ -387,7 +391,7 @@ unmaps memory mapped by cmap
 return value:
 syserr code:
 InvlPriv: calling process has insuficiant privalidges to call this syscall
-InvlId: no capability with cid {cap} exists
+InvlId: no mappable capability with cid {cap} exists
 InvlOp: the capability is not mapped into this process' address space
 
 

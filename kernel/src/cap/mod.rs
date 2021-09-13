@@ -6,7 +6,7 @@ use alloc::collections::BTreeMap;
 use bitflags::bitflags;
 use crate::util::FutexGuard;
 use crate::make_id_type;
-use crate::mem::VirtRange;
+use crate::mem::{PAGE_SIZE, VirtRange};
 use crate::sched::proc_c;
 use crate::mem::virt_alloc::{VirtLayout, AllocType};
 use crate::util::Futex;
@@ -66,16 +66,29 @@ pub trait Map: CapObject {
 	fn cap_map_data(&self, id: CapId) -> (Option<VirtRange>, Self::Lock<'_>);
 	fn set_cap_map_data(&self, id: CapId, data: Option<VirtRange>, lock: Self::Lock<'_>);
 
-	fn map(&self, id: CapId) -> Result<VirtRange, SysErr> {
+	fn map(&self, id: CapId, at_addr: Option<usize>) -> Result<VirtRange, SysErr> {
 		let (layout, lock) = self.cap_map_data(id);
 
 		match layout {
 			Some(_) => Err(SysErr::InvlOp),
 			None => {
-				let layout = self.virt_layout(id.flags());
-				let virt_range = unsafe {
-					proc_c().addr_space.map(layout)?
+				let vlayout = self.virt_layout(id.flags());
+				let virt_range = if let Some(at_addr) = at_addr {
+					if !page_aligned(at_addr) {
+						return Err(SysErr::InvlAlign);
+					}
+					let vaddr = VirtAddr::try_new(at_addr as u64).or(Err(SysErr::InvlVirtAddr))?;
+					let vrange = VirtRange::new(vaddr, vlayout.size());
+
+					unsafe {
+						proc_c().addr_space.map_at(vlayout, vrange)?
+					}
+				} else {
+					unsafe {
+						proc_c().addr_space.map(vlayout)?
+					}
 				};
+
 				self.set_cap_map_data(id, Some(virt_range), lock);
 				Ok(virt_range)
 			},
@@ -173,44 +186,10 @@ impl<T: CapObject> Drop for Capability<T> {
 	}
 }
 
-pub trait CapabilityMap<T: CapObject> {
-	type Lock<'a>: DerefMut<Target = BTreeMap<CapId, Capability<T>>> + Drop
-		where T: 'a;
-
-	fn lock(&self) -> Self::Lock<'_>;
-	fn next_base_id(&self) -> usize;
-
-	fn insert(&self, mut cap: Capability<T>) -> CapId {
-		let id = self.next_base_id();
-		let id = cap.set_base_id(id);
-		self.lock().insert(id, cap);
-		id
-	}
-
-	fn remove(&self, id: CapId) -> Option<Capability<T>> {
-		self.lock().remove(&id)
-	}
-
-	fn call<F, U>(&self, id: CapId, f: F) -> Option<U>
-		where F: FnOnce(&T, CapFlags) -> U
-	{
-		let lock = self.lock();
-		let cap = lock.get(&id)?;
-		Some(f(&cap.object, cap.flags))
-	}
-
-	fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId> {
-		let lock = self.lock();
-		let cap = lock.get(&id)?;
-		let new_cap = Capability::and_from_flags(cap, flags);
-		drop(lock);
-		Some(self.insert(new_cap))
-	}
-
-	fn clone_from(&self, id: CapId) -> Option<Capability<T>> {
-		let lock = self.lock();
-		Some(lock.get(&id)?.clone())
-	}
+// Syscalls on capabilities go in here
+pub trait CapSys {
+	fn destroy(&self, id: CapId) -> bool;
+	fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId>;
 }
 
 #[derive(Debug)]
@@ -226,16 +205,60 @@ impl<T: CapObject> CapMap<T> {
 			next_id: AtomicUsize::new(0),
 		}
 	}
-}
 
-impl<T: CapObject> CapabilityMap<T> for CapMap<T> {
-	type Lock<'a> where T: 'a = FutexGuard<'a, BTreeMap<CapId, Capability<T>>>;
-
-	fn lock (&self) -> Self::Lock<'_> {
-		self.data.lock()
+	pub fn insert(&self, mut cap: Capability<T>) -> CapId {
+		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+		let id = cap.set_base_id(id);
+		self.data.lock().insert(id, cap);
+		id
 	}
 
-	fn next_base_id(&self) -> usize {
-		self.next_id.fetch_add(1, Ordering::Relaxed)
+	pub fn remove(&self, id: CapId) -> Option<Capability<T>> {
+		self.data.lock().remove(&id)
+	}
+
+	pub fn call<F, U>(&self, id: CapId, f: F) -> Option<U>
+		where F: FnOnce(&T, CapFlags) -> U
+	{
+		let lock = self.data.lock();
+		let cap = lock.get(&id)?;
+		Some(f(&cap.object, cap.flags))
+	}
+
+	pub fn clone_from(&self, id: CapId) -> Option<Capability<T>> {
+		let lock = self.data.lock();
+		Some(lock.get(&id)?.clone())
+	}
+}
+
+impl<T: Map> CapMap<T> {
+	fn map(&self, id: CapId, at_addr: Option<usize>) -> Result<VirtRange, SysErr> {
+		let lock = self.data.lock();
+		match lock.get(&id) {
+			Some(cap) => cap.object().map(id, at_addr),
+			None => Err(SysErr::InvlId),
+		}
+	}
+
+	fn unmap(&self, id: CapId) -> Result<(), SysErr> {
+		let lock = self.data.lock();
+		match lock.get(&id) {
+			Some(cap) => cap.object().unmap(id),
+			None => Err(SysErr::InvlId),
+		}
+	}
+}
+
+impl<T: CapObject> CapSys for CapMap<T> {
+	fn destroy(&self, id: CapId) -> bool {
+		self.remove(id).is_some()
+	}
+
+	fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId> {
+		let lock = self.data.lock();
+		let cap = lock.get(&id)?;
+		let new_cap = Capability::and_from_flags(cap, flags);
+		drop(lock);
+		Some(self.insert(new_cap))
 	}
 }

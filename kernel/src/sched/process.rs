@@ -10,7 +10,7 @@ use spin::Mutex;
 use bitflags::bitflags;
 
 use crate::uses::*;
-use crate::cap::{CapMap, CapabilityMap};
+use crate::cap::{CapMap, CapSys, CapObjectType, CapObject};
 use crate::key::Key;
 use crate::ipc::channel::Channel;
 use crate::mem::{VirtRange, PAGE_SIZE};
@@ -372,6 +372,18 @@ impl Process
 	pub fn keys(&self) -> &CapMap<Key>
 	{
 		&self.keys
+	}
+
+	pub fn get_capmap(&self, typ: CapObjectType) -> &dyn CapSys {
+		match typ {
+			CapObjectType::Channel => &self.channels,
+			CapObjectType::Futex => &self.futex,
+			CapObjectType::SMem => &self.smem,
+			CapObjectType::Key => &self.keys,
+			CapObjectType::Mmio => todo!(),
+			CapObjectType::Interrupt => todo!(),
+			CapObjectType::Port => todo!(),
+		}
 	}
 
 	pub fn get_thread(&self, tid: usize) -> Option<MemOwner<Thread>>

@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use spin::{Mutex, MutexGuard};
 
 use crate::uses::*;
-use crate::cap::{CapObject, CapObjectType, CapFlags, Capability, CapId, CapabilityMap};
+use crate::cap::{CapObject, CapObjectType, CapFlags, Capability, CapId, CapSys};
 use super::{thread_c, tlist, ThreadState};
 
 crate::make_id_type!(Fuid);
@@ -148,6 +148,22 @@ impl FutexMap
 		}
 	}
 
+	pub fn insert(&self, mut cap: Capability<KFutex>) -> CapId {
+		let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+		let id = cap.set_base_id(id);
+		self.data.lock().insert(id, cap);
+		id
+	}
+
+	pub fn remove(&self, id: CapId) -> Option<Capability<KFutex>> {
+		self.data.lock().remove(&id)
+	}
+
+	pub fn clone_from(&self, id: CapId) -> Option<Capability<KFutex>> {
+		let lock = self.data.lock();
+		Some(lock.get(&id)?.clone())
+	}
+
 	pub fn block(&self, cid: CapId) -> Result<(), SysErr>
 	{
 		// I don't think this is a race condition
@@ -182,14 +198,16 @@ impl FutexMap
 	}
 }
 
-impl CapabilityMap<KFutex> for FutexMap {
-	type Lock<'a> = MutexGuard<'a, BTreeMap<CapId, Capability<KFutex>>>;
-
-	fn lock(&self) -> Self::Lock<'_> {
-		self.data.lock()
+impl CapSys for FutexMap {
+	fn destroy(&self, id: CapId) -> bool {
+		self.remove(id).is_some()
 	}
 
-	fn next_base_id(&self) -> usize {
-		self.next_id.fetch_add(1, Ordering::Relaxed)
+	fn clone_cap(&self, id: CapId, flags: CapFlags) -> Option<CapId> {
+		let lock = self.data.lock();
+		let cap = lock.get(&id)?;
+		let new_cap = Capability::and_from_flags(cap, flags);
+		drop(lock);
+		Some(self.insert(new_cap))
 	}
 }
