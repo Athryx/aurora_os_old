@@ -20,7 +20,7 @@ pub use libutil::mem::MemOwner;
 use libutil::mem::Allocation;
 use libutil::UtilCalls;
 
-use crate::sched::{proc_c, thread_c, tlist, FutexId, ThreadState, KFutex};
+use crate::sched::{proc_c, thread_c, tlist, ThreadState, KFutex};
 use crate::cap::CapId;
 use crate::mem::phys_alloc::zm;
 

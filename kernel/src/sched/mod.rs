@@ -8,8 +8,8 @@ use alloc::sync::{Arc, Weak};
 use alloc::alloc::{Allocator, Global, Layout};
 
 use spin::Mutex;
-pub use process::{Process, SpawnMapFlags, SpawnStartState};
-pub use thread::{Stack, Thread, ThreadState, Tuid};
+pub use process::{Pid, Process, SpawnMapFlags, SpawnStartState};
+pub use thread::{Stack, Tid, ThreadRef, Thread, ThreadState, Tuid};
 pub use sync::{Fuid, FutexMap, KFutex};
 
 use crate::uses::*;
@@ -45,7 +45,7 @@ pub mod sys;
 mod thread;
 
 pub static tlist: ThreadListGuard = ThreadListGuard::new();
-static proc_list: Mutex<BTreeMap<usize, Arc<Process>>> = Mutex::new(BTreeMap::new());
+static proc_list: Mutex<BTreeMap<Pid, Arc<Process>>> = Mutex::new(BTreeMap::new());
 
 // amount of time that elapses before we will switch to a new thread in nanoseconds
 // current value is 100 milliseconds
@@ -197,27 +197,37 @@ fn lock()
 
 fn thread_cleaner()
 {
+	// need to use an intermediate list, because we need to hold the lock to the thread list the whole time,
+	// but deallocing a thread requires releasing the lock
+	let mut list = LinkedList::new();
+
 	loop {
+		let mut thread_list = tlist.lock();
+		let dlist = &mut thread_list[ThreadState::Destroy];
+		for tpointer in unsafe { unbound_mut(dlist).iter() } {
+			if tpointer.ref_count() == 0 {
+				let t = dlist.remove_node(tpointer);
+				list.push(t);
+			}
+		}
+
+		drop(thread_list);
+
 		// TODO: probably a good idea to put this logic in separate function
 		// FIXME: there might be a race condition here (bochs freezes, but not qemu)
 		loop {
-			let mut thread_list = tlist.lock();
-			let tcell = match (*thread_list)[ThreadState::Destroy].pop_front() {
+			let tcell = match list.pop_front() {
 				Some(thread) => thread,
 				None => break,
 			};
 
 			rprintln!("Deallocing thread pointer:\n{:#x?}", tcell);
 
-			// TODO: this is probably slow
-			// avoid race condition with dealloc
-			drop(thread_list);
-
 			unsafe {
 				tcell.dealloc();
 			}
 		}
-		thread_c().sleep(Duration::new(1, 0));
+		sleep(Duration::new(1, 0));
 	}
 }
 
@@ -260,34 +270,6 @@ unsafe impl<T: Default + Copy> Send for TLTreeNode<T> {}
 libutil::impl_tree_node!(Tuid, TLTreeNode<Tuid>, parent, left, right, id, bf);
 libutil::impl_tree_node!(Ipcid, TLTreeNode<Ipcid>, parent, left, right, id, bf);
 libutil::impl_tree_node!(Fuid, TLTreeNode<Fuid>, parent, left, right, id, bf);
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FutexId
-{
-	pid: usize,
-	addr: usize,
-}
-
-impl FutexId
-{
-	pub fn new(pid: usize, addr: usize) -> Self
-	{
-		FutexId {
-			pid,
-			addr,
-		}
-	}
-
-	pub fn pid(&self) -> usize
-	{
-		self.pid
-	}
-
-	pub fn addr(&self) -> usize
-	{
-		self.addr
-	}
-}
 
 #[derive(Debug)]
 pub struct ThreadList
@@ -661,9 +643,37 @@ pub fn proc_c() -> Arc<Process>
 	thread_c().process().unwrap()
 }
 
-pub fn proc_get(pid: usize) -> Option<Arc<Process>>
+pub fn thread_get(tuid: Tuid) -> Option<ThreadRef> {
+	let process = proc_get(tuid.pid())?;
+	process.get_thread(tuid.tid())
+}
+
+pub fn proc_get(pid: Pid) -> Option<Arc<Process>>
 {
 	proc_list.lock().get(&pid).cloned()
+}
+
+pub fn block(state: ThreadState)
+{
+	match state {
+		// do nothing if new state is stil running
+		ThreadState::Running => return,
+		_ => tlist.ensure(state),
+	}
+
+	thread_c().set_state(state);
+
+	int_sched();
+}
+
+pub fn sleep_until(nsec: u64)
+{
+	block(ThreadState::Sleep(nsec));
+}
+
+pub fn sleep(duration: Duration)
+{
+	sleep_until(timer.nsec() + duration.as_nanos() as u64);
 }
 
 pub fn init() -> Result<(), Err>

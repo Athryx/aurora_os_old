@@ -6,12 +6,18 @@ macro_rules! make_id_type {
 		pub struct $type($int_type);
 
 		impl $type {
-			pub fn from(id: $int_type) -> Self {
+			pub const fn from(id: $int_type) -> Self {
 				Self(id)
 			}
 
-			pub fn into(self) -> $int_type {
+			pub const fn into(self) -> $int_type {
 				self.0
+			}
+		}
+
+		impl core::fmt::Display for $type {
+			fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+				write!(f, "{}", self.0)
 			}
 		}
 	};

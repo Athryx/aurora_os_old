@@ -187,6 +187,7 @@ struct Test
 
 use core::cell::Cell;
 use core::fmt::{self, Display, Formatter};
+use crate::sched::Pid;
 
 use util::*;
 
@@ -229,7 +230,7 @@ impl Display for TreeTest
 libutil::impl_tree_node!(usize, TreeTest, parent, left, right, key, bf);
 
 // just for test
-static mut join_tid: Tuid = Tuid::new(0, 0);
+static mut join_tid: Tuid = Tuid::new(Pid::from(0), Tid::from(0));
 
 fn test()
 {
@@ -244,7 +245,7 @@ fn test()
 		eprintln!("num {}", num);
 		num += 1;
 		eprintln!("num + 1 {}", num);
-		thread_c().block(ThreadState::Destroy);
+		block(ThreadState::Destroy);
 	};
 
 	/*let atom = AtomicU128::new (0);
@@ -336,9 +337,9 @@ fn test()
 fn test_thread_2()
 {
 	eprintln!("join test thread started");
-	thread_c().block(ThreadState::Join(unsafe { join_tid }));
+	block(ThreadState::Join(unsafe { join_tid }));
 	eprintln!("finished joining");
-	thread_c().block(ThreadState::Destroy);
+	block(ThreadState::Destroy);
 }
 
 const order_size: usize = 0x100;
@@ -399,7 +400,7 @@ fn test_thread_1()
 	println!("{}", *a);
 	println!("{}", *b);
 	eprintln!("test finished");
-	thread_c().block(ThreadState::Destroy);
+	block(ThreadState::Destroy);
 }
 
 fn test_alloc_thread()
@@ -431,6 +432,6 @@ fn test_alloc_thread()
 		let _y = Box::new(0);
 		let _z = Box::new(0);
 		println!("alloc test done");
-		thread_c().block(ThreadState::Destroy);
+		block(ThreadState::Destroy);
 	}
 }

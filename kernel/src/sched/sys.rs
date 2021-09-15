@@ -40,7 +40,7 @@ pub extern "C" fn spawn(vals: &mut SyscallVals)
 		Err(err) => sysret!(vals, err.num(), 0),
 	};
 
-	sysret!(vals, SysErr::Ok.num(), process.pid());
+	sysret!(vals, SysErr::Ok.num(), process.pid().into());
 }
 
 pub extern "C" fn thread_new(vals: &mut SyscallVals)
@@ -49,7 +49,7 @@ pub extern "C" fn thread_new(vals: &mut SyscallVals)
 
 	match proc_c().new_thread(rip, None) {
 		Ok(tid) => {
-			sysret!(vals, SysErr::Ok.num(), tid);
+			sysret!(vals, SysErr::Ok.num(), tid.into());
 		},
 		Err(_) => {
 			sysret!(vals, SysErr::Unknown.num(), 0);
@@ -63,10 +63,10 @@ pub extern "C" fn thread_block(vals: &mut SyscallVals)
 	let arg = vals.a2;
 
 	match reason {
-		0 => thread_c().block(ThreadState::Running),
-		1 => thread_c().block(ThreadState::Destroy),
-		2 => thread_c().block(ThreadState::Sleep(arg as u64)),
-		3 => thread_c().block(ThreadState::Join(Tuid::new(proc_c().pid(), arg))),
+		0 => block(ThreadState::Running),
+		1 => block(ThreadState::Destroy),
+		2 => block(ThreadState::Sleep(arg as u64)),
+		3 => block(ThreadState::Join(Tuid::new(proc_c().pid(), Tid::from(arg)))),
 		_ => sysret!(vals, SysErr::InvlArgs.num()),
 	}
 

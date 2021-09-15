@@ -7,7 +7,7 @@ INITRD="initrd/initrd"
 
 cd $(dirname $0)
 
-./include_initfs.sh
+# ./include_res.sh
 
 for SUBDIR in $SUBDIRS
 do

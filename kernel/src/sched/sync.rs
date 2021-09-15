@@ -6,7 +6,7 @@ use spin::{Mutex, MutexGuard};
 
 use crate::uses::*;
 use crate::cap::{CapObject, CapObjectType, CapFlags, Capability, CapId, CapSys};
-use super::{thread_c, tlist, ThreadState};
+use super::{block, tlist, ThreadState};
 
 crate::make_id_type!(Fuid);
 
@@ -80,7 +80,7 @@ impl KFutex
 				Some(lock) => lock,
 				None => return false,
 			};
-			thread_c().block(ThreadState::FutexBlock(self as *const _));
+			block(ThreadState::FutexBlock(self as *const _));
 			core::mem::forget(lock);
 		}
 

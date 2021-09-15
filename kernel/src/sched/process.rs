@@ -23,9 +23,9 @@ use crate::upriv::PrivLevel;
 use crate::util::{AvlTree, Futex, IMutex, LinkedList, MemOwner, UniqueMut, UniqueRef};
 use crate::syscall::udata::{UserArray, UserData, UserPageArray};
 use super::{
-	int_sched, proc_c, proc_list, thread_c, tlist, Registers, TLTreeNode, ThreadList,
+	Tid, int_sched, proc_c, proc_list, thread_c, tlist, Registers, TLTreeNode, ThreadList,
 };
-use super::thread::{ConnSaveState, Stack, Thread, ThreadState};
+use super::thread::{ConnSaveState, Stack, ThreadRef, Thread, ThreadState};
 use super::elf::{ElfParser, Section};
 use super::sync::FutexMap;
 
@@ -110,10 +110,12 @@ impl SpawnMapFlags
 	}
 }
 
+crate::make_id_type!(Pid);
+
 #[derive(Debug)]
 pub struct Process
 {
-	pid: usize,
+	pid: Pid,
 	name: String,
 	launch_path: String,
 	self_ref: Weak<Self>,
@@ -121,7 +123,7 @@ pub struct Process
 	uid: PrivLevel,
 
 	next_tid: AtomicUsize,
-	threads: Mutex<BTreeMap<usize, MemOwner<Thread>>>,
+	threads: Mutex<BTreeMap<Tid, MemOwner<Thread>>>,
 
 	futex: FutexMap,
 	smem: CapMap<SharedMem>,
@@ -138,7 +140,7 @@ impl Process
 	{
 		let pid = NEXT_PID.fetch_add(1, Ordering::Relaxed);
 		Arc::new_cyclic(|weak| Self {
-			pid,
+			pid: Pid::from(pid),
 			name,
 			launch_path,
 			self_ref: weak.clone(),
@@ -330,7 +332,7 @@ impl Process
 		todo!();
 	}
 
-	pub fn pid(&self) -> usize
+	pub fn pid(&self) -> Pid
 	{
 		self.pid
 	}
@@ -349,9 +351,9 @@ impl Process
 		self.uid
 	}
 
-	pub fn next_tid(&self) -> usize
+	pub fn next_tid(&self) -> Tid
 	{
-		self.next_tid.fetch_add(1, Ordering::Relaxed)
+		Tid::from(self.next_tid.fetch_add(1, Ordering::Relaxed))
 	}
 
 	pub fn futex(&self) -> &FutexMap
@@ -386,15 +388,15 @@ impl Process
 		}
 	}
 
-	pub fn get_thread(&self, tid: usize) -> Option<MemOwner<Thread>>
+	pub fn get_thread(&self, tid: Tid) -> Option<ThreadRef>
 	{
-		unsafe { self.threads.lock().get(&tid).map(|memown| memown.clone()) }
+		unsafe { self.threads.lock().get(&tid).map(|memown| ThreadRef::from(memown.clone())) }
 	}
 
 	// returns false if thread with tid is already inserted or tid was not gotten by next tid func
 	pub fn insert_thread(&self, thread: MemOwner<Thread>) -> bool
 	{
-		if thread.tid() >= self.next_tid.load(Ordering::Relaxed) {
+		if thread.tid().into() >= self.next_tid.load(Ordering::Relaxed) {
 			return false;
 		}
 
@@ -409,9 +411,10 @@ impl Process
 	}
 
 	// sets any threads waiting on this thread to ready to run if thread_list is Some
-	// NOTE: acquires the tlproc lock and tlist lock
+	// NOTE: acquires the tlist lock
 	// TODO: make process die after last thread removed
-	pub fn remove_thread(&self, tid: usize) -> Option<MemOwner<Thread>>
+	// safety: only call from thread dealloc method
+	pub unsafe fn remove_thread(&self, tid: Tid) -> Option<MemOwner<Thread>>
 	{
 		let out = self.threads.lock().remove(&tid)?;
 		let state = ThreadState::Join(out.tuid());
@@ -419,7 +422,7 @@ impl Process
 
 		if thread_list.get(state).is_some() {
 			// FIXME: ugly
-			for tpointer in unsafe { unbound_mut(&mut thread_list[state]).iter() } {
+			for tpointer in unbound_mut(&mut thread_list[state]).iter() {
 				Thread::move_to(tpointer, ThreadState::Ready, &mut thread_list);
 			}
 
@@ -434,7 +437,7 @@ impl Process
 	// returns tid in ok
 	// locks thread list
 	// for backwards compatability
-	pub fn new_thread(&self, thread_func: usize, name: Option<String>) -> Result<usize, Err>
+	pub fn new_thread(&self, thread_func: usize, name: Option<String>) -> Result<Tid, Err>
 	{
 		self.new_thread_regs(Registers::from_rip(thread_func), name)
 	}
@@ -442,7 +445,7 @@ impl Process
 	// returns tid in ok
 	// locks thread list
 	// will override flags, cs, ss, and rsp on regs
-	pub fn new_thread_regs(&self, regs: Registers, name: Option<String>) -> Result<usize, Err>
+	pub fn new_thread_regs(&self, regs: Registers, name: Option<String>) -> Result<Tid, Err>
 	{
 		let tid = self.next_tid();
 		let thread = Thread::new(

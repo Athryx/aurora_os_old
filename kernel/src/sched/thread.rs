@@ -1,6 +1,7 @@
 use core::time::Duration;
 use core::fmt;
-use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+use core::ops::Deref;
 use core::mem::transmute;
 use alloc::collections::BTreeMap;
 use alloc::alloc::{Allocator, Global, Layout};
@@ -23,7 +24,7 @@ use crate::util::{
 };
 use crate::time::timer;
 use super::process::Process;
-use super::{int_sched, thread_c, tlist, KFutex, Registers, ThreadList};
+use super::{int_sched, thread_c, tlist, KFutex, Registers, ThreadList, Pid};
 
 // TODO: implement support for growing stack
 #[derive(Debug)]
@@ -153,16 +154,18 @@ impl ConnSaveState
 	}
 }
 
+crate::make_id_type!(Tid);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Tuid
 {
-	pid: usize,
-	tid: usize,
+	pid: Pid,
+	tid: Tid,
 }
 
 impl Tuid
 {
-	pub const fn new(pid: usize, tid: usize) -> Tuid
+	pub const fn new(pid: Pid, tid: Tid) -> Tuid
 	{
 		Tuid {
 			pid,
@@ -170,12 +173,12 @@ impl Tuid
 		}
 	}
 
-	pub fn pid(&self) -> usize
+	pub fn pid(&self) -> Pid
 	{
 		self.pid
 	}
 
-	pub fn tid(&self) -> usize
+	pub fn tid(&self) -> Tid
 	{
 		self.tid
 	}
@@ -185,17 +188,47 @@ impl Default for Tuid
 {
 	fn default() -> Self
 	{
-		Self::new(0, 0)
+		Self::new(Pid::default(), Tid::default())
 	}
 }
 
-// TODO: should probably merge into one type with Thread
-// all information relevent to scheduler is in here (except regs, but thos will probably be moved to here)
+#[derive(Debug)]
+pub struct ThreadRef(MemOwner<Thread>);
+
+impl ThreadRef {
+	pub fn from(thread: MemOwner<Thread>) -> Self {
+		thread.ref_count.fetch_add(1, Ordering::AcqRel);
+		ThreadRef(thread)
+	}
+}
+
+impl Deref for ThreadRef {
+	type Target = Thread;
+
+	fn deref(&self) -> &Self::Target {
+		&self.0
+	}
+}
+
+impl Clone for ThreadRef {
+	fn clone(&self) -> Self {
+		ThreadRef::from(unsafe { self.0.clone() })
+	}
+}
+
+impl Drop for ThreadRef {
+	fn drop(&mut self) {
+		self.0.ref_count.fetch_sub(1, Ordering::AcqRel);
+	}
+}
+
 pub struct Thread
 {
 	process: Weak<Process>,
 	tuid: Tuid,
 	name: String,
+
+	ref_count: AtomicUsize,
 
 	// TODO: find a better solution
 	//state: AtomicU128,
@@ -217,7 +250,7 @@ impl Thread
 {
 	pub fn new(
 		process: Weak<Process>,
-		tid: usize,
+		tid: Tid,
 		name: String,
 		regs: Registers,
 	) -> Result<MemOwner<Self>, Err>
@@ -236,7 +269,7 @@ impl Thread
 	// does not put thread inside scheduler queue
 	pub fn new_stack_size(
 		process: Weak<Process>,
-		tid: usize,
+		tid: Tid,
 		name: String,
 		mut regs: Registers,
 		stack_size: usize,
@@ -270,7 +303,7 @@ impl Thread
 			process,
 			tuid: Tuid::new(proc.pid(), tid),
 			name,
-			//state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			ref_count: AtomicUsize::new(0),
 			state: IMutex::new(ThreadState::Ready),
 			run_time: AtomicU64::new(0),
 			regs: IMutex::new(regs),
@@ -287,7 +320,7 @@ impl Thread
 	// uid is assumed kernel
 	pub fn from_stack(
 		process: Weak<Process>,
-		tid: usize,
+		tid: Tid,
 		name: String,
 		mut regs: Registers,
 		range: VirtRange,
@@ -307,7 +340,7 @@ impl Thread
 			process,
 			tuid: Tuid::new(proc.pid(), tid),
 			name,
-			//state: AtomicU128::new (ThreadState::Ready.as_u128 ()),
+			ref_count: AtomicUsize::new(0),
 			state: IMutex::new(ThreadState::Ready),
 			run_time: AtomicU64::new(0),
 			regs: IMutex::new(regs),
@@ -331,6 +364,10 @@ impl Thread
 		self.process.strong_count() != 0
 	}
 
+	pub fn ref_count(&self) -> usize {
+		self.ref_count.load(Ordering::Acquire)
+	}
+
 	pub fn process(&self) -> Option<Arc<Process>>
 	{
 		self.process.upgrade()
@@ -341,7 +378,7 @@ impl Thread
 		self.tuid
 	}
 
-	pub fn tid(&self) -> usize
+	pub fn tid(&self) -> Tid
 	{
 		self.tuid.tid()
 	}
@@ -458,30 +495,6 @@ impl Thread
 		let thread = Self::remove_from_current(ptr, list);
 		thread.set_state(state);
 		Self::insert_into(thread, list)
-	}
-
-	// only call on currently running thread
-	pub fn block(&self, state: ThreadState)
-	{
-		match state {
-			// do nothing if new state is stil running
-			ThreadState::Running => return,
-			_ => tlist.ensure(state),
-		}
-
-		self.set_state(state);
-
-		int_sched();
-	}
-
-	pub fn sleep(&self, duration: Duration)
-	{
-		self.sleep_until(timer.nsec() + duration.as_nanos() as u64);
-	}
-
-	pub fn sleep_until(&self, nsec: u64)
-	{
-		self.block(ThreadState::Sleep(nsec));
 	}
 
 	pub fn run_time(&self) -> u64
