@@ -32,6 +32,7 @@ mod time;
 mod util;
 
 mod cap;
+mod config;
 mod consts;
 mod gdt;
 mod id;

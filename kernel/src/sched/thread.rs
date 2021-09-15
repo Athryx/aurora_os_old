@@ -17,6 +17,7 @@ use crate::mem::phys_alloc::{zm, Allocation};
 use crate::mem::virt_alloc::{
 	AllocType, FAllocerType, PageMappingFlags, VirtLayout, VirtLayoutElement, VirtMapper,
 };
+use crate::config::MSG_BUF_SIZE;
 use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::upriv::PrivLevel;
 use crate::util::{
@@ -154,6 +155,33 @@ impl ConnSaveState
 	}
 }
 
+#[derive(Debug)]
+pub struct MsgBuf {
+	mem: Allocation,
+	vrange: VirtRange,
+}
+
+impl MsgBuf {
+	pub fn new(&self, addr_space: &VirtMapper<FAllocerType>) -> Option<Self> {
+		let mem = zm.alloc(MSG_BUF_SIZE)?;
+
+		let flags = PageMappingFlags::USER | PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::EXACT_SIZE;
+		let vec = vec![VirtLayoutElement::from_mem(mem, MSG_BUF_SIZE, flags)];
+		let virt_layout = VirtLayout::from(vec, AllocType::Protected);
+		let vrange = unsafe {
+			addr_space.map(virt_layout).ok()?
+		};
+
+		Some(MsgBuf {
+			mem,
+			vrange,
+		})
+	}
+
+	pub unsafe fn dealloc(self, addr_space: &VirtMapper<FAllocerType>) {
+	}
+}
+
 crate::make_id_type!(Tid);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -230,8 +258,6 @@ pub struct Thread
 
 	ref_count: AtomicUsize,
 
-	// TODO: find a better solution
-	//state: AtomicU128,
 	state: IMutex<ThreadState>,
 	run_time: AtomicU64,
 
@@ -241,6 +267,8 @@ pub struct Thread
 
 	conn_data: Futex<Vec<ConnSaveState>>,
 	msg_recieve_regs: IMutex<Result<Registers, SysErr>>,
+
+	msg_bufs: Futex<BTreeMap<VirtAddr, Allocation>>,
 
 	prev: AtomicPtr<Self>,
 	next: AtomicPtr<Self>,
@@ -311,6 +339,7 @@ impl Thread
 			kstack,
 			conn_data: Futex::new(Vec::new()),
 			msg_recieve_regs: IMutex::new(Err(SysErr::Unknown)),
+			msg_bufs: Futex::new(BTreeMap::new()),
 			prev: AtomicPtr::new(null_mut()),
 			next: AtomicPtr::new(null_mut()),
 		}))
@@ -348,6 +377,7 @@ impl Thread
 			kstack: None,
 			conn_data: Futex::new(Vec::new()),
 			msg_recieve_regs: IMutex::new(Err(SysErr::Unknown)),
+			msg_bufs: Futex::new(BTreeMap::new()),
 			prev: AtomicPtr::new(null_mut()),
 			next: AtomicPtr::new(null_mut()),
 		}))
