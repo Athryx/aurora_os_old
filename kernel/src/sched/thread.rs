@@ -167,9 +167,9 @@ impl MsgBuf {
 
 		let flags = PageMappingFlags::USER | PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::EXACT_SIZE;
 		let vec = vec![VirtLayoutElement::from_mem(mem, MSG_BUF_SIZE, flags)];
-		let virt_layout = VirtLayout::from(vec, AllocType::Protected);
+		let vlayout = VirtLayout::from(vec, AllocType::Protected);
 		let vrange = unsafe {
-			addr_space.map(virt_layout).ok()?
+			addr_space.map(vlayout).ok()?
 		};
 
 		Some(MsgBuf {
@@ -178,7 +178,14 @@ impl MsgBuf {
 		})
 	}
 
+	pub fn vrange(&self) -> VirtRange {
+		self.vrange
+	}
+
 	pub unsafe fn dealloc(self, addr_space: &VirtMapper<FAllocerType>) {
+		let vlayout = addr_space.unmap(self.vrange, AllocType::Protected)
+			.expect("invalid addr_space passed to MsgBuf::dealloc");
+		vlayout.dealloc();
 	}
 }
 
