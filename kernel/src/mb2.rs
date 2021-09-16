@@ -1,4 +1,6 @@
 use crate::uses::*;
+use core::slice;
+use crate::acpi::Rsdt;
 use crate::mem::PhysRange;
 use crate::consts;
 use crate::util::{from_cstr, misc::phys_to_virt};
@@ -7,6 +9,8 @@ use crate::util::{from_cstr, misc::phys_to_virt};
 const END: u32 = 0;
 const MODULE: u32 = 3;
 const MEMORY_MAP: u32 = 6;
+const RSDP_OLD: u32 = 14;
+const RSDP_NEW: u32 = 15;
 
 // multiboot memory type ids
 // reserved is any other number
@@ -25,16 +29,23 @@ struct TagHeader
 
 impl TagHeader
 {
-	fn tag_ptr<T>(&self) -> *const T
+	fn tag_ptr<T>(&self) -> Option<*const T>
 	{
-		unsafe {
-			(self as *const Self).add(1) as *const T
+		if size_of::<T>() + size_of::<Self>() > self.size as usize {
+			None
+		}
+		else
+		{
+			unsafe {
+				Some((self as *const Self).add(1) as *const T)
+			}
 		}
 	}
 
 	unsafe fn tag_data<T>(&self) -> &T
 	{
-		self.tag_ptr::<T>().as_ref().unwrap()
+		self.tag_ptr::<T>().expect("tried to interpret data of mb2 tag as wrong type")
+			.as_ref().unwrap()
 	}
 }
 
@@ -187,12 +198,39 @@ impl Mb2Module
 	}
 }
 
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct Mb2RsdpOld {
+	signature: [u8; 8],
+	checksum: u8,
+	oemid: [u8; 6],
+	revision: u8,
+	rsdt_addr: u32,
+}
+
+impl Mb2RsdpOld {
+	// add up every byte and make sure lowest byte is equal to 0
+	fn validate(&self) -> bool {
+		let mut sum: usize = 0;
+		let slice = unsafe {
+			slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>())
+		};
+
+		for n in slice {
+			sum += *n as usize;
+		}
+
+		sum % 0x100 == 0
+	}
+}
+
 // multiboot 2 structure
 #[derive(Debug, Clone, Copy)]
 pub struct BootInfo<'a>
 {
 	pub memory_map: MemoryMap,
 	pub initrd: &'a [u8],
+	pub rsdt: &'a Rsdt,
 }
 
 impl BootInfo<'_>
@@ -211,6 +249,8 @@ impl BootInfo<'_>
 		let mut memory_map = MemoryMap::new();
 		let mut memory_map_tag = None;
 
+		let mut rsdt = None;
+
 		loop {
 			let tag_header = (ptr as *const TagHeader).as_ref().unwrap();
 			match tag_header.typ {
@@ -227,6 +267,14 @@ impl BootInfo<'_>
 					}
 				},
 				MEMORY_MAP => memory_map_tag = Some(tag_header),
+				RSDP_OLD => {
+					let rsdp: &Mb2RsdpOld = tag_header.tag_data();
+					if !rsdp.validate() {
+						panic!("invalid rsdp passed to kernel");
+					}
+					rsdt = Rsdt::from(rsdp.rsdt_addr as usize);
+				},
+				RSDP_NEW => todo!(),
 				_ => (),
 			}
 
@@ -257,6 +305,7 @@ impl BootInfo<'_>
 		BootInfo {
 			memory_map,
 			initrd: initrd_slice.expect("no initrd"),
+			rsdt: rsdt.expect("no rsdt"),
 		}
 	}
 }
