@@ -34,5 +34,5 @@ then
 	$TERM -e bochs -f bochsrc
 elif [[ -z $1 ]] || [[ $1 = release ]]
 then
-	qemu-system-x86_64 -m 5120 -debugcon stdio -drive file=$IMG,format=raw
+	qemu-system-x86_64 -m 5120 -smp cpus=4,cores=4 -debugcon stdio -drive file=$IMG,format=raw
 fi

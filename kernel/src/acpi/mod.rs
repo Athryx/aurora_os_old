@@ -1,5 +1,6 @@
 use crate::uses::*;
 use core::slice;
+use core::mem::transmute;
 use crate::util::misc::phys_to_virt_usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +13,13 @@ pub enum SdtType {
 	Madt,
 	// High precision event timer table
 	Hpet,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AcpiTable<'a> {
+	Rsdt(&'a Rsdt),
+	Madt(&'a Madt),
+	Hpet(&'a Hpet),
 }
 
 #[repr(C, packed)]
@@ -64,10 +72,10 @@ impl SdtHeader {
 		sum % 0x100 == 0
 	}
 
-	pub fn sdt_type(&self) -> SdtType {
+	pub fn sdt_type(&self) -> Option<SdtType> {
 		let s = &self.signature;
 		// can't us match here
-		if s == "APIC".as_bytes() {
+		Some(if s == "APIC".as_bytes() {
 			SdtType::Madt
 		} else if s == "RSDT".as_bytes() {
 			SdtType::Rsdt
@@ -76,8 +84,27 @@ impl SdtHeader {
 		} else if s == "HPET".as_bytes() {
 			SdtType::Hpet
 		} else {
-			todo!();
-		}
+			// TODO: add new acpi table types here
+			return None;
+		})
+	}
+
+	pub unsafe fn as_acpi_table(&self) -> Option<AcpiTable> {
+		Some(match self.sdt_type()? {
+			SdtType::Rsdt => {
+				assert!(size_of::<Rsdt>() <= self.size());
+				AcpiTable::Rsdt(transmute(self))
+			},
+			SdtType::Madt => {
+				assert!(size_of::<Madt>() <= self.size());
+				AcpiTable::Madt(transmute(self))
+			},
+			SdtType::Hpet => {
+				assert!(size_of::<Hpet>() <= self.size());
+				AcpiTable::Hpet(transmute(self))
+			},
+			_ => todo!(),
+		})
 	}
 }
 
@@ -88,7 +115,7 @@ pub trait Sdt {
 		self.header().validate()
 	}
 
-	fn sdt_type(&self) -> SdtType {
+	fn sdt_type(&self) -> Option<SdtType> {
 		self.header().sdt_type()
 	}
 }
@@ -110,7 +137,7 @@ impl Rsdt {
 
 	// have to use a vec, not a slice, because the pointers are only 32 bits
 	// safety: fields in rsdt must be valid
-	pub unsafe fn tables(&self) -> Vec<&SdtHeader> {
+	pub unsafe fn tables(&self) -> Vec<AcpiTable> {
 		let len = self.0.data_size() / 4;
 
 		let mut out = Vec::with_capacity(len);
@@ -119,7 +146,9 @@ impl Rsdt {
 		for n in slice {
 			let addr = phys_to_virt_usize(*n as usize);
 			let table = (addr as *const SdtHeader).as_ref().unwrap();
-			out.push(table);
+			if let Some(table) = table.as_acpi_table() {
+				out.push(table);
+			}
 		}
 		out
 	}
@@ -128,5 +157,31 @@ impl Rsdt {
 impl Sdt for Rsdt {
 	fn header(&self) -> &SdtHeader {
 		&self.0
+	}
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct Madt {
+	header: SdtHeader,
+	lapic_addr: u32,
+	lapic_flags: u32,
+}
+
+impl Sdt for Madt {
+	fn header(&self) -> &SdtHeader {
+		&self.header
+	}
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct Hpet {
+	header: SdtHeader,
+}
+
+impl Sdt for Hpet {
+	fn header(&self) -> &SdtHeader {
+		&self.header
 	}
 }
