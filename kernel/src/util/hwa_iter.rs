@@ -16,6 +16,12 @@ pub trait HwaTag {
 		let addr = (self as *const Self as *const u8 as usize) + size_of_val(self);
 		(addr as *const T).as_ref().unwrap()
 	}
+
+	// convinience function to get internal data and header
+	unsafe fn raw_hd<T>(&self) -> &T {
+		assert!(size_of::<T>() <= self.size());
+		(self as *const _ as *const T).as_ref().unwrap()
+	}
 }
 
 // hardware array iterator
@@ -32,12 +38,7 @@ pub struct HwaIter<'a, T: HwaTag> {
 
 impl<T: HwaTag> HwaIter<'_, T> {
 	pub unsafe fn from(addr: usize, size: usize) -> Self {
-		HwaIter::<T> {
-			addr,
-			end: addr + size,
-			align: 0,
-			phantom: PhantomData,
-		}
+		Self::from_align(addr, size, 0)
 	}
 
 	pub unsafe fn from_align(addr: usize, size: usize, align: usize) -> Self {
@@ -47,6 +48,18 @@ impl<T: HwaTag> HwaIter<'_, T> {
 			align,
 			phantom: PhantomData,
 		}
+	}
+
+	pub unsafe fn from_struct<U>(data: &U, total_size: usize) -> Self {
+		Self::from_struct_align(data, total_size, 0)
+	}
+
+	// makes an iterator starteing after data, with size total_size - size_of::<T>()
+	pub unsafe fn from_struct_align<U>(data: &U, total_size: usize, align: usize) -> Self {
+		assert!(size_of::<U>() <= total_size);
+		let addr = (data as *const _ as usize) + size_of::<U>();
+		let size = total_size - size_of::<U>();
+		Self::from_align(addr, size, align)
 	}
 }
 

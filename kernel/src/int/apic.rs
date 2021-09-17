@@ -1,5 +1,5 @@
 use crate::uses::*;
-use crate::acpi::Madt;
+use crate::acpi::madt::Madt;
 
 pub unsafe fn init(madt: &Madt) {
 }

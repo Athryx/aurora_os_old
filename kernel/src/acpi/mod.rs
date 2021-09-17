@@ -3,6 +3,12 @@ use core::slice;
 use core::mem::transmute;
 use crate::util::misc::phys_to_virt_usize;
 
+pub mod madt;
+pub mod hpet;
+
+use madt::Madt;
+use hpet::Hpet;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SdtType {
 	// root system descriptor table
@@ -157,31 +163,5 @@ impl Rsdt {
 impl Sdt for Rsdt {
 	fn header(&self) -> &SdtHeader {
 		&self.0
-	}
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
-pub struct Madt {
-	header: SdtHeader,
-	lapic_addr: u32,
-	lapic_flags: u32,
-}
-
-impl Sdt for Madt {
-	fn header(&self) -> &SdtHeader {
-		&self.header
-	}
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
-pub struct Hpet {
-	header: SdtHeader,
-}
-
-impl Sdt for Hpet {
-	fn header(&self) -> &SdtHeader {
-		&self.header
 	}
 }
