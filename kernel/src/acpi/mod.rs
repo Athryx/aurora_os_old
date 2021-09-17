@@ -109,7 +109,7 @@ impl SdtHeader {
 				assert!(size_of::<Hpet>() <= self.size());
 				AcpiTable::Hpet(transmute(self))
 			},
-			_ => todo!(),
+			_ => return None,
 		})
 	}
 }
@@ -157,6 +157,22 @@ impl Rsdt {
 			}
 		}
 		out
+	}
+
+	// does not require memory allocation
+	pub unsafe fn get_table(&self, table_type: SdtType) -> Option<AcpiTable> {
+		let slice: &[u32] = self.0.data();
+		for n in slice {
+			let addr = phys_to_virt_usize(*n as usize);
+			let table = (addr as *const SdtHeader).as_ref().unwrap();
+			if let Some(typ) = table.sdt_type() {
+				if typ == table_type {
+					return table.as_acpi_table();
+				}
+			}
+		}
+
+		None
 	}
 }
 
