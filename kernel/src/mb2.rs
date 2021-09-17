@@ -3,7 +3,7 @@ use core::slice;
 use crate::acpi::Rsdt;
 use crate::mem::PhysRange;
 use crate::consts;
-use crate::util::{from_cstr, misc::phys_to_virt};
+use crate::util::{from_cstr, HwaTag, HwaIter, misc::phys_to_virt};
 
 // multiboot tag type ids
 const END: u32 = 0;
@@ -21,31 +21,51 @@ const DEFECTIVE: u32 = 5;
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
+struct Mb2Start {
+	size: u32,
+	reserved: u32,
+}
+
+impl Mb2Start {
+	fn size(&self) -> usize {
+		(self.size as usize) - size_of::<Self>()
+	}
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Mb2Elem<'a> {
+	End,
+	Module(&'a Mb2Module),
+	MemoryMap(&'a TagHeader),
+	RsdpOld(&'a Mb2RsdpOld),
+	Other(&'a TagHeader),
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 struct TagHeader
 {
 	typ: u32,
 	size: u32,
 }
 
-impl TagHeader
+impl HwaTag for TagHeader
 {
-	fn tag_ptr<T>(&self) -> Option<*const T>
-	{
-		if size_of::<T>() + size_of::<Self>() > self.size as usize {
-			None
-		}
-		else
-		{
-			unsafe {
-				Some((self as *const Self).add(1) as *const T)
-			}
-		}
+	type Elem<'a> = Mb2Elem<'a>;
+
+	fn size(&self) -> usize {
+		self.size as usize
 	}
 
-	unsafe fn tag_data<T>(&self) -> &T
-	{
-		self.tag_ptr::<T>().expect("tried to interpret data of mb2 tag as wrong type")
-			.as_ref().unwrap()
+	fn elem(&self) -> Self::Elem<'_> {
+		match self.typ {
+			END => Mb2Elem::End,
+			MODULE => Mb2Elem::Module(unsafe { self.raw_data() }),
+			MEMORY_MAP => Mb2Elem::MemoryMap(self),
+			RSDP_OLD => Mb2Elem::RsdpOld(unsafe { self.raw_data() }),
+			RSDP_NEW => todo!(),
+			_ => Mb2Elem::Other(self),
+		}
 	}
 }
 
@@ -241,7 +261,8 @@ impl BootInfo<'_>
 		// that would be a lot of extra typing
 
 		// add 8 to get past initial entry which is always there
-		let mut ptr = (addr + 8) as *const u8;
+		let start = (addr as *const Mb2Start).as_ref().unwrap();
+		let iter: HwaIter<TagHeader> = HwaIter::from_align(addr + size_of::<Mb2Start>(), start.size(), 8);
 
 		let mut initrd_range = None;
 		let mut initrd_slice = None;
@@ -251,12 +272,10 @@ impl BootInfo<'_>
 
 		let mut rsdt = None;
 
-		loop {
-			let tag_header = (ptr as *const TagHeader).as_ref().unwrap();
-			match tag_header.typ {
-				END => break,
-				MODULE => {
-					let data: &Mb2Module = tag_header.tag_data();
+		for data in iter {
+			match data {
+				Mb2Elem::End => break,
+				Mb2Elem::Module(data) => {
 					if data.string() == "initrd" {
 						let size = (data.mod_end - data.mod_start) as usize;
 						let paddr = PhysAddr::new(data.mod_start as u64);
@@ -266,19 +285,15 @@ impl BootInfo<'_>
 						initrd_slice = Some(core::slice::from_raw_parts(initrd_ptr, size));
 					}
 				},
-				MEMORY_MAP => memory_map_tag = Some(tag_header),
-				RSDP_OLD => {
-					let rsdp: &Mb2RsdpOld = tag_header.tag_data();
+				Mb2Elem::MemoryMap(tag) => memory_map_tag = Some(tag),
+				Mb2Elem::RsdpOld(rsdp) => {
 					if !rsdp.validate() {
 						panic!("invalid rsdp passed to kernel");
 					}
 					rsdt = Rsdt::from(rsdp.rsdt_addr as usize);
 				},
-				RSDP_NEW => todo!(),
-				_ => (),
+				Mb2Elem::Other(_) => (),
 			}
-
-			ptr = ptr.add(align_up(tag_header.size as _, 8));
 		}
 
 		// have to do this at the end, because it needs to know where multiboot modules are

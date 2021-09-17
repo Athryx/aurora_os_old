@@ -164,10 +164,6 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 	println!("aurora kernel v0.0.1");
 
-	for a in unsafe { boot_info.rsdt.tables() } {
-		eprintln!("{:?}", a);
-	}
-
 	sti();
 
 	/*Process::from_elf(
@@ -178,7 +174,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	//test();
+	test();
 
 	loop {
 		hlt();

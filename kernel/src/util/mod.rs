@@ -11,6 +11,9 @@ pub use libutil::collections::{AvlTree, LinkedList, ListNode, NLVec, NLVecMap, T
 mod error;
 pub use error::{Err, Error};
 
+mod hwa_iter;
+pub use hwa_iter::{HwaIter, HwaTag};
+
 mod imutex;
 pub use imutex::{IMutex, IMutexGuard};
 pub use libutil::futex::{Futex, FutexGuard, RWFutex, RWFutexReadGuard, RWFutexWriteGuard};
