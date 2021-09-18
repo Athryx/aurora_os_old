@@ -19,7 +19,7 @@ lazy_static! {
 
 	// TODO: make global
 	static ref HIGHER_HALF_PAGE_POINTER: PageTablePointer = PageTablePointer::new (*consts::KZONE_PAGE_TABLE_POINTER,
-		PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
+		PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL);
 
 	// default page tableflags for any pages that map another page, these are the most permissive flags, and should be overriden by the final page
 	static ref PARENT_FLAGS: PageTableFlags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER;
