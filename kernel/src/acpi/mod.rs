@@ -28,6 +28,32 @@ pub enum AcpiTable<'a> {
 	Hpet(&'a Hpet),
 }
 
+impl AcpiTable<'_> {
+	pub fn assume_rsdt(&self) -> Option<&Rsdt> {
+		if let Self::Rsdt(rsdt) = self {
+			Some(rsdt)
+		} else {
+			None
+		}
+	}
+
+	pub fn assume_madt(&self) -> Option<&Madt> {
+		if let Self::Madt(madt) = self {
+			Some(madt)
+		} else {
+			None
+		}
+	}
+
+	pub fn assume_hpet(&self) -> Option<&Hpet> {
+		if let Self::Hpet(hpet) = self {
+			Some(hpet)
+		} else {
+			None
+		}
+	}
+}
+
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct SdtHeader {

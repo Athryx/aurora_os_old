@@ -47,7 +47,7 @@ pub const fn get_bits(n: usize, bits: Range<usize>) -> usize
 
 	let l = if bits.start > 63 { 63 } else { bits.start };
 	let h = if bits.end > 64 { 63 } else { bits.end - 1 };
-	if l >= h {
+	if l > h {
 		return 0;
 	}
 

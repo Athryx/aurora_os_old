@@ -1,5 +1,7 @@
 use crate::util::misc::*;
 
+pub mod cpuid;
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CPUPrivLevel
@@ -69,7 +71,7 @@ pub fn rdmsr(msr: u32) -> u64
 	let low: u32;
 	let high: u32;
 	unsafe {
-		asm! ("rdmsr", in("ecx") msr, out("eax") low, out("edx") high, options(nomem, nostack));
+		asm!("rdmsr", in("ecx") msr, out("eax") low, out("edx") high, options(nomem, nostack));
 	}
 	((high as u64) << 32) | low as u64
 }
@@ -80,7 +82,7 @@ pub fn wrmsr(msr: u32, data: u64)
 	let low = get_bits(data as usize, 0..32);
 	let high = get_bits(data as usize, 32..64);
 	unsafe {
-		asm! ("wrmsr", in("ecx") msr, in("eax") low, in("edx") high, options(nomem, nostack));
+		asm!("wrmsr", in("ecx") msr, in("eax") low, in("edx") high, options(nomem, nostack));
 	}
 }
 

@@ -50,6 +50,7 @@ use alloc::vec;
 
 use uses::*;
 use libutil::UtilCalls;
+use acpi::SdtType;
 use mb2::BootInfo;
 use arch::x64::*;
 use sched::*;
@@ -123,15 +124,6 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 
 	gdt::init();
 
-	pic::remap(idt::PICM_OFFSET, idt::PICS_OFFSET);
-	idt::init();
-
-	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
-	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
-	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
-
-	time::pit::init()?;
-
 	kdata::init();
 
 	mem::phys_alloc::init(boot_info);
@@ -139,6 +131,29 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	unsafe {
 		libutil::init(&util::CALLS);
 	}
+
+	if cpuid::has_apic() {
+		let acpi_madt = unsafe {
+			boot_info.rsdt.get_table(SdtType::Madt).unwrap()
+		};
+		let madt = acpi_madt.assume_madt().unwrap();
+
+		unsafe {
+			apic::init(madt);
+		}
+
+		// temporary
+		pic::remap(idt::PICM_OFFSET, idt::PICS_OFFSET);
+	} else {
+		pic::remap(idt::PICM_OFFSET, idt::PICS_OFFSET);
+	}
+	idt::init();
+
+	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
+	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
+	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
+
+	time::pit::init()?;
 
 	syscall::init();
 
@@ -174,7 +189,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	test();
+	//test();
 
 	loop {
 		hlt();
