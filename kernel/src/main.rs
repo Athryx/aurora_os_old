@@ -146,6 +146,7 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	} else {
 		pic::remap(pic::PICM_OFFSET, pic::PICS_OFFSET);
 	}
+
 	idt::init();
 
 	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
@@ -161,6 +162,7 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	Ok(())
 }
 
+// rust entry point of the kernel after boot.asm calls this
 #[no_mangle]
 pub extern "C" fn _start(boot_info_addr: usize) -> !
 {
