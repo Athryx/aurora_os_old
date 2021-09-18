@@ -133,6 +133,8 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	}
 
 	if cpuid::has_apic() {
+		pic::disable();
+
 		let acpi_madt = unsafe {
 			boot_info.rsdt.get_table(SdtType::Madt).unwrap()
 		};
@@ -141,11 +143,8 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 		unsafe {
 			apic::init(madt);
 		}
-
-		// temporary
-		pic::remap(idt::PICM_OFFSET, idt::PICS_OFFSET);
 	} else {
-		pic::remap(idt::PICM_OFFSET, idt::PICS_OFFSET);
+		pic::remap(pic::PICM_OFFSET, pic::PICS_OFFSET);
 	}
 	idt::init();
 

@@ -22,6 +22,14 @@ const ICW4_BUF_SLAVE: u8 = 0x08; /* Buffered mode/slave */
 const ICW4_BUF_MASTER: u8 = 0x0c; /* Buffered mode/master */
 const ICW4_SFNM: u8 = 0x10; /* Special fully nested (not) */
 
+// offsets of pics when enabled
+pub const PICM_OFFSET: u8 = 32;
+pub const PICS_OFFSET: u8 = 40;
+
+// offsets of pics when disabled
+const PICM_DISABLE_OFFSET: u8 = 0xf0;
+const PICS_DISABLE_OFFSET: u8 = 0xf8;
+
 // from osdev wiki
 // offsets must be multiple of 8
 pub fn remap(moffset: u8, soffset: u8)
@@ -50,11 +58,20 @@ pub fn remap(moffset: u8, soffset: u8)
 	outb(PICS_DATA, s2);
 }
 
+// disable the pic
+pub fn disable() {
+	// need to remap it to higher interrupt number so spurious interrupts dont cause problems
+	remap(PICM_DISABLE_OFFSET, PICS_DISABLE_OFFSET);
+	// mask all incoming interrupts, spurious interrupts might still occur
+	outb(PICM_DATA, 0xff);
+	outb(PICS_DATA, 0xff);
+}
+
 // tell pics interrupt is over, used by assembly code
 #[no_mangle]
 pub extern "C" fn pic_eoi(irq: u8)
 {
-	if irq - super::idt::PICM_OFFSET > 7 {
+	if irq - PICM_OFFSET > 7 {
 		outb(PICS_COMMAND, PIC_EOI);
 	}
 

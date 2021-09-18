@@ -4,9 +4,7 @@ use crate::uses::*;
 use crate::sched::{thread_c, Registers};
 use crate::{gdt, kdata};
 use crate::arch::x64::CPUPrivLevel;
-
-pub const PICM_OFFSET: u8 = 32;
-pub const PICS_OFFSET: u8 = 40;
+use super::pic::{PICM_OFFSET, PICS_OFFSET};
 
 // TODO: maybe put these in an enum
 pub const EXC_DIVIDE_BY_ZERO: u8 = 0;
