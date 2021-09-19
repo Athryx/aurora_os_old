@@ -9,6 +9,7 @@ pub use core::cell::RefCell;
 pub use sys_consts::SysErr;
 pub use lazy_static::lazy_static;
 pub use x86_64::{PhysAddr, VirtAddr};
+pub use modular_bitfield::prelude::*;
 
 pub use crate::util::misc::*;
 pub use crate::util::{Err, Error};
