@@ -96,21 +96,26 @@ bit 3-4 (kill_priv):
 CapPriv(usize)
 a bitmask representing the permissions of a capability
 bit 0 (cap_read): allows reading of or sending to the object referenced by this capability
-bit 1 (cap_write): allows writing to or recieving from the object referenced by this capability
+bit 1 (cap_prod): allows proding the object referenced by the capability
+bit 2 (cap_write): allows writing to or recieving from the object referenced by this capability
+in general, operations that require cap_read read properties without altering the objects state
+operations requiring cap_prod may alter internal state, but in a less privalidged and less abritrary way than write
+operations requiring cap_write can alter large portions of the objects internal state
 
 CapFlags(usize)
 a bitmask representing the various properties of a capability
-bit 0-1 (cap_priv): specifies the privalidges of a capability
+bit 0-2 (cap_priv): specifies the privalidges of a capability
 uses bits 0-1 of the CapPriv type
 // TODO: figure out if ports and maybe even normal memory should have a capability
-bit 2-4 (cap_type): specifies what type of object the capability refers to
-0: connection
+bit 3-5 (cap_type): specifies what type of object the capability refers to
+0: channel
 1: futex
-2: shared memory
+2: memory
 3: Key
-4: mmio memory
-5: interrupt
-6: port
+4: context
+5: mmio memory
+6: interrupt
+7: port
 
 // Process id
 type pid = usize;

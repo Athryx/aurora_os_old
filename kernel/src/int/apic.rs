@@ -1,6 +1,7 @@
 use crate::uses::*;
 use modular_bitfield::{bitfield, BitfieldSpecifier};
 use core::ptr;
+use crate::util::IMutex;
 use crate::acpi::madt::Madt;
 use crate::int::idt::IRQ_TIMER;
 
@@ -192,6 +193,7 @@ enum LvtTimerMode {
 
 #[bitfield]
 #[repr(u32)]
+#[derive(Debug, Clone, Copy)]
 struct LvtEntry {
 	vec: u8,
 
@@ -243,10 +245,38 @@ impl Default for LvtEntry {
 	}
 }
 
-#[derive(Debug)]
-pub struct ApicRegs(usize);
+#[derive(Debug, Clone, Copy)]
+enum LvtType {
+	Timer(LvtEntry),
+	MachineCheck(LvtEntry),
+	Lint0(LvtEntry),
+	Lint1(LvtEntry),
+	Error(LvtEntry),
+	Perf(LvtEntry),
+	Thermal(LvtEntry),
+}
 
-impl ApicRegs {
+impl LvtType {
+	fn inner(&self) -> LvtEntry {
+		match self {
+			Self::Timer(entry) => *entry,
+			Self::MachineCheck(entry) => *entry,
+			Self::Lint0(entry) => *entry,
+			Self::Lint1(entry) => *entry,
+			Self::Error(entry) => *entry,
+			Self::Perf(entry) => *entry,
+			Self::Thermal(entry) => *entry,
+		}
+	}
+}
+
+#[derive(Debug)]
+pub struct Apic {
+	addr: usize,
+	lock: IMutex<()>,
+}
+
+impl Apic {
 	// offset between registers
 	const REG_OFFSET: usize = 0x10;
 
@@ -294,67 +324,73 @@ impl ApicRegs {
 	const TIMER_DIVIDE_CONFIG: usize = 0x3e0;
 
 	pub fn from(addr: PhysAddr) -> Self {
-		let mut out = ApicRegs(phys_to_virt(addr).as_u64() as usize);
-		out.set_lvt_timer(LvtEntry::new_timer(IRQ_TIMER));
-		out.set_lvt_machine_check(LvtEntry::new_masked());
-		out.set_lvt_lint0(LvtEntry::new_masked());
-		out.set_lvt_lint1(LvtEntry::new_masked());
+		let out = Apic {
+			addr: phys_to_virt(addr).as_u64() as usize,
+			lock: IMutex::new(()),
+		};
+		out.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
+		out.set_lvt(LvtType::MachineCheck(LvtEntry::new_masked()));
+		out.set_lvt(LvtType::Lint0(LvtEntry::new_masked()));
+		out.set_lvt(LvtType::Lint1(LvtEntry::new_masked()));
 		// TODO: handle errors
-		out.set_lvt_error(LvtEntry::new_masked());
-		out.set_lvt_perf(LvtEntry::new_masked());
-		out.set_lvt_thermal(LvtEntry::new_masked());
+		out.set_lvt(LvtType::Error(LvtEntry::new_masked()));
+		out.set_lvt(LvtType::Perf(LvtEntry::new_masked()));
+		out.set_lvt(LvtType::Thermal(LvtEntry::new_masked()));
 		out
 	}
 
-	pub fn send_ipi(&mut self, ipi: Ipi) {
+	pub fn send_ipi(&self, ipi: Ipi) {
 		let cmd_reg: CmdReg = ipi.into();
-		self.set_cmd(cmd_reg.into())
+		let _lock = self.lock.lock();
+		self.write_reg_64(Self::CMD_BASE, cmd_reg.into())
 	}
 
-	pub fn eoi(&mut self) {
+	pub fn eoi(&self) {
+		let _lock = self.lock.lock();
 		self.write_reg_32(Self::EOI, 0)
 	}
 
+	fn set_lvt(&self, lvte: LvtType) {
+		let _lock = self.lock.lock();
+		match lvte {
+			LvtType::Timer(entry) => self.write_reg_32(Self::LVT_TIMER, entry.into()),
+			LvtType::MachineCheck(entry) => self.write_reg_32(Self::LVT_MACHINE_CHECK, entry.into()),
+			LvtType::Lint0(entry) => self.write_reg_32(Self::LVT_LINT0, entry.into()),
+			LvtType::Lint1(entry) => self.write_reg_32(Self::LVT_LINT1, entry.into()),
+			LvtType::Error(entry) => self.write_reg_32(Self::LVT_ERROR, entry.into()),
+			LvtType::Perf(entry) => self.write_reg_32(Self::LVT_PERF, entry.into()),
+			LvtType::Thermal(entry) => self.write_reg_32(Self::LVT_THERMAL, entry.into()),
+		}
+	}
+
 	fn read_reg_32(&self, reg: usize) -> u32 {
-		let ptr = (self.0 + reg) as *const u32;
+		let ptr = (self.addr + reg) as *const u32;
 		unsafe {
 			ptr::read_volatile(ptr)
 		}
 	}
 
-	fn write_reg_32(&mut self, reg: usize, val: u32) {
-		let ptr = (self.0 + reg) as *mut u32;
+	fn write_reg_32(&self, reg: usize, val: u32) {
+		let ptr = (self.addr + reg) as *mut u32;
 		unsafe {
 			ptr::write_volatile(ptr, val);
 		}
 	}
 
 	fn read_reg_64(&self, reg: usize) -> u64 {
-		let ptr_low = (self.0 + reg) as *const u32;
-		let ptr_high = (self.0 + reg + Self::REG_OFFSET) as *const u32;
-
-		let low = unsafe {
-			ptr::read_volatile(ptr_low) as u64
-		};
-		let high = unsafe {
-			ptr::read_volatile(ptr_high) as u64
-		};
+		let high = self.read_reg_32(reg + Self::REG_OFFSET) as u64;
+		let low = self.read_reg_32(reg) as u64;
 
 		(high << 32) | low
 	}
 
 	// writes bytes in right order for send_ipi
 	fn write_reg_64(&self, reg: usize, val: u64) {
-		let ptr_low = (self.0 + reg) as *mut u32;
-		let ptr_high = (self.0 + reg + Self::REG_OFFSET) as *mut u32;
-
 		let low = get_bits(val as usize, 0..32) as u32;
 		let high = get_bits(val as usize, 32..64) as u32;
 
-		unsafe {
-			ptr::write_volatile(ptr_high, high);
-			ptr::write_volatile(ptr_low, low);
-		}
+		self.write_reg_32(reg + Self::REG_OFFSET, high);
+		self.write_reg_32(reg, low);
 	}
 
 	fn read_reg_256(&self, reg: usize) -> [u64; 4] {
@@ -371,7 +407,7 @@ impl ApicRegs {
 		}
 	}
 
-	fn apic_id(&self) -> u32 {
+	/*fn apic_id(&self) -> u32 {
 		self.read_reg_32(Self::APIC_ID)
 	}
 
@@ -393,10 +429,6 @@ impl ApicRegs {
 
 	fn proc_priority(&self) -> u32 {
 		self.read_reg_32(Self::PROC_PRIORITY)
-	}
-
-	fn set_eoi(&mut self, val: u32) {
-		self.write_reg_32(Self::EOI, val)
 	}
 
 	fn remote_read(&self) -> u32 {
@@ -429,14 +461,6 @@ impl ApicRegs {
 
 	fn error(&self) -> u32 {
 		self.read_reg_32(Self::ERROR)
-	}
-
-	fn cmd(&self) -> u64 {
-		self.read_reg_64(Self::CMD_BASE)
-	}
-
-	fn set_cmd(&mut self, val: u64) {
-		self.write_reg_64(Self::CMD_BASE, val)
 	}
 
 	fn lvt_machine_check(&self) -> u32 {
@@ -493,7 +517,7 @@ impl ApicRegs {
 
 	fn set_lvt_error(&mut self, val: LvtEntry) {
 		self.write_reg_32(Self::LVT_ERROR, val.into())
-	}
+	}*/
 
 	fn timer_init_count(&self) -> u32 {
 		self.read_reg_32(Self::TIMER_INIT_COUNT)

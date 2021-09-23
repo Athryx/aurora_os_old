@@ -90,13 +90,13 @@ macro_rules! init_array (
 	($ty:ty, $len:expr, $val:expr) => (
 		{
 			use core::mem::MaybeUninit;
-			let mut array: [MaybeUninit<$ty>; $len] = MaybeUninit::uninit_array ();
+			let mut array: [MaybeUninit<$ty>; $len] = MaybeUninit::uninit_array();
 			for a in array.iter_mut() {
 				#[allow(unused_unsafe)]
-				unsafe { ::core::ptr::write(a.as_mut_ptr (), $val); }
+				unsafe { ::core::ptr::write(a.as_mut_ptr(), $val); }
 			}
 			#[allow(unused_unsafe)]
-			unsafe { core::mem::transmute::<[MaybeUninit<$ty>; $len], [$ty; $len]> (array) }
+			unsafe { core::mem::transmute::<[MaybeUninit<$ty>; $len], [$ty; $len]>(array) }
 		}
 	)
 );

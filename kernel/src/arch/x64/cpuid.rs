@@ -2,11 +2,10 @@ use crate::util::misc::*;
 
 #[derive(Debug, Clone, Copy)]
 struct CpuidRet {
-	// these are usize so get bits can be easily used
-	eax: usize,
-	ebx: usize,
-	ecx: usize,
-	edx: usize,
+	eax: u32,
+	ebx: u32,
+	ecx: u32,
+	edx: u32,
 }
 
 fn cpuid(n: u32) -> CpuidRet {
@@ -27,14 +26,21 @@ fn cpuid(n: u32) -> CpuidRet {
 	}
 
 	CpuidRet {
-		eax: eax as usize,
-		ebx: ebx as usize,
-		ecx: ecx as usize,
-		edx: edx as usize,
+		eax,
+		ebx,
+		ecx,
+		edx,
 	}
 }
 
 pub fn has_apic() -> bool {
-	let vals = cpuid(1);
-	get_bits(vals.edx, 9..10) == 1
+	get_bits(cpuid(1).edx as usize, 9..10) == 1
+}
+
+pub fn apic_id() -> u8 {
+	get_bits(cpuid(1).ebx as usize, 24..32) as u8
+}
+
+pub fn core_clock_freq() -> u32 {
+	cpuid(0x15).ecx
 }
