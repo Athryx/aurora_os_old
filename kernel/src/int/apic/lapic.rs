@@ -4,192 +4,7 @@ use core::ptr;
 use crate::util::IMutex;
 use crate::acpi::madt::Madt;
 use crate::int::idt::IRQ_TIMER;
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-#[bits = 3]
-enum IpiDelivMode {
-	Fixed = 0,
-	// avoid
-	LowestPriority = 1,
-	// avoid
-	Smi = 2,
-	Nmi = 4,
-	Init = 5,
-	Sipi = 6,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-enum IpiDestMode {
-	Physical = 0,
-	Logical = 1,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-enum DelivStatus {
-	Idle = 0,
-	Pending = 1,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-enum TriggerMode {
-	Edge = 0,
-	// avoid for ipi
-	Level = 1,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-enum IpiDestShort {
-	None = 0,
-	This = 1,
-	AllExcludeThis = 2,
-	AllIncludeThis = 3,
-}
-
-#[bitfield]
-#[repr(u64)]
-pub struct CmdReg {
-	vector: u8,
-
-	#[bits = 3]
-	deliv_mode: IpiDelivMode,
-
-	#[bits = 1]
-	dest_mode: IpiDestMode,
-
-	// read only
-	#[bits = 1]
-	#[skip(setters)]
-	status: DelivStatus,
-
-	#[skip] __: B1,
-
-	// true: assert
-	// false: de assert
-	// should always be true
-	assert: bool,
-
-	// should always be IpiTriggerMode::Edge
-	#[bits = 1]
-	trigger_mode: TriggerMode,
-
-	#[skip] __: B2,
-
-	#[bits = 2]
-	dest_short: IpiDestShort,
-
-	#[skip] __: B36,
-
-	dest: u8,
-}
-
-impl Default for CmdReg {
-	fn default() -> Self {
-		Self::new()
-			.with_assert(true)
-			.with_trigger_mode(TriggerMode::Edge)
-	}
-}
-
-impl From<Ipi> for CmdReg {
-	fn from(ipi: Ipi) -> Self {
-		let mut out = Self::default();
-
-		match ipi.dest() {
-			IpiDest::This => out.set_dest_short(IpiDestShort::This),
-			IpiDest::AllExcludeThis => out.set_dest_short(IpiDestShort::AllExcludeThis),
-			IpiDest::AllIncludeThis => out.set_dest_short(IpiDestShort::AllIncludeThis),
-			IpiDest::OtherPhysical(dest) => {
-				out.set_dest_short(IpiDestShort::None);
-				out.set_dest_mode(IpiDestMode::Physical);
-				out.set_dest(dest);
-			},
-			IpiDest::OtherLogical(dest) => {
-				out.set_dest_short(IpiDestShort::None);
-				out.set_dest_mode(IpiDestMode::Logical);
-				out.set_dest(dest);
-			},
-		}
-
-		match ipi {
-			Ipi::To(_, vec) => {
-				out.set_vector(vec);
-				out.set_deliv_mode(IpiDelivMode::Fixed);
-			},
-			Ipi::Smi(_) => {
-				out.set_vector(0);
-				out.set_deliv_mode(IpiDelivMode::Smi);
-			},
-			Ipi::Init(_) => {
-				out.set_vector(0);
-				out.set_deliv_mode(IpiDelivMode::Init);
-			},
-			Ipi::Sipi(_, vec) => {
-				out.set_vector(vec);
-				out.set_deliv_mode(IpiDelivMode::Sipi);
-			},
-		}
-
-		out
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IpiDest {
-	This,
-	AllExcludeThis,
-	AllIncludeThis,
-	OtherPhysical(u8),
-	OtherLogical(u8),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ipi {
-	To(IpiDest, u8),
-	Smi(IpiDest),
-	Init(IpiDest),
-	Sipi(IpiDest, u8),
-}
-
-impl Ipi {
-	pub fn dest(&self) -> IpiDest {
-		match *self {
-			Self::To(dest, _) => dest,
-			Self::Smi(dest) => dest,
-			Self::Init(dest) => dest,
-			Self::Sipi(dest, _) => dest,
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-#[bits = 3]
-enum LvtDelivMode {
-	Fixed = 0,
-	Smi = 2,
-	Nmi = 4,
-	Init = 5,
-	ExtInt = 7,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-enum LvtPinPolarity {
-	ActiveHigh = 0,
-	ActiveLow = 1,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-enum LvtRemoteIrr {
-	None = 0,
-	Servicing = 1,
-}
-
-#[derive(Debug, Clone, Copy, BitfieldSpecifier)]
-#[bits = 2]
-enum LvtTimerMode {
-	OneShot = 0,
-	Periodic = 1,
-	TscDeadline = 2,
-}
+use super::*;
 
 #[bitfield]
 #[repr(u32)]
@@ -198,7 +13,7 @@ struct LvtEntry {
 	vec: u8,
 
 	#[bits = 3]
-	deliv_mode: LvtDelivMode,
+	deliv_mode: DelivMode,
 
 	#[skip] __: B1,
 
@@ -208,12 +23,12 @@ struct LvtEntry {
 	deliv_status: DelivStatus,
 
 	#[bits = 1]
-	polarity: LvtPinPolarity,
+	polarity: PinPolarity,
 
 	// read only
 	#[bits = 1]
 	#[skip(setters)]
-	remote_irr: LvtRemoteIrr,
+	remote_irr: RemoteIrr,
 
 	#[bits = 1]
 	trigger_mode: TriggerMode,
@@ -271,12 +86,11 @@ impl LvtType {
 }
 
 #[derive(Debug)]
-pub struct Apic {
+pub struct LocalApic {
 	addr: usize,
-	lock: IMutex<()>,
 }
 
-impl Apic {
+impl LocalApic {
 	// offset between registers
 	const REG_OFFSET: usize = 0x10;
 
@@ -324,11 +138,10 @@ impl Apic {
 	const TIMER_DIVIDE_CONFIG: usize = 0x3e0;
 
 	pub fn from(addr: PhysAddr) -> Self {
-		let out = Apic {
+		let mut out = LocalApic {
 			addr: phys_to_virt(addr).as_u64() as usize,
-			lock: IMutex::new(()),
 		};
-		out.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
+		out.set_lvt(LvtType::Timer(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::MachineCheck(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Lint0(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Lint1(LvtEntry::new_masked()));
@@ -339,19 +152,16 @@ impl Apic {
 		out
 	}
 
-	pub fn send_ipi(&self, ipi: Ipi) {
+	pub fn send_ipi(&mut self, ipi: Ipi) {
 		let cmd_reg: CmdReg = ipi.into();
-		let _lock = self.lock.lock();
 		self.write_reg_64(Self::CMD_BASE, cmd_reg.into())
 	}
 
-	pub fn eoi(&self) {
-		let _lock = self.lock.lock();
+	pub fn eoi(&mut self) {
 		self.write_reg_32(Self::EOI, 0)
 	}
 
-	fn set_lvt(&self, lvte: LvtType) {
-		let _lock = self.lock.lock();
+	fn set_lvt(&mut self, lvte: LvtType) {
 		match lvte {
 			LvtType::Timer(entry) => self.write_reg_32(Self::LVT_TIMER, entry.into()),
 			LvtType::MachineCheck(entry) => self.write_reg_32(Self::LVT_MACHINE_CHECK, entry.into()),
@@ -363,6 +173,10 @@ impl Apic {
 		}
 	}
 
+	fn error(&self) -> u32 {
+		self.read_reg_32(Self::ERROR)
+	}
+
 	fn read_reg_32(&self, reg: usize) -> u32 {
 		let ptr = (self.addr + reg) as *const u32;
 		unsafe {
@@ -370,7 +184,7 @@ impl Apic {
 		}
 	}
 
-	fn write_reg_32(&self, reg: usize, val: u32) {
+	fn write_reg_32(&mut self, reg: usize, val: u32) {
 		let ptr = (self.addr + reg) as *mut u32;
 		unsafe {
 			ptr::write_volatile(ptr, val);
@@ -385,7 +199,7 @@ impl Apic {
 	}
 
 	// writes bytes in right order for send_ipi
-	fn write_reg_64(&self, reg: usize, val: u64) {
+	fn write_reg_64(&mut self, reg: usize, val: u64) {
 		let low = get_bits(val as usize, 0..32) as u32;
 		let high = get_bits(val as usize, 32..64) as u32;
 
@@ -459,10 +273,6 @@ impl Apic {
 		self.write_reg_32(Self::SPURIOUS_VEC, val)
 	}
 
-	fn error(&self) -> u32 {
-		self.read_reg_32(Self::ERROR)
-	}
-
 	fn lvt_machine_check(&self) -> u32 {
 		self.read_reg_32(Self::LVT_MACHINE_CHECK)
 	}
@@ -517,7 +327,7 @@ impl Apic {
 
 	fn set_lvt_error(&mut self, val: LvtEntry) {
 		self.write_reg_32(Self::LVT_ERROR, val.into())
-	}*/
+	}
 
 	fn timer_init_count(&self) -> u32 {
 		self.read_reg_32(Self::TIMER_INIT_COUNT)
@@ -537,11 +347,5 @@ impl Apic {
 
 	fn set_timer_divide_config(&mut self, val: u32) {
 		self.write_reg_32(Self::TIMER_DIVIDE_CONFIG, val)
-	}
-}
-
-pub unsafe fn init(madt: &Madt) {
-	for entry in madt.iter() {
-		eprintln!("{:?}", entry);
-	}
+	}*/
 }

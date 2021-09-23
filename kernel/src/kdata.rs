@@ -4,7 +4,7 @@ use array_const_fn_init::array_const_fn_init;
 
 use crate::uses::*;
 use crate::config::MAX_CPUS;
-use crate::int::apic::Apic;
+use crate::int::apic::LocalApic;
 use crate::util::IMutex;
 use crate::arch::x64::*;
 
@@ -38,7 +38,7 @@ impl GsData
 
 #[derive(Debug)]
 pub struct CpuData {
-	pub apic: IMutex<Option<Apic>>,
+	pub apic: IMutex<Option<LocalApic>>,
 }
 
 impl CpuData {
