@@ -1,11 +1,11 @@
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 
 use array_const_fn_init::array_const_fn_init;
 
 use crate::uses::*;
 use crate::config::MAX_CPUS;
 use crate::int::apic::LocalApic;
-use crate::util::IMutex;
+use crate::util::{IMutex, IMutexGuard};
 use crate::arch::x64::*;
 
 pub static gs_data: IMutex<GsData> = IMutex::new(GsData::new());
@@ -36,16 +36,38 @@ impl GsData
 	}
 }
 
+// conveniant reference to cpu data member so you don't have to call a ton of option methods to use the reference
+// panics if the referenced field is none when dereferenced
+pub struct CpuDataRef<'a, T>(IMutexGuard<'a, Option<T>>);
+
+impl<T> Deref for CpuDataRef<'_, T> {
+	type Target = T;
+
+	fn deref(&self) -> &Self::Target {
+		self.0.as_ref().unwrap()
+	}
+}
+
+impl<T> DerefMut for CpuDataRef<'_, T> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		self.0.as_mut().unwrap()
+	}
+}
+
 #[derive(Debug)]
 pub struct CpuData {
-	pub apic: IMutex<Option<LocalApic>>,
+	pub lapic: IMutex<Option<LocalApic>>,
 }
 
 impl CpuData {
 	pub const fn new() -> Self {
 		CpuData {
-			apic: IMutex::new(None),
+			lapic: IMutex::new(None),
 		}
+	}
+
+	pub fn lapic(&self) -> CpuDataRef<LocalApic> {
+		CpuDataRef(self.lapic.lock())
 	}
 }
 

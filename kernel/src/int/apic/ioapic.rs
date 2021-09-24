@@ -38,4 +38,14 @@ struct IrqEntry {
 }
 
 pub struct IoApic {
+	addr: usize,
+}
+
+impl IoApic {
+	pub fn from(addr: PhysAddr) -> Self {
+		let out = IoApic {
+			addr: phys_to_virt(addr).as_u64() as usize,
+		};
+		out
+	}
 }

@@ -27,7 +27,7 @@ pub const PICM_OFFSET: u8 = 32;
 pub const PICS_OFFSET: u8 = 40;
 
 // offsets of pics when disabled
-const PICM_DISABLE_OFFSET: u8 = 0xf0;
+const PICM_DISABLE_OFFSET: u8 = 0xf8;
 const PICS_DISABLE_OFFSET: u8 = 0xf8;
 
 // from osdev wiki

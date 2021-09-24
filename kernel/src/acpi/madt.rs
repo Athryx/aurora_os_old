@@ -6,8 +6,8 @@ use super::{SdtHeader, Sdt};
 #[derive(Debug, Clone, Copy)]
 pub struct Madt {
 	header: SdtHeader,
-	lapic_addr: u32,
-	lapic_flags: u32,
+	pub lapic_addr: u32,
+	pub lapic_flags: u32,
 }
 
 impl Madt {
@@ -66,58 +66,58 @@ impl HwaTag for MadtTag {
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct ProcLocalApic {
-	proc_id: u8,
-	apic_id: u8,
-	flags: u32,
+	pub proc_id: u8,
+	pub apic_id: u8,
+	pub flags: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IoApic {
-	ioapic_id: u8,
+	pub ioapic_id: u8,
 	reserved: u8,
-	ioapic_addr: u32,
-	global_sysint_base: u32,
+	pub ioapic_addr: u32,
+	pub global_sysint_base: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IoApicSrcOverride {
-	bus_src: u8,
-	irq_src: u8,
-	global_sysint: u32,
-	flags: u16,
+	pub bus_src: u8,
+	pub irq_src: u8,
+	pub global_sysint: u32,
+	pub flags: u16,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct IoApicNmi {
-	nmi_src: u8,
+	pub nmi_src: u8,
 	reserved: u8,
-	flags: u16,
-	global_sysint: u32,
+	pub flags: u16,
+	pub global_sysint: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct LocalApicNmi {
-	proc_id: u8,
-	flags: u16,
-	lint: u8,
+	pub proc_id: u8,
+	pub flags: u16,
+	pub lint: u8,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct LocalApicOverride {
 	reserved: u16,
-	addr: u64,
+	pub addr: u64,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct ProcLocalX2Apic {
 	reserved: u16,
-	x2_apic_id: u32,
-	flags: u32,
-	acpi_id: u32,
+	pub x2_apic_id: u32,
+	pub flags: u32,
+	pub acpi_id: u32,
 }

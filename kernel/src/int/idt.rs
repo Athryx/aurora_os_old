@@ -66,6 +66,10 @@ pub const IRQ_SECONDARY_ATA: u8 = PICS_OFFSET + 7;
 
 pub const INT_SCHED: u8 = 128;
 
+// NOTE: on some processors, according to intel manuals, bits 0-3 of the spurious vector register are always 0,
+// so we should always choose a spurious vector number with bits 0-3 zeroed
+pub const SPURIOUS: u8 = 0xf0;
+
 const MAX_HANDLERS: usize = 16;
 const IDT_SIZE: usize = 256;
 
