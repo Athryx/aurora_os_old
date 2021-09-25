@@ -684,6 +684,11 @@ pub fn init() -> Result<(), Err>
 
 	let kernel_proc = Process::new(PrivLevel::Kernel, "kernel".to_string(), "kernel".to_string());
 
+	// load address space
+	unsafe {
+		kernel_proc.addr_space.load();
+	}
+
 	kernel_proc.new_thread(thread_cleaner as usize, Some("thread_cleaner".to_string()))?;
 
 	// rip will be set on first context switch

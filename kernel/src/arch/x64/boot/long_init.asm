@@ -39,7 +39,7 @@ higher_half_start:
 	mov rax, cr3
 	mov cr3, rax
 
-; call c entry point
+; call rust entry point
 	call _start
 
 ; print okay

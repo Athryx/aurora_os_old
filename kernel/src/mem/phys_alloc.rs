@@ -197,6 +197,34 @@ impl BuddyAllocator
 		false
 	}
 
+	// safety: address must point to a valid, unallocated node
+	unsafe fn split_order_at(&mut self, addr: usize, order: usize) {
+		if order >= self.max_order {
+			return;
+		}
+
+		let size = self.get_order_size(order);
+		let addr2 = addr ^ size;
+
+		if !self.ucontains(addr2, size) || self.is_alloced(addr2) {
+			return;
+		}
+
+		let min_addr = min(addr, addr2);
+		let max_addr = max(addr, addr2);
+
+		self.split_order_at(min_addr, order + 1);
+
+		let old_node = UniqueRef::new((min_addr as *const Node).as_ref().unwrap());
+		let node = self.olist[order + 1].remove_node(old_node);
+		node.set_size(size);
+
+		let node2 = Node::new(max_addr, size);
+
+		self.olist[order].push(node);
+		self.olist[order].push(node2);
+	}
+
 	fn insert_node(&mut self, mut node: MemOwner<Node>)
 	{
 		let mut order = self.get_order(node.size());
@@ -237,11 +265,9 @@ impl BuddyAllocator
 		self.olist[order].push_front(node);
 	}
 
-	fn order_expand_cap(&self, mem: Allocation) -> usize
+	fn order_expand_cap(&self, addr: usize, mut size: usize) -> usize
 	{
 		let mut out = 0;
-		let mut size = mem.len();
-		let addr = mem.as_usize();
 
 		loop {
 			let addr2 = addr ^ size;
@@ -259,9 +285,12 @@ impl BuddyAllocator
 
 	pub fn contains(&self, mem: Allocation) -> bool
 	{
-		let addr = mem.as_usize();
+		self.ucontains(mem.as_usize(), mem.len())
+	}
+
+	fn ucontains(&self, addr: usize, size: usize) -> bool {
 		addr >= self.start
-			&& addr + mem.len() <= self.meta_start as usize
+			&& addr + size <= self.meta_start as usize
 			&& align_of(addr) >= self.min_order_size
 	}
 
@@ -273,11 +302,7 @@ impl BuddyAllocator
 		}
 
 		let order = self.get_order(size);
-		if order > self.max_order {
-			None
-		} else {
-			self.oalloc(order)
-		}
+		self.oalloc(order)
 	}
 
 	pub fn oalloc(&mut self, order: usize) -> Option<Allocation>
@@ -300,6 +325,46 @@ impl BuddyAllocator
 		Some(out)
 	}
 
+	// size is in bytes
+	pub fn alloc_at(&mut self, size: usize, addr: VirtAddr) -> Option<Allocation> {
+		if size == 0 {
+			return None;
+		}
+
+		let order = self.get_order(size);
+		self.oalloc_at(order, addr)
+	}
+
+	pub fn oalloc_at(&mut self, order: usize, at_addr: VirtAddr) -> Option<Allocation> {
+		if order > self.max_order {
+			return None;
+		}
+
+		let at_addr = at_addr.as_u64() as usize;
+		let size = self.get_order_size(order);
+
+		if !self.ucontains(at_addr, size) {
+			return None;
+		}
+
+		if self.is_alloced(at_addr) || order > self.order_expand_cap(at_addr, self.min_order_size) {
+			return None;
+		}
+
+		unsafe {
+			self.split_order_at(at_addr, order);
+		}
+
+		let old_node = unsafe {
+			UniqueRef::new((at_addr as *const Node).as_ref().unwrap())
+		};
+		self.olist[order].remove_node(old_node);
+
+		self.set_is_alloced(at_addr, true);
+
+		todo!();
+	}
+
 	pub unsafe fn realloc(&mut self, mem: Allocation, size: usize) -> Option<Allocation>
 	{
 		if size == 0 {
@@ -307,11 +372,7 @@ impl BuddyAllocator
 		}
 
 		let order = self.get_order(size);
-		if order > self.max_order {
-			None
-		} else {
-			self.orealloc(mem, order)
-		}
+		self.orealloc(mem, order)
 	}
 
 	// if none is returned, the original allocation is still valid
@@ -354,7 +415,7 @@ impl BuddyAllocator
 			Some(Allocation::new(addr, size))
 		} else {
 			let odiff = order - old;
-			if self.order_expand_cap(mem) >= odiff {
+			if self.order_expand_cap(addr, len) >= odiff {
 				// no need to check if each zone we are expanding to is valid
 				for order in old..order {
 					let size2 = self.get_order_size(order);

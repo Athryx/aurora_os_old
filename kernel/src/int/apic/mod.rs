@@ -2,6 +2,7 @@ use crate::uses::*;
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use modular_bitfield::BitfieldSpecifier;
 use crate::kdata::cpud;
+use crate::config::MAX_CPUS;
 use crate::acpi::madt::{Madt, MadtElem};
 use crate::util::IMutex;
 use crate::int::idt::{irq_arr, IRQ_BASE, IRQ_TIMER};
@@ -20,6 +21,16 @@ pub use ioapic::IoApic;
 pub static LAPIC_ADDR: AtomicUsize = AtomicUsize::new(0);
 pub static BSP_ID: AtomicU8 = AtomicU8::new(0);
 pub static IO_APIC: IMutex<IoApic> = IMutex::new(unsafe { IoApic::new() });
+
+#[no_mangle]
+static mut AP_START_DATA: ApStartData = ApStartData {
+	stacks: [0; MAX_CPUS],
+};
+
+#[repr(C)]
+struct ApStartData {
+	stacks: [u64; MAX_CPUS],
+}
 
 #[derive(Debug, Clone, Copy, BitfieldSpecifier)]
 #[bits = 3]
