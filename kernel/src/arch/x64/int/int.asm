@@ -1,6 +1,6 @@
 %include "asm_def.asm"
 
-extern pic_eoi
+extern eoi
 extern rust_int_handler
 
 %macro save_regs 0
@@ -194,7 +194,7 @@ int_handler_ %+ %1 %+ :
 
 	; send pic eoi
 	mov rdi, %1
-	mov rcx, pic_eoi
+	mov rcx, eoi
 	call rcx
 
 	cmp r14, 0

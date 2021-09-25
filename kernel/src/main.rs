@@ -133,6 +133,8 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	}
 
 	if cpuid::has_apic() {
+		config::set_use_apic(true);
+
 		pic::disable();
 
 		let acpi_madt = unsafe {
@@ -144,6 +146,7 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 			apic::init(madt);
 		}
 	} else {
+		config::set_use_apic(false);
 		pic::remap(pic::PICM_OFFSET, pic::PICS_OFFSET);
 	}
 
@@ -190,7 +193,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	//test();
+	test();
 
 	loop {
 		hlt();

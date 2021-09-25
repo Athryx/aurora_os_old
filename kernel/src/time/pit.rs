@@ -110,7 +110,6 @@ impl Pit
 
 fn timer_irq_handler(_: &Registers, _: u64) -> Option<&Registers>
 {
-	rprintln!("hi");
 	pit.tick();
 	None
 }

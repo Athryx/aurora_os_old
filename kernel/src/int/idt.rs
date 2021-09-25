@@ -47,6 +47,8 @@ pub const EXC_NONE_29: u8 = 29;
 pub const EXC_SECURITY: u8 = 30;
 pub const EXC_NONE_31: u8 = 31;
 
+pub const IRQ_BASE: u8 = PICM_OFFSET;
+
 pub const IRQ_TIMER: u8 = PICM_OFFSET;
 pub const IRQ_KEYBOARD: u8 = PICM_OFFSET + 1;
 pub const IRQ_SERIAL_PORT_2: u8 = PICM_OFFSET + 3;

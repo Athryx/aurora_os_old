@@ -4,9 +4,9 @@ use modular_bitfield::BitfieldSpecifier;
 use crate::kdata::cpud;
 use crate::acpi::madt::{Madt, MadtElem};
 use crate::util::IMutex;
-use crate::idt::{irq_arr, IRQ_TIMER};
+use crate::int::idt::{irq_arr, IRQ_BASE, IRQ_TIMER};
 use alloc::collections::BTreeMap;
-use super::pic::{self, PICM_OFFSET};
+use super::pic;
 
 pub mod lapic;
 pub mod ioapic;
@@ -180,7 +180,7 @@ pub unsafe fn init(madt: &Madt) {
 					trigger_mode,
 				};
 
-				overrides.override_irq(data.irq_src + PICM_OFFSET, over);
+				overrides.override_irq(data.irq_src + IRQ_BASE, over);
 			},
 			MadtElem::LocalApicOverride(data) => lapic_addr = data.addr as usize,
 			_ => (),

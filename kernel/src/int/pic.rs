@@ -1,13 +1,13 @@
 use crate::arch::x64::*;
 
-const PICM_COMMAND: u16 = 0x20;
+pub(super) const PICM_COMMAND: u16 = 0x20;
 const PICM_DATA: u16 = 0x21;
 
-const PICS_COMMAND: u16 = 0xa0;
+pub(super) const PICS_COMMAND: u16 = 0xa0;
 const PICS_DATA: u16 = 0xa1;
 
 // code to tell pic to send more interrupts
-const PIC_EOI: u8 = 0x20;
+pub(super) const PIC_EOI: u8 = 0x20;
 
 // from osdev wiki
 const ICW1_ICW4: u8 = 0x01; /* ICW4 (not) needed */
@@ -65,15 +65,4 @@ pub fn disable() {
 	// mask all incoming interrupts, spurious interrupts might still occur
 	outb(PICM_DATA, 0xff);
 	outb(PICS_DATA, 0xff);
-}
-
-// tell pics interrupt is over, used by assembly code
-#[no_mangle]
-pub extern "C" fn pic_eoi(irq: u8)
-{
-	if irq - PICM_OFFSET > 7 {
-		outb(PICS_COMMAND, PIC_EOI);
-	}
-
-	outb(PICM_COMMAND, PIC_EOI);
 }
