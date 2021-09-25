@@ -5,6 +5,7 @@ use array_const_fn_init::array_const_fn_init;
 use crate::uses::*;
 use crate::config::MAX_CPUS;
 use crate::int::apic::LocalApic;
+use crate::int::manager::IrqManager;
 use crate::util::{IMutex, IMutexGuard};
 use crate::arch::x64::*;
 

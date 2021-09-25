@@ -58,7 +58,7 @@ impl HwaTag for MadtTag {
 			4 => MadtElem::LocalApicNmi(self.raw_data()),
 			5 => MadtElem::LocalApicOverride(self.raw_data()),
 			9 => MadtElem::ProcLocalX2Apic(self.raw_data()),
-			_ => panic!("invalid madt type"),
+			_ => panic!("invalid or unsupported madt type"),
 		}}
 	}
 }

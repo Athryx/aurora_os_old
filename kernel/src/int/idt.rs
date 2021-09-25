@@ -230,6 +230,24 @@ impl Handler
 	}
 }
 
+pub fn irq_arr() -> [u8; 15] {
+	[IRQ_TIMER,
+		IRQ_KEYBOARD,
+		IRQ_SERIAL_PORT_2,
+		IRQ_SERIAL_PORT_1,
+		IRQ_PARALLEL_PORT_2_3,
+		IRQ_FLOPPY_DISK,
+		IRQ_PARALLEL_PORT_1,
+		IRQ_CLOCK,
+		IRQ_ACPI,
+		IRQ_NONE_1,
+		IRQ_NONE_2,
+		IRQ_MOUSE,
+		IRQ_CO_PROCESSOR,
+		IRQ_PRIMARY_ATA,
+		IRQ_SECONDARY_ATA]
+}
+
 #[no_mangle]
 extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
 	-> Option<&Registers>

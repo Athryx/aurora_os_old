@@ -290,11 +290,14 @@ impl LocalApic {
 	const TIMER_COUNT: usize = 0x390;
 	const TIMER_DIVIDE_CONFIG: usize = 0x3e0;
 
-	pub fn from(addr: PhysAddr) -> Self {
+	pub unsafe fn from(addr: PhysAddr) -> Self {
 		let mut out = LocalApic {
 			addr: phys_to_virt(addr).as_u64() as usize,
 		};
 		out.set_lvt(LvtType::Timer(LvtEntry::new_masked()));
+		//out.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
+		//out.write_reg_32(Self::TIMER_INIT_COUNT, 0xffffff);
+
 		out.set_lvt(LvtType::MachineCheck(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Lint0(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Lint1(LvtEntry::new_masked()));
@@ -302,6 +305,10 @@ impl LocalApic {
 		out.set_lvt(LvtType::Error(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Perf(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Thermal(LvtEntry::new_masked()));
+		// set bit 1 to represent all cpus
+		out.write_reg_32(Self::LOGICAL_DEST, 1);
+		// linear logical dest format
+		out.write_reg_32(Self::DEST_FORMAT, 0xf0000000);
 		out.write_reg_32(Self::SPURIOUS_VEC, SpuriousReg::new_enabled(SPURIOUS).into());
 		out
 	}
