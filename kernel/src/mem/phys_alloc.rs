@@ -288,6 +288,10 @@ impl BuddyAllocator
 		self.ucontains(mem.as_usize(), mem.len())
 	}
 
+	fn contains_addr(&self, addr: usize) -> bool {
+		addr >= self.start && addr < self.meta_start as usize
+	}
+
 	fn ucontains(&self, addr: usize, size: usize) -> bool {
 		addr >= self.start
 			&& addr + size <= self.meta_start as usize
@@ -326,16 +330,16 @@ impl BuddyAllocator
 	}
 
 	// size is in bytes
-	pub fn alloc_at(&mut self, size: usize, addr: VirtAddr) -> Option<Allocation> {
+	pub fn alloc_at(&mut self, addr: VirtAddr, size: usize) -> Option<Allocation> {
 		if size == 0 {
 			return None;
 		}
 
 		let order = self.get_order(size);
-		self.oalloc_at(order, addr)
+		self.oalloc_at(addr, order)
 	}
 
-	pub fn oalloc_at(&mut self, order: usize, at_addr: VirtAddr) -> Option<Allocation> {
+	pub fn oalloc_at(&mut self, at_addr: VirtAddr, order: usize) -> Option<Allocation> {
 		if order > self.max_order {
 			return None;
 		}
@@ -530,9 +534,25 @@ impl ZoneManager
 		None
 	}
 
+	fn allocer_action_contains<F>(&self, addr: usize, f: F) -> Option<Allocation>
+	where
+		F: FnOnce(&mut BuddyAllocator) -> Option<Allocation>
+	{
+		let zones = self.zones.borrow();
+
+		for bm in zones.iter() {
+			let mut guard = bm.as_ref().unwrap().lock();
+			if guard.contains_addr(addr) {
+				return f(&mut guard);
+			}
+		}
+
+		None
+	}
+
 	pub fn alloc(&self, size: usize) -> Option<Allocation>
 	{
-		self.allocer_action(|allocer: &mut BuddyAllocator| allocer.alloc(size))
+		self.allocer_action(|allocer| allocer.alloc(size))
 	}
 
 	pub fn allocz(&self, size: usize) -> Option<Allocation>
@@ -546,12 +566,38 @@ impl ZoneManager
 
 	pub fn oalloc(&self, order: usize) -> Option<Allocation>
 	{
-		self.allocer_action(|allocer: &mut BuddyAllocator| allocer.oalloc(order))
+		self.allocer_action(|allocer| allocer.oalloc(order))
 	}
 
 	pub fn oallocz(&self, order: usize) -> Option<Allocation>
 	{
 		let mut out = self.alloc(order)?;
+		unsafe {
+			memset(out.as_mut_ptr(), out.len(), 0);
+		}
+		Some(out)
+	}
+
+	pub fn alloc_at(&self, addr: VirtAddr, size: usize) -> Option<Allocation> {
+		self.allocer_action_contains(addr.as_u64() as usize, |allocer| allocer.alloc_at(addr, size))
+	}
+
+	pub fn allocz_at(&self, addr: VirtAddr, size: usize) -> Option<Allocation>
+	{
+		let mut out = self.alloc_at(addr, size)?;
+		unsafe {
+			memset(out.as_mut_ptr(), out.len(), 0);
+		}
+		Some(out)
+	}
+
+	pub fn oalloc_at(&self, addr: VirtAddr, order: usize) -> Option<Allocation> {
+		self.allocer_action_contains(addr.as_u64() as usize, |allocer| allocer.oalloc_at(addr, order))
+	}
+
+	pub fn oallocz_at(&self, addr: VirtAddr, order: usize) -> Option<Allocation>
+	{
+		let mut out = self.oalloc_at(addr, order)?;
 		unsafe {
 			memset(out.as_mut_ptr(), out.len(), 0);
 		}
