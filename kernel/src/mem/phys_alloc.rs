@@ -362,7 +362,7 @@ impl BuddyAllocator
 
 		self.set_is_alloced(at_addr, true);
 
-		todo!();
+		Some(Allocation::new(at_addr, size))
 	}
 
 	pub unsafe fn realloc(&mut self, mem: Allocation, size: usize) -> Option<Allocation>
