@@ -15,7 +15,7 @@ align 32
 bits 32
 ap_32:
 ; put pml4 address in cr3
-	mov eax, 0x9000,
+	mov eax, [AP_START_DATA],
 	mov cr3, eax
 
 ; enable pae bit
@@ -57,6 +57,7 @@ long_mode_start:
 
 ; get stack pointer from AP_START_DATA
 	mov rax, AP_START_DATA
+	add rax, 8				; skip over the cr3 field adn the unused field in AP_START_DATA
 	dec rbx					; decrement rbx so id 0 is first ap, otherwise bsp will be id 0 and 1 stack will be wasted
 	mov rsp, [rax + 8 * rbx]
 

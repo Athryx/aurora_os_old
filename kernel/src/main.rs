@@ -55,9 +55,11 @@ use mb2::BootInfo;
 use arch::x64::*;
 use sched::*;
 use int::*;
+use consts::AP_CODE_START;
 use int::idt::Handler;
 use util::{misc, AvlTree};
 use mem::*;
+use mem::virt_alloc::VirtMapper;
 use mem::phys_alloc::zm;
 use upriv::{PrivLevel, IOPRIV_UID};
 
@@ -127,6 +129,12 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	kdata::init();
 
 	mem::phys_alloc::init(boot_info);
+
+	// allocate the ap code zone before anything else to avoid this memory being taken
+	let ap_code_zone = zm.oalloc_at(phys_to_virt(PhysAddr::new(*AP_CODE_START as u64)), 0).unwrap();
+	// make the virt mapper here, so that zm will choose the earliest physical memory zone to allocate the pml4 from
+	// this is necessary because we have to use a pml4 below 4 gib because aps can only load a 32 bit address at first
+	let ap_page_table = VirtMapper::new(&zm);
 
 	unsafe {
 		libutil::init(&util::CALLS);

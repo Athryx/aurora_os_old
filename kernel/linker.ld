@@ -1,6 +1,7 @@
 ENTRY(start)
 
 __KERNEL_VMA = 0xffffff8000000000;
+__AP_CODE_START = 0x8000;
 
 SECTIONS
 {
@@ -28,6 +29,20 @@ SECTIONS
 		*(.boot_bss)
 	}
 
+	. = ALIGN(4K);
+	__END_BOOT = .;
+	. = __AP_CODE_START;
+
+	.ap_text ALIGN(4K) : AT(__END_BOOT)
+	{
+		*(.ap_text*)
+		__AP_CODE_END = .;
+	}
+
+	/*. = __END_BOOT + (__AP_CODE_END - __AP_CODE_START);*/
+	__TMP = __END_BOOT + (__AP_CODE_START - __AP_CODE_START);
+	/*. = __END_BOOT;*/
+	. = __TMP;
 	. += __KERNEL_VMA;
 
 	.text ALIGN(4K) : AT(ADDR(.text) - __KERNEL_VMA)

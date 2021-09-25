@@ -24,11 +24,15 @@ pub static IO_APIC: IMutex<IoApic> = IMutex::new(unsafe { IoApic::new() });
 
 #[no_mangle]
 static mut AP_START_DATA: ApStartData = ApStartData {
+	cr3: 0,
+	unused: 0,
 	stacks: [0; MAX_CPUS],
 };
 
 #[repr(C)]
 struct ApStartData {
+	cr3: u32,
+	unused: u32,
 	stacks: [u64; MAX_CPUS],
 }
 
