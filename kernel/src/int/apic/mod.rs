@@ -273,3 +273,12 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 		crate::arch::x64::hlt();
 	}
 }
+
+// called by aps to initialize their local apics
+pub fn ap_init() {
+	let lapic_addr = LAPIC_ADDR.load(Ordering::Acquire);
+
+	unsafe {
+		cpud().set_lapic(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
+	}
+}

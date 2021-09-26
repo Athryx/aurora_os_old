@@ -75,7 +75,6 @@ pub const SPURIOUS: u8 = 0xf0;
 const MAX_HANDLERS: usize = 16;
 const IDT_SIZE: usize = 256;
 
-static mut idt: Idt = Idt::new();
 static mut int_handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE] =
 	[[None; MAX_HANDLERS]; IDT_SIZE];
 
@@ -83,7 +82,7 @@ pub type IntHandlerFunc = fn(&Registers, u64) -> Option<&Registers>;
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-struct Idt([IdtEntry; IDT_SIZE]);
+pub struct Idt([IdtEntry; IDT_SIZE]);
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -95,7 +94,7 @@ struct IdtPointer
 
 impl Idt
 {
-	const fn new() -> Self
+	pub const fn new() -> Self
 	{
 		Idt([IdtEntry::none(); IDT_SIZE])
 	}
@@ -280,9 +279,8 @@ extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
 
 	if let Some(regs) = out {
 		d();
-		let mut tss = gdt::tss.lock();
-		tss.rsp0 = regs.call_rsp as _;
-		let mut data = kdata::cpud();
+		let mut data = cpud();
+		data.tss.rsp0 = regs.call_rsp as _;
 		data.call_rsp = regs.call_rsp;
 		data.call_save_rsp = regs.call_save_rsp;
 	} else {
@@ -309,10 +307,7 @@ macro_rules! minth {
 			extern "C" {
 				fn fn_name ();
 			}
-			unsafe
-			{
-				idt.0[$n] = IdtEntry::new (fn_name as usize, $htype, $ring);
-			}
+			cpud().idt.0[$n] = IdtEntry::new (fn_name as usize, $htype, $ring);
 		});
 	}
 }
@@ -370,7 +365,5 @@ pub fn init()
 	minth!(47, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 	minth!(128, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 
-	unsafe {
-		idt.load();
-	}
+	cpud().idt.load();
 }

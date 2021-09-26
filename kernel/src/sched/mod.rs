@@ -21,7 +21,6 @@ use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_EXEC_DISABLE, EFER_MSR};
 use crate::time::timer;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
-use crate::gdt::tss;
 use crate::ipc::Ipcid;
 
 // TODO: clean up code, it is kind of ugly

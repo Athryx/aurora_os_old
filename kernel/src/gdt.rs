@@ -4,15 +4,11 @@ use crate::uses::*;
 
 const GDT_SIZE: usize = 5;
 
-lazy_static! {
-	static ref gdt: Gdt = Gdt::new();
-}
-pub static tss: IMutex<Tss> = IMutex::new(Tss::new());
-
 // TODO: compiler doesn't align these since they are packed, but that might slow things down
 
 #[repr(C, packed)]
-struct Gdt
+#[derive(Debug)]
+pub struct Gdt
 {
 	entries: [GdtEntry; GDT_SIZE],
 	tss: TssEntry,
@@ -28,7 +24,7 @@ struct GdtPointer
 
 impl Gdt
 {
-	fn new() -> Self
+	pub fn new(tss: &Tss) -> Self
 	{
 		Gdt {
 			entries: [
@@ -38,7 +34,7 @@ impl Gdt
 				GdtEntry::user_data(),
 				GdtEntry::user_code(),
 			],
-			tss: TssEntry::new(&tss.lock()),
+			tss: TssEntry::new(tss),
 		}
 	}
 
@@ -146,7 +142,7 @@ pub struct Tss
 
 impl Tss
 {
-	const fn new() -> Self
+	pub const fn new() -> Self
 	{
 		Tss {
 			rsp0: 0,
@@ -205,7 +201,7 @@ impl TssEntry
 
 pub fn init()
 {
-	gdt.load();
+	cpud().gdt.load();
 
 	unsafe {
 		asm! ("ltr di",

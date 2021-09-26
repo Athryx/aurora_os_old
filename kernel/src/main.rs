@@ -124,7 +124,7 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 {
 	util::io::WRITER.lock().clear();
 
-	gdt::init();
+	config::init();
 
 	mem::phys_alloc::init(boot_info);
 
@@ -139,6 +139,20 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	}
 
 	kdata::init();
+
+	gdt::init();
+
+	idt::init();
+
+	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
+	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
+	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
+
+	time::pit::init()?;
+
+	syscall::init();
+
+	sched::init()?;
 
 	if config::use_apic() {
 		pic::disable();
@@ -158,18 +172,6 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 		}
 		pic::remap(pic::PICM_OFFSET, pic::PICS_OFFSET);
 	}
-
-	idt::init();
-
-	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
-	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
-	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
-
-	time::pit::init()?;
-
-	syscall::init();
-
-	sched::init()?;
 
 	Ok(())
 }
@@ -212,7 +214,16 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 // rust entry point for ap cors
 #[no_mangle]
 pub extern "C" fn _ap_start(id: usize) -> ! {
+	kdata::init();
+
+	gdt::init();
+
+	syscall::init();
+
+	apic::ap_init();
+
 	eprintln!("ap {} started", id);
+
 	loop {
 		hlt();
 	}

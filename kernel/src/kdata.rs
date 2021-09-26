@@ -3,6 +3,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::uses::*;
 use crate::int::apic::LocalApic;
+use crate::gdt::{Gdt, Tss};
+use crate::int::idt::Idt;
 use crate::arch::x64::*;
 
 #[repr(C)]
@@ -14,18 +16,25 @@ pub struct GsData
 	pub call_save_rsp: usize,
 	pub proc_id: usize,
 	lapic: Option<LocalApic>,
+	pub gdt: Gdt,
+	pub tss: Tss,
+	pub idt: Idt,
 	other_alive: AtomicBool,
 }
 
 impl GsData
 {
-	const fn new() -> Self
+	fn new() -> Self
 	{
+		let tss = Tss::new();
 		GsData {
 			call_rsp: 0x13123,
 			call_save_rsp: 0,
 			proc_id: 0,
 			lapic: None,
+			gdt: Gdt::new(&tss),
+			tss,
+			idt: Idt::new(),
 			other_alive: AtomicBool::new(false),
 		}
 	}
@@ -73,8 +82,6 @@ pub fn cpud() -> GsRef {
 	let intd = IntDisable::new();
 
 	let ptr = gs_addr();
-
-	rprintln!("got addr {:x}", ptr);
 
 	let out = GsRef {
 		data: ptr as *mut GsData,
