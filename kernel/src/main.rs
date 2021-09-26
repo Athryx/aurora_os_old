@@ -126,8 +126,6 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 
 	gdt::init();
 
-	kdata::init();
-
 	mem::phys_alloc::init(boot_info);
 
 	// allocate the ap code zone before anything else to avoid this memory being taken
@@ -139,6 +137,8 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	unsafe {
 		libutil::init(&util::CALLS);
 	}
+
+	kdata::init();
 
 	if config::use_apic() {
 		pic::disable();
@@ -211,7 +211,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 // rust entry point for ap cors
 #[no_mangle]
-pub extern "C" fn _ap_start(id: u32) -> ! {
+pub extern "C" fn _ap_start(id: usize) -> ! {
 	eprintln!("ap {} started", id);
 	loop {
 		hlt();

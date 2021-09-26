@@ -214,7 +214,8 @@ pub unsafe fn init(madt: &Madt) -> Vec<u8> {
 	drop(io_apic);
 
 	LAPIC_ADDR.store(lapic_addr, Ordering::Release);
-	*cpud().lapic.lock() = Some(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
+
+	cpud().set_lapic(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
 
 	ap_ids
 }
@@ -256,7 +257,8 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 	}
 	ap_data.stacks = stacks.as_ptr() as usize;
 
-	let mut lapic = cpud().lapic();
+	let mut cpd = cpud();
+	let lapic = cpd.lapic();
 
 	lapic.send_ipi(Ipi::Init(IpiDest::AllExcludeThis));
 

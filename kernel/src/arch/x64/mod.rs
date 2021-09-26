@@ -339,3 +339,13 @@ pub fn invlpg(addr: usize)
 		asm!("invlpg [{}]", in (reg) addr);
 	}
 }
+
+extern "C" {
+	fn asm_gs_addr() -> usize;
+}
+
+pub fn gs_addr() -> usize {
+	unsafe {
+		asm_gs_addr()
+	}
+}

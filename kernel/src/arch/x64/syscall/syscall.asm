@@ -10,12 +10,17 @@ syscall_entry:
 	; kernel stack pointer should be 16 byte aligned
 	; iretq clears gs_base msr, so we have to keep it in gs_base_k, and use swapgs to access it
 	swapgs
-	mov r10, rsp
-	mov [gs:gs_data.call_save_rsp], rsp	; save caller rsp
-	mov rsp, [gs:gs_data.call_rsp]		; load kernel rsp
+	mov [gs:gs_data_ptr.temp], rcx			; save return rip in temp register
+	mov r10, [gs:gs_data_ptr.ptr]			; load pointer to gs data
+
+	mov rcx, rsp
+	mov [r10 + gs_data.call_save_rsp], rsp	; save caller rsp
+	mov rsp, [r10 + gs_data.call_rsp]		; load kernel rsp
 
 	push r11		; save old flags
-	push r10		; save old rsp
+	push rcx		; save old rsp
+
+	mov rcx, [gs:gs_data_ptr.temp]			; restore return rip
 
 	swapgs
 	sti
@@ -72,11 +77,19 @@ syscall_entry:
 	pop r15
 
 	pop rcx			; restore return rip
-	pop r10			; read old rsp
-	pop r11			; restore flags
 
 	cli
 	swapgs
-	mov rsp, [gs:gs_data.call_save_rsp]	; load save rsp
+
+	mov r10, [gs:gs_data_ptr.ptr]		; get gs ptr
+	mov [gs:gs_data_ptr.temp], rcx		; return rip in temporary location
+	mov rcx, [r10 + gs_data.call_save_rsp]	; get save rsp and put in rcx
+
+
+	pop r10			; read old rsp
+	pop r11			; restore flags
+	mov rsp, rcx	; restore save rsp
+
+	mov rcx, [gs:gs_data_ptr.temp]	; load return rip from temporary location
 	swapgs
 	o64 sysret

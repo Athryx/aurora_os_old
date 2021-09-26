@@ -1,29 +1,20 @@
 use core::ops::{Deref, DerefMut};
-
-use array_const_fn_init::array_const_fn_init;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::uses::*;
-use crate::config::MAX_CPUS;
 use crate::int::apic::LocalApic;
-use crate::util::{IMutex, IMutexGuard};
 use crate::arch::x64::*;
 
-pub static gs_data: IMutex<GsData> = IMutex::new(GsData::new());
-//static cpu_data: [CpuData; MAX_CPUS] = [CpuData::new(); MAX_CPUS];
-// FIXME: find out a way to use MAX_CPUS instead of putting in 16
-static cpu_data: [CpuData; MAX_CPUS] = array_const_fn_init![cpu_data_const; 16];
-
-const fn cpu_data_const(_: usize) -> CpuData {
-	CpuData::new()
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+#[derive(Debug)]
 pub struct GsData
 {
+	// NOTE: these fields have to be first for assmebly code
 	pub call_rsp: usize,
 	pub call_save_rsp: usize,
-	pub proc_id: u32,
+	pub proc_id: usize,
+	lapic: Option<LocalApic>,
+	other_alive: AtomicBool,
 }
 
 impl GsData
@@ -31,56 +22,91 @@ impl GsData
 	const fn new() -> Self
 	{
 		GsData {
-			call_rsp: 0,
+			call_rsp: 0x13123,
 			call_save_rsp: 0,
 			proc_id: 0,
+			lapic: None,
+			other_alive: AtomicBool::new(false),
 		}
+	}
+
+	pub fn lapic(&mut self) -> &mut LocalApic {
+		self.lapic.as_mut().unwrap()
+	}
+
+	pub fn set_lapic(&mut self, lapic: LocalApic) {
+		self.lapic = Some(lapic);
 	}
 }
 
-// conveniant reference to cpu data member so you don't have to call a ton of option methods to use the reference
-// panics if the referenced field is none when dereferenced
-pub struct CpuDataRef<'a, T>(IMutexGuard<'a, Option<T>>);
+pub struct GsRef {
+	data: *mut GsData,
+	intd: IntDisable,
+}
 
-impl<T> Deref for CpuDataRef<'_, T> {
-	type Target = T;
+impl Deref for GsRef {
+	type Target = GsData;
 
 	fn deref(&self) -> &Self::Target {
-		self.0.as_ref().unwrap()
-	}
-}
-
-impl<T> DerefMut for CpuDataRef<'_, T> {
-	fn deref_mut(&mut self) -> &mut Self::Target {
-		self.0.as_mut().unwrap()
-	}
-}
-
-#[derive(Debug)]
-pub struct CpuData {
-	pub lapic: IMutex<Option<LocalApic>>,
-}
-
-impl CpuData {
-	pub const fn new() -> Self {
-		CpuData {
-			lapic: IMutex::new(None),
+		unsafe {
+			self.data.as_ref().unwrap()
 		}
 	}
+}
 
-	pub fn lapic(&self) -> CpuDataRef<LocalApic> {
-		CpuDataRef(self.lapic.lock())
+impl DerefMut for GsRef {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		unsafe {
+			self.data.as_mut().unwrap()
+		}
 	}
 }
 
-pub fn cpud() -> &'static CpuData {
-	cpu_data.get(cpuid::apic_id() as usize).unwrap()
+impl Drop for GsRef {
+	fn drop(&mut self) {
+		self.other_alive.store(false, Ordering::Release);
+	}
+}
+
+// panics if another gsref on the same cpu is still alive
+pub fn cpud() -> GsRef {
+	let intd = IntDisable::new();
+
+	let ptr = gs_addr();
+
+	rprintln!("got addr {:x}", ptr);
+
+	let out = GsRef {
+		data: ptr as *mut GsData,
+		intd,
+	};
+
+	if out.other_alive.swap(true, Ordering::AcqRel) {
+		panic!("tried to get multiple gsrefs on the same cpu at the same time");
+	}
+
+	out
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct GsDataPtr {
+	gsdata_addr: usize,
+	temp: usize,
 }
 
 pub fn init()
 {
-	let data_addr = (gs_data.lock().deref() as *const _) as u64;
+	let gsdata_addr = Box::leak(Box::new(GsData::new())) as *mut _ as usize;
 
-	wrmsr(GSBASE_MSR, data_addr);
-	wrmsr(GSBASEK_MSR, data_addr);
+	// need this layer of indirection because lea can't be used to get address with gs offset
+	// the temp field is used by syscall handler to store rip because there are not enough registers
+	let gsptr = GsDataPtr {
+		gsdata_addr,
+		temp: 0,
+	};
+	let gs_addr = Box::leak(Box::new(gsptr)) as *mut _ as u64;
+
+	wrmsr(GSBASE_MSR, gs_addr);
+	wrmsr(GSBASEK_MSR, gs_addr);
 }

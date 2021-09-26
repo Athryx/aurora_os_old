@@ -112,9 +112,17 @@ struc int_data
 	.ss resq 1
 endstruc
 
+; ptr to gsdata
+; temp is extra register used in syscall entry to store old rip because there are not enough registers
+struc gs_data_ptr
+	.ptr resq 1
+	.temp resq 1
+endstruc
+
 struc gs_data
 	.call_rsp resq 1
 	.call_save_rsp resq 1
+	.proc_id resq 1
 endstruc
 
 
