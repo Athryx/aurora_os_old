@@ -30,8 +30,8 @@ impl SpuriousReg {
 enum IpiDestShort {
 	None = 0,
 	This = 1,
-	AllExcludeThis = 2,
-	AllIncludeThis = 3,
+	AllIncludeThis = 2,
+	AllExcludeThis = 3,
 }
 
 #[bitfield]

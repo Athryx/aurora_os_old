@@ -365,6 +365,7 @@ impl BuddyAllocator
 		self.olist[order].remove_node(old_node);
 
 		self.set_is_alloced(at_addr, true);
+		self.free_space -= size;
 
 		Some(Allocation::new(at_addr, size))
 	}

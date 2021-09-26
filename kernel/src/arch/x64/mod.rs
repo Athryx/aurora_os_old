@@ -1,4 +1,5 @@
 use crate::util::misc::*;
+use core::time::Duration;
 
 pub mod cpuid;
 
@@ -239,6 +240,14 @@ pub fn ind(port: u16) -> u32
 		asm!("in eax, dx", in("dx") port, out("eax") out);
 	}
 	out
+}
+
+// waits using the processor's io bus
+#[inline]
+pub fn io_wait(time: Duration) {
+	for _ in 0..time.as_micros() {
+		inb(0x80);
+	}
 }
 
 #[inline]

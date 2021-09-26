@@ -24,6 +24,8 @@ continue:
 	mov eax, cr0	; set bit 1 in cr0 to enable protected 32 bit mode
 	or eax, 1
 	mov cr0, eax
+	mov al, 70
+	out 0xe9, al
 	jmp 0x8:ap_32	; perform long jump with code selector to jump to 32 bit code
 
 align 32

@@ -13,6 +13,7 @@ pub use modular_bitfield::prelude::*;
 
 pub use crate::util::misc::*;
 pub use crate::util::{Err, Error};
+pub use crate::arch::x64::bochs_break;
 pub use crate::{eprint, eprintln, init_array, print, println, rprint, rprintln};
 
 pub fn d()

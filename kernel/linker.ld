@@ -30,16 +30,16 @@ SECTIONS
 	}
 
 	. = ALIGN(4K);
-	__END_BOOT = .;
+	__AP_PHYS_START = .;
 	. = __AP_CODE_START;
 
-	.ap_text ALIGN(4K) : AT(__END_BOOT)
+	.ap_text ALIGN(4K) : AT(__AP_PHYS_START)
 	{
 		*(.ap_text)
 		__AP_CODE_END = .;
 	}
 
-	. = __END_BOOT + 4K + __KERNEL_VMA;
+	. = __AP_PHYS_START + 4K + __KERNEL_VMA;
 
 	.text ALIGN(4K) : AT(ADDR(.text) - __KERNEL_VMA)
 	{

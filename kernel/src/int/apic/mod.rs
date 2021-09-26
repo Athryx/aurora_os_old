@@ -1,6 +1,8 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use core::convert::TryInto;
 use core::slice;
+use core::time::Duration;
 use alloc::collections::BTreeMap;
 use modular_bitfield::BitfieldSpecifier;
 use crate::kdata::cpud;
@@ -9,16 +11,18 @@ use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::mem::phys_alloc::{zm, Allocation, ZoneManager};
 use crate::config::MAX_CPUS;
 use crate::acpi::madt::{Madt, MadtElem};
-use crate::sched::Stack;
+use crate::arch::x64::io_wait;
+use crate::sched::{sleep, Stack};
 use crate::util::IMutex;
 use crate::int::idt::{irq_arr, IRQ_BASE, IRQ_TIMER};
-use crate::consts::{AP_CODE_START, AP_CODE_END, AP_DATA};
+use crate::consts::{AP_PHYS_START, AP_CODE_START, AP_CODE_END, AP_DATA};
 use super::pic;
 
 pub mod lapic;
 pub mod ioapic;
 
 use ioapic::{IrqEntry, IoApicDest};
+use lapic::{Ipi, IpiDest};
 
 pub use lapic::LocalApic;
 pub use ioapic::IoApic;
@@ -145,7 +149,6 @@ pub unsafe fn init(madt: &Madt) -> Vec<u8> {
 	let mut flag = true;
 
 	for entry in madt.iter() {
-		eprintln!("{:?}", entry);
 		match entry {
 			MadtElem::ProcLocalApic(data) => {
 				if flag {
@@ -224,7 +227,7 @@ struct ApData {
 }
 
 pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_space: VirtMapper<ZoneManager>) {
-	let ap_code_start = phys_to_virt_usize(*AP_CODE_START);
+	let ap_code_start = phys_to_virt_usize(*AP_PHYS_START);
 	let ap_code_size = *AP_CODE_END - *AP_CODE_START;
 	let ap_data_offset = *AP_DATA - *AP_CODE_START;
 
@@ -250,4 +253,15 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 		*stack = zm.alloc(Stack::DEFAULT_KERNEL_SIZE).unwrap().as_usize();
 	}
 	ap_data.stacks = stacks.as_ptr() as usize;
+
+	let mut lapic = cpud().lapic();
+
+	lapic.send_ipi(Ipi::Init(IpiDest::AllExcludeThis));
+
+	io_wait(Duration::from_millis(1000));
+
+	for _ in 0..1 {
+		lapic.send_ipi(Ipi::Sipi(IpiDest::AllExcludeThis, (*AP_CODE_START / 0x1000).try_into().unwrap()));
+		io_wait(Duration::from_micros(200));
+	}
 }

@@ -5,7 +5,6 @@ use array_const_fn_init::array_const_fn_init;
 use crate::uses::*;
 use crate::config::MAX_CPUS;
 use crate::int::apic::LocalApic;
-use crate::int::manager::IrqManager;
 use crate::util::{IMutex, IMutexGuard};
 use crate::arch::x64::*;
 
@@ -24,6 +23,7 @@ pub struct GsData
 {
 	pub call_rsp: usize,
 	pub call_save_rsp: usize,
+	pub proc_id: u32,
 }
 
 impl GsData
@@ -33,6 +33,7 @@ impl GsData
 		GsData {
 			call_rsp: 0,
 			call_save_rsp: 0,
+			proc_id: 0,
 		}
 	}
 }
