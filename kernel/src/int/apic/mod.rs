@@ -220,6 +220,7 @@ pub unsafe fn init(madt: &Madt) -> Vec<u8> {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 struct ApData {
 	cr3: u32,
 	idc: u32,
@@ -227,22 +228,23 @@ struct ApData {
 }
 
 pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_space: VirtMapper<ZoneManager>) {
-	let ap_code_start = phys_to_virt_usize(*AP_PHYS_START);
+	let ap_bin_start = phys_to_virt_usize(*AP_PHYS_START);
+	let ap_virt_start = phys_to_virt_usize(*AP_CODE_START);
 	let ap_code_size = *AP_CODE_END - *AP_CODE_START;
 	let ap_data_offset = *AP_DATA - *AP_CODE_START;
 
 	// copy code to ap code zone
-	let ap_code = slice::from_raw_parts(ap_code_start as *const u8, ap_code_size);
+	let ap_code = slice::from_raw_parts(ap_bin_start as *const u8, ap_code_size);
 	ap_code_zone.copy_from_mem(ap_code);
 
 	// map ap code zone in ap addr space
-	let velem = VirtLayoutElement::from_mem(ap_code_zone, PAGE_SIZE, PageMappingFlags::READ | PageMappingFlags::EXEC);
+	let velem = VirtLayoutElement::from_mem(ap_code_zone, PAGE_SIZE, PageMappingFlags::READ | PageMappingFlags::WRITE | PageMappingFlags::EXEC);
 	let vlayout = VirtLayout::from(vec![velem], AllocType::VirtMem);
 	let vzone = VirtRange::new(VirtAddr::new(*AP_CODE_START as u64), PAGE_SIZE);
 	ap_addr_space.map_at(vlayout, vzone).unwrap();
 
 	// set up ap data
-	let ap_data = (ap_code_start + ap_data_offset) as *mut ApData;
+	let ap_data = (ap_virt_start + ap_data_offset) as *mut ApData;
 	let ap_data = ap_data.as_mut().unwrap();
 	// this lossy as cast is ok because ap addr space cr3 is guarenteed to be bellow 4 GiB
 	ap_data.cr3 = ap_addr_space.get_cr3() as u32;
@@ -263,5 +265,9 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 	for _ in 0..1 {
 		lapic.send_ipi(Ipi::Sipi(IpiDest::AllExcludeThis, (*AP_CODE_START / 0x1000).try_into().unwrap()));
 		io_wait(Duration::from_micros(200));
+	}
+
+	loop {
+		crate::arch::x64::hlt();
 	}
 }

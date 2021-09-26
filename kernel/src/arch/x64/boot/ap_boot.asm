@@ -11,11 +11,11 @@ ap_start:
 
 align 8
 ap_data:
-.cr3 equ $ - ap_data
+.cr3:
 	resd 1
-.idc equ $ - ap_data
+.idc;
 	resd 1
-.stacks equ $ - ap_data
+.stacks:
 	resq 1
 
 align 32
@@ -24,15 +24,13 @@ continue:
 	mov eax, cr0	; set bit 1 in cr0 to enable protected 32 bit mode
 	or eax, 1
 	mov cr0, eax
-	mov al, 70
-	out 0xe9, al
 	jmp 0x8:ap_32	; perform long jump with code selector to jump to 32 bit code
 
 align 32
 bits 32
 ap_32:
 ; put pml4 address in cr3
-	mov eax, [ap_data.cr3],
+	mov eax, [ap_data.cr3]
 	mov cr3, eax
 
 ; enable pae bit
@@ -68,10 +66,10 @@ ap_long_mode_start:
 
 ; get processor id
 	mov rdi, 1				; put it in rdi so rust code gets it as first argument
-	lock xadd [ap_data.idc], rdi
+	lock xadd [ap_data.idc], edi
 
 ; get stack pointer from AP_START_DATA
-	mov rax, ap_data.stacks
+	mov rax, [ap_data.stacks]
 	mov rbx, rdi
 	dec rbx					; decrement rbx so id 0 is first ap, otherwise bsp will be id 0 and 1 stack will be wasted
 	mov rsp, [rax + 8 * rbx]

@@ -212,7 +212,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 // rust entry point for ap cors
 #[no_mangle]
 pub extern "C" fn _ap_start(id: u32) -> ! {
-	rprintln!("ap {} started", id);
+	eprintln!("ap {} started", id);
 	loop {
 		hlt();
 	}
