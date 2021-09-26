@@ -1,3 +1,4 @@
+global ap_data
 extern AP_START_DATA
 extern _ap_start
 
@@ -5,6 +6,20 @@ section .ap_text
 bits 16
 ap_start:
 	cli
+	cld
+	jmp continue
+
+align 8
+ap_data:
+.cr3 equ $ - ap_data
+	resd 1
+.idc equ $ - ap_data
+	resd 1
+.stacks equ $ - ap_data
+	resq 1
+
+align 32
+continue:
 	lgdt [gdt32.pointer]
 	mov eax, cr0	; set bit 1 in cr0 to enable protected 32 bit mode
 	or eax, 1
@@ -15,7 +30,7 @@ align 32
 bits 32
 ap_32:
 ; put pml4 address in cr3
-	mov eax, [AP_START_DATA],
+	mov eax, [ap_data.cr3],
 	mov cr3, eax
 
 ; enable pae bit
@@ -40,7 +55,7 @@ ap_32:
 
 align 32
 bits 64
-long_mode_start:
+ap_long_mode_start:
 ; zero all segment registers
 	mov ax, 0
 	mov ss, ax
@@ -50,14 +65,12 @@ long_mode_start:
 	mov gs, ax
 
 ; get processor id
-	mov rax, 1
-	cpuid
-	shr rbx, 24
-	and rbx, 0xff
+	mov rdi, 1				; put it in rdi so rust code gets it as first argument
+	lock xadd [ap_data.idc], rdi
 
 ; get stack pointer from AP_START_DATA
-	mov rax, AP_START_DATA
-	add rax, 8				; skip over the cr3 field adn the unused field in AP_START_DATA
+	mov rax, ap_data.stacks
+	mov rbx, rdi
 	dec rbx					; decrement rbx so id 0 is first ap, otherwise bsp will be id 0 and 1 stack will be wasted
 	mov rsp, [rax + 8 * rbx]
 
@@ -71,7 +84,7 @@ gdt32:
 	dq 0x00cf9a000000ffff	; 32 bit code
 	dq 0x008f92000000ffff	; 32 bit data
 	dq 0x00cf890000000068	; tss
-.pointer
+.pointer:
 	dw .pointer - gdt32 - 1
 	dq gdt32
 

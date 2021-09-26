@@ -2,4 +2,4 @@
 
 cd $(dirname $0)
 
-readelf -e iso/boot/kernel.bin > temp.txt
+readelf -e kernel.bin > temp.txt

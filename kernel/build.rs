@@ -48,7 +48,7 @@ fn asm_file(file: &str, out_dir: &str)
 	}
 
 	if !status.success() {
-		panic!("nasm failed with  {}", status);
+		panic!("nasm failed with {}", status);
 	}
 
 	println!("cargo:rustc-link-lib=static={}", out_name);
@@ -63,6 +63,7 @@ fn asm(out_dir: &str)
 		//"boot/mb2.asm",
 		"boot/boot.asm",
 		"boot/long_init.asm",
+		"boot/ap_boot.asm",
 		"int/int.asm",
 		"syscall/syscall.asm",
 		"resources.asm",

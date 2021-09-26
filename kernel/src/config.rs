@@ -8,8 +8,9 @@ pub const MAX_CPUS: usize = 16;
 
 // don't tweak the parameters below
 
-use crate::mem::PAGE_SIZE;
 use core::sync::atomic::{AtomicBool, Ordering};
+use crate::mem::PAGE_SIZE;
+use crate::arch::x64::cpuid;
 
 pub const MSG_BUF_SIZE: usize = MSG_BUF_LEN * PAGE_SIZE;
 
@@ -23,4 +24,8 @@ pub fn use_apic() -> bool {
 
 pub fn set_use_apic(val: bool) {
 	USE_APIC.store(val, Ordering::Release);
+}
+
+pub fn init() {
+	set_use_apic(cpuid::has_apic());
 }

@@ -1,12 +1,18 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use core::slice;
+use alloc::collections::BTreeMap;
 use modular_bitfield::BitfieldSpecifier;
 use crate::kdata::cpud;
+use crate::mem::virt_alloc::{VirtMapper, VirtLayoutElement, VirtLayout, PageMappingFlags, AllocType};
+use crate::mem::{VirtRange, PAGE_SIZE};
+use crate::mem::phys_alloc::{zm, Allocation, ZoneManager};
 use crate::config::MAX_CPUS;
 use crate::acpi::madt::{Madt, MadtElem};
+use crate::sched::Stack;
 use crate::util::IMutex;
 use crate::int::idt::{irq_arr, IRQ_BASE, IRQ_TIMER};
-use alloc::collections::BTreeMap;
+use crate::consts::{AP_CODE_START, AP_CODE_END, AP_DATA};
 use super::pic;
 
 pub mod lapic;
@@ -21,20 +27,6 @@ pub use ioapic::IoApic;
 pub static LAPIC_ADDR: AtomicUsize = AtomicUsize::new(0);
 pub static BSP_ID: AtomicU8 = AtomicU8::new(0);
 pub static IO_APIC: IMutex<IoApic> = IMutex::new(unsafe { IoApic::new() });
-
-#[no_mangle]
-static mut AP_START_DATA: ApStartData = ApStartData {
-	cr3: 0,
-	unused: 0,
-	stacks: [0; MAX_CPUS],
-};
-
-#[repr(C)]
-struct ApStartData {
-	cr3: u32,
-	unused: u32,
-	stacks: [u64; MAX_CPUS],
-}
 
 #[derive(Debug, Clone, Copy, BitfieldSpecifier)]
 #[bits = 3]
@@ -134,7 +126,7 @@ impl IrqOverrides {
 }
 
 // FIXME: correctly handle global sysint
-pub unsafe fn init(madt: &Madt) {
+pub unsafe fn init(madt: &Madt) -> Vec<u8> {
 	let mut lapic_addr = madt.lapic_addr as usize;
 
 	// indicates the sytem has an 8259 pic that we have to disable
@@ -202,6 +194,8 @@ pub unsafe fn init(madt: &Madt) {
 		}
 	}
 
+	assert!(ap_ids.len() < MAX_CPUS);
+
 	let mut io_apic = IO_APIC.lock();
 
 	for irq in irq_arr() {
@@ -218,4 +212,42 @@ pub unsafe fn init(madt: &Madt) {
 
 	LAPIC_ADDR.store(lapic_addr, Ordering::Release);
 	*cpud().lapic.lock() = Some(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
+
+	ap_ids
+}
+
+#[repr(C)]
+struct ApData {
+	cr3: u32,
+	idc: u32,
+	stacks: usize,
+}
+
+pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_space: VirtMapper<ZoneManager>) {
+	let ap_code_start = phys_to_virt_usize(*AP_CODE_START);
+	let ap_code_size = *AP_CODE_END - *AP_CODE_START;
+	let ap_data_offset = *AP_DATA - *AP_CODE_START;
+
+	// copy code to ap code zone
+	let ap_code = slice::from_raw_parts(ap_code_start as *const u8, ap_code_size);
+	ap_code_zone.copy_from_mem(ap_code);
+
+	// map ap code zone in ap addr space
+	let velem = VirtLayoutElement::from_mem(ap_code_zone, PAGE_SIZE, PageMappingFlags::READ | PageMappingFlags::EXEC);
+	let vlayout = VirtLayout::from(vec![velem], AllocType::VirtMem);
+	let vzone = VirtRange::new(VirtAddr::new(*AP_CODE_START as u64), PAGE_SIZE);
+	ap_addr_space.map_at(vlayout, vzone).unwrap();
+
+	// set up ap data
+	let ap_data = (ap_code_start + ap_data_offset) as *mut ApData;
+	let ap_data = ap_data.as_mut().unwrap();
+	// this lossy as cast is ok because ap addr space cr3 is guarenteed to be bellow 4 GiB
+	ap_data.cr3 = ap_addr_space.get_cr3() as u32;
+	ap_data.idc = 1;
+
+	let mut stacks = vec![0; ap_ids.len()];
+	for stack in stacks.iter_mut() {
+		*stack = zm.alloc(Stack::DEFAULT_KERNEL_SIZE).unwrap().as_usize();
+	}
+	ap_data.stacks = stacks.as_ptr() as usize;
 }

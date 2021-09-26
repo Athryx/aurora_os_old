@@ -10,6 +10,7 @@ extern "C" {
 	static __KERNEL_LMA: usize;
 	static __AP_CODE_START: usize;
 	static __AP_CODE_END: usize;
+	static ap_data: usize;
 	static __TEXT_START: usize;
 	static __TEXT_END: usize;
 	static __RODATA_START: usize;
@@ -33,6 +34,7 @@ lazy_static! {
 
 	pub static ref AP_CODE_START: usize = unsafe { &__AP_CODE_START } as *const _ as usize;
 	pub static ref AP_CODE_END: usize = unsafe { &__AP_CODE_END } as *const _ as usize;
+	pub static ref AP_DATA: usize = unsafe { &ap_data } as *const _ as usize;
 
 	pub static ref TEXT_START: usize = unsafe { &__TEXT_START } as *const _ as usize;
 	pub static ref TEXT_END: usize = unsafe { &__TEXT_END } as *const _ as usize;

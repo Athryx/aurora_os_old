@@ -883,6 +883,10 @@ impl<T: FrameAllocator> VirtMapper<T>
 		self.cr3_addr == get_cr3()
 	}
 
+	pub fn get_cr3(&self) -> usize {
+		self.cr3_addr
+	}
+
 	pub fn get_mapped_range(&self, addr: VirtAddr) -> Option<VirtRange>
 	{
 		self.address_map(addr, |zone, _| {

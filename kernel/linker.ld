@@ -35,15 +35,11 @@ SECTIONS
 
 	.ap_text ALIGN(4K) : AT(__END_BOOT)
 	{
-		*(.ap_text*)
+		*(.ap_text)
 		__AP_CODE_END = .;
 	}
 
-	/*. = __END_BOOT + (__AP_CODE_END - __AP_CODE_START);*/
-	__TMP = __END_BOOT + (__AP_CODE_START - __AP_CODE_START);
-	/*. = __END_BOOT;*/
-	. = __TMP;
-	. += __KERNEL_VMA;
+	. = __END_BOOT + 4K + __KERNEL_VMA;
 
 	.text ALIGN(4K) : AT(ADDR(.text) - __KERNEL_VMA)
 	{

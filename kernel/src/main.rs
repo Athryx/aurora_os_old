@@ -134,15 +134,13 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	let ap_code_zone = zm.oalloc_at(phys_to_virt(PhysAddr::new(*AP_CODE_START as u64)), 0).unwrap();
 	// make the virt mapper here, so that zm will choose the earliest physical memory zone to allocate the pml4 from
 	// this is necessary because we have to use a pml4 below 4 gib because aps can only load a 32 bit address at first
-	let ap_page_table = VirtMapper::new(&zm);
+	let ap_addr_space = VirtMapper::new(&zm);
 
 	unsafe {
 		libutil::init(&util::CALLS);
 	}
 
-	if cpuid::has_apic() {
-		config::set_use_apic(true);
-
+	if config::use_apic() {
 		pic::disable();
 
 		let acpi_madt = unsafe {
@@ -151,10 +149,13 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 		let madt = acpi_madt.assume_madt().unwrap();
 
 		unsafe {
-			apic::init(madt);
+			let ap_ids = apic::init(madt);
+			apic::smp_init(ap_ids, ap_code_zone, ap_addr_space);
 		}
 	} else {
-		config::set_use_apic(false);
+		unsafe {
+			zm.dealloc(ap_code_zone);
+		}
 		pic::remap(pic::PICM_OFFSET, pic::PICS_OFFSET);
 	}
 
@@ -201,7 +202,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	test();
+	//test();
 
 	loop {
 		hlt();
@@ -210,8 +211,8 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 // rust entry point for ap cors
 #[no_mangle]
-pub extern "C" fn _ap_start() -> ! {
-	rprintln!("ap started");
+pub extern "C" fn _ap_start(id: u32) -> ! {
+	rprintln!("ap {} started", id);
 	loop {
 		hlt();
 	}
