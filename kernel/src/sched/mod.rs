@@ -727,6 +727,8 @@ pub fn init() -> Result<(), Err>
 }
 
 pub fn ap_init(stack_top: usize) -> Result<(), Err> {
+	let _lock = crate::AP_ALLOC_LOCK.lock();
+
 	// allow execute disable in pages
 	let efer_msr = rdmsr(EFER_MSR);
 	wrmsr(EFER_MSR, efer_msr | EFER_EXEC_DISABLE);

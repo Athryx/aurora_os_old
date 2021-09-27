@@ -48,6 +48,8 @@ use alloc::boxed::Box;
 use alloc::collections::*;
 use alloc::vec;
 
+use spin::Mutex;
+
 use uses::*;
 use libutil::UtilCalls;
 use acpi::SdtType;
@@ -62,6 +64,10 @@ use mem::*;
 use mem::virt_alloc::VirtMapper;
 use mem::phys_alloc::zm;
 use upriv::{PrivLevel, IOPRIV_UID};
+
+// lock used by ap cores when booting before they initialize their part of the scheduler,
+// because futexes used to synchronize memory allocation won't work at that point
+static AP_ALLOC_LOCK: Mutex<()> = Mutex::new(());
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !
@@ -216,8 +222,6 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 	println!("aurora kernel v0.0.1");
 
-	bochs_break();
-
 	sti();
 
 	/*Process::from_elf(
@@ -241,6 +245,8 @@ pub extern "C" fn _ap_start(id: usize, stack_top: usize) -> ! {
 	ap_init(id, stack_top).expect("ap init failed");
 
 	eprintln!("ap {} started", id);
+
+	sti();
 
 	loop {
 		hlt();

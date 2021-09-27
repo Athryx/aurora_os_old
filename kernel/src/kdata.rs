@@ -113,6 +113,7 @@ struct GsDataPtr {
 
 pub fn init(prid: usize)
 {
+	let _lock = crate::AP_ALLOC_LOCK.lock();
 	let gsdata_addr = Box::leak(Box::new(GsData::new())) as *mut _ as usize;
 
 	// need this layer of indirection because lea can't be used to get address with gs offset
