@@ -117,12 +117,12 @@ endstruc
 struc gs_data_ptr
 	.ptr resq 1
 	.temp resq 1
+	.prid resq 1
 endstruc
 
 struc gs_data
 	.call_rsp resq 1
 	.call_save_rsp resq 1
-	.proc_id resq 1
 endstruc
 
 

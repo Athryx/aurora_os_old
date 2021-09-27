@@ -14,7 +14,8 @@ pub struct GsData
 	// NOTE: these fields have to be first for assmebly code
 	pub call_rsp: usize,
 	pub call_save_rsp: usize,
-	pub proc_id: usize,
+	pub last_time: u64,
+	pub last_switch_nsec: u64,
 	lapic: Option<LocalApic>,
 	pub gdt: Gdt,
 	pub tss: Tss,
@@ -28,9 +29,10 @@ impl GsData
 	{
 		let tss = Tss::new();
 		GsData {
-			call_rsp: 0x13123,
+			call_rsp: 0,
 			call_save_rsp: 0,
-			proc_id: 0,
+			last_time: 0,
+			last_switch_nsec: 0,
 			lapic: None,
 			gdt: Gdt::new(&tss),
 			tss,
@@ -48,6 +50,7 @@ impl GsData
 	}
 }
 
+#[derive(Debug)]
 pub struct GsRef {
 	data: *mut GsData,
 	intd: IntDisable,
@@ -95,14 +98,20 @@ pub fn cpud() -> GsRef {
 	out
 }
 
+pub fn prid() -> usize {
+	let _intd = IntDisable::new();
+	raw_prid()
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct GsDataPtr {
 	gsdata_addr: usize,
 	temp: usize,
+	prid: usize,
 }
 
-pub fn init()
+pub fn init(prid: usize)
 {
 	let gsdata_addr = Box::leak(Box::new(GsData::new())) as *mut _ as usize;
 
@@ -111,6 +120,7 @@ pub fn init()
 	let gsptr = GsDataPtr {
 		gsdata_addr,
 		temp: 0,
+		prid,
 	};
 	let gs_addr = Box::leak(Box::new(gsptr)) as *mut _ as u64;
 

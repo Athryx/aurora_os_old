@@ -1,3 +1,5 @@
+use core::fmt;
+
 use concat_idents::concat_idents;
 
 use crate::uses::*;
@@ -72,17 +74,15 @@ pub const INT_SCHED: u8 = 128;
 // so we should always choose a spurious vector number with bits 0-3 zeroed
 pub const SPURIOUS: u8 = 0xf0;
 
-const MAX_HANDLERS: usize = 16;
+const MAX_HANDLERS: usize = 4;
 const IDT_SIZE: usize = 256;
-
-static mut int_handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE] =
-	[[None; MAX_HANDLERS]; IDT_SIZE];
 
 pub type IntHandlerFunc = fn(&Registers, u64) -> Option<&Registers>;
 
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct Idt([IdtEntry; IDT_SIZE]);
+pub struct Idt {
+	entries: [IdtEntry; IDT_SIZE],
+	handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE],
+}
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -94,21 +94,33 @@ struct IdtPointer
 
 impl Idt
 {
-	pub const fn new() -> Self
+	pub fn new() -> Self
 	{
-		Idt([IdtEntry::none(); IDT_SIZE])
+		Idt {
+			entries: [IdtEntry::none(); IDT_SIZE],
+			handlers: [[None; MAX_HANDLERS]; IDT_SIZE],
+		}
 	}
 
 	fn load(&self)
 	{
 		let idtptr = IdtPointer {
-			limit: (size_of::<Idt>() - 1) as _,
-			base: (self as *const _) as _,
+			limit: (size_of::<[IdtEntry; IDT_SIZE]>() - 1) as _,
+			base: (&self.entries as *const _) as _,
 		};
 
 		unsafe {
 			asm!("lidt [{}]", in(reg) &idtptr, options(nostack));
 		}
+	}
+}
+
+// manually implement format because handlers does not work with derrive
+impl fmt::Debug for Idt {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Idt")
+			.field("entries", &self.entries)
+			.finish()
 	}
 }
 
@@ -197,36 +209,35 @@ impl Handler
 	pub fn register(&self, vec: u8) -> Result<(), Err>
 	{
 		let vec = vec as usize;
-		unsafe {
-			match self {
-				Self::First(func) => {
-					if int_handlers[vec][0].is_none() {
-						int_handlers[vec][0] = Some(*func);
-						Ok(())
-					} else {
-						Err(Err::new("couldn't register int handler for first position"))
+		let mut cpd = cpud();
+		match self {
+			Self::First(func) => {
+				if cpd.idt.handlers[vec][0].is_none() {
+					cpd.idt.handlers[vec][0] = Some(*func);
+					Ok(())
+				} else {
+					Err(Err::new("couldn't register int handler for first position"))
+				}
+			},
+			Self::Normal(func) => {
+				for i in 1..MAX_HANDLERS {
+					if cpd.idt.handlers[vec][i].is_none() {
+						cpd.idt.handlers[vec][i] = Some(*func);
+						return Ok(());
 					}
-				},
-				Self::Normal(func) => {
-					for i in 1..MAX_HANDLERS {
-						if int_handlers[vec][i].is_none() {
-							int_handlers[vec][i] = Some(*func);
-							return Ok(());
-						}
-					}
-					Err(Err::new(
-						"couldn't register int handler for middle position",
-					))
-				},
-				Self::Last(func) => {
-					if int_handlers[vec][MAX_HANDLERS - 1].is_none() {
-						int_handlers[vec][MAX_HANDLERS - 1] = Some(*func);
-						Ok(())
-					} else {
-						Err(Err::new("couldn't register int handler for first position"))
-					}
-				},
-			}
+				}
+				Err(Err::new(
+					"couldn't register int handler for middle position",
+				))
+			},
+			Self::Last(func) => {
+				if cpd.idt.handlers[vec][MAX_HANDLERS - 1].is_none() {
+					cpd.idt.handlers[vec][MAX_HANDLERS - 1] = Some(*func);
+					Ok(())
+				} else {
+					Err(Err::new("couldn't register int handler for first position"))
+				}
+			},
 		}
 	}
 }
@@ -267,7 +278,7 @@ extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
 	let mut out = None;
 
 	for i in 0..MAX_HANDLERS {
-		let func = unsafe { int_handlers[vec][i] };
+		let func = cpud().idt.handlers[vec][i];
 		if let Some(func) = func {
 			if i == MAX_HANDLERS - 1 {
 				out = func(regs, error_code);
@@ -307,7 +318,7 @@ macro_rules! minth {
 			extern "C" {
 				fn fn_name ();
 			}
-			cpud().idt.0[$n] = IdtEntry::new (fn_name as usize, $htype, $ring);
+			cpud().idt.entries[$n] = IdtEntry::new (fn_name as usize, $htype, $ring);
 		});
 	}
 }

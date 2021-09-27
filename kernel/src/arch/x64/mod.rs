@@ -342,10 +342,17 @@ pub fn invlpg(addr: usize)
 
 extern "C" {
 	fn asm_gs_addr() -> usize;
+	fn asm_prid() -> usize;
 }
 
 pub fn gs_addr() -> usize {
 	unsafe {
 		asm_gs_addr()
+	}
+}
+
+pub fn raw_prid() -> usize {
+	unsafe {
+		asm_prid()
 	}
 }

@@ -1,5 +1,5 @@
 use crate::uses::*;
-use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::convert::TryInto;
 use core::slice;
 use core::time::Duration;
@@ -228,7 +228,12 @@ struct ApData {
 	stacks: usize,
 }
 
+static APS_TO_BOOT: AtomicUsize = AtomicUsize::new(0);
+static APS_GO: AtomicBool = AtomicBool::new(false);
+
 pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_space: VirtMapper<ZoneManager>) {
+	APS_TO_BOOT.store(ap_ids.len(), Ordering::Release);
+
 	let ap_bin_start = phys_to_virt_usize(*AP_PHYS_START);
 	let ap_virt_start = phys_to_virt_usize(*AP_CODE_START);
 	let ap_code_size = *AP_CODE_END - *AP_CODE_START;
@@ -253,7 +258,8 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 
 	let mut stacks = vec![0; ap_ids.len()];
 	for stack in stacks.iter_mut() {
-		*stack = zm.alloc(Stack::DEFAULT_KERNEL_SIZE).unwrap().as_usize();
+		let addr = zm.alloc(Stack::DEFAULT_KERNEL_SIZE).unwrap().as_usize();
+		*stack = addr + Stack::DEFAULT_KERNEL_SIZE;
 	}
 	ap_data.stacks = stacks.as_ptr() as usize;
 
@@ -264,14 +270,12 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 
 	io_wait(Duration::from_millis(1000));
 
-	for _ in 0..1 {
+	while APS_TO_BOOT.load(Ordering::Acquire) > 0 {
 		lapic.send_ipi(Ipi::Sipi(IpiDest::AllExcludeThis, (*AP_CODE_START / 0x1000).try_into().unwrap()));
 		io_wait(Duration::from_micros(200));
 	}
 
-	loop {
-		crate::arch::x64::hlt();
-	}
+	APS_GO.store(true, Ordering::Release);
 }
 
 // called by aps to initialize their local apics
@@ -280,5 +284,11 @@ pub fn ap_init() {
 
 	unsafe {
 		cpud().set_lapic(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
+	}
+
+	APS_TO_BOOT.fetch_sub(1, Ordering::AcqRel);
+
+	while !APS_GO.load(Ordering::Acquire) {
+		core::hint::spin_loop();
 	}
 }

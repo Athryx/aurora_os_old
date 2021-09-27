@@ -69,8 +69,17 @@ impl Pit
 
 	fn tick(&self)
 	{
-		self.elapsed_time
-			.fetch_add(self.nano_reset.load(Ordering::Relaxed), Ordering::Relaxed);
+		// this is done like this to allow multiple cores to update the pit
+		// this means that every core is guarenteed to have a reasonable accurate value in the timer interrupt handler
+		// when using nsec_no_latch
+		let new_time = self.elapsed_time.load(Ordering::Acquire)
+			+ self.nano_reset.load(Ordering::Relaxed);
+		let mut cpd = cpud();
+		match self.elapsed_time.compare_exchange(cpd.last_time, new_time, Ordering::AcqRel, Ordering::Acquire)
+		{
+			Ok(_) => cpd.last_time = new_time,
+			Err(time) => cpd.last_time = time,
+		}
 	}
 
 	pub fn nsec(&self) -> u64

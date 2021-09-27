@@ -73,6 +73,7 @@ ap_long_mode_start:
 	mov rbx, rdi
 	dec rbx					; decrement rbx so id 0 is first ap, otherwise bsp will be id 0 and 1 stack will be wasted
 	mov rsp, [rax + 8 * rbx]
+	mov rsi, rsp			; pass stack base to rust code
 
 ; call rust ap code
 	mov rax, _ap_start

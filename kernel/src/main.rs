@@ -138,7 +138,7 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 		libutil::init(&util::CALLS);
 	}
 
-	kdata::init();
+	kdata::init(0);
 
 	gdt::init();
 
@@ -176,6 +176,28 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	Ok(())
 }
 
+fn ap_init(proc_id: usize, stack_top: usize) -> Result<(), util::Err> {
+	kdata::init(proc_id);
+
+	gdt::init();
+
+	idt::init();
+
+	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
+	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
+	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
+
+	time::pit::init()?;
+
+	syscall::init();
+
+	sched::ap_init(stack_top)?;
+
+	apic::ap_init();
+
+	Ok(())
+}
+
 // rust entry point of the kernel after boot.asm calls this
 #[no_mangle]
 pub extern "C" fn _start(boot_info_addr: usize) -> !
@@ -193,6 +215,8 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	init(&boot_info).expect("kernel init failed");
 
 	println!("aurora kernel v0.0.1");
+
+	bochs_break();
 
 	sti();
 
@@ -213,14 +237,8 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 
 // rust entry point for ap cors
 #[no_mangle]
-pub extern "C" fn _ap_start(id: usize) -> ! {
-	kdata::init();
-
-	gdt::init();
-
-	syscall::init();
-
-	apic::ap_init();
+pub extern "C" fn _ap_start(id: usize, stack_top: usize) -> ! {
+	ap_init(id, stack_top).expect("ap init failed");
 
 	eprintln!("ap {} started", id);
 

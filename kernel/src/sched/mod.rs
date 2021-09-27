@@ -19,6 +19,7 @@ use crate::util::{
 };
 use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_EXEC_DISABLE, EFER_MSR};
 use crate::time::timer;
+use crate::mem::VirtRange;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
 use crate::ipc::Ipcid;
@@ -49,7 +50,6 @@ static proc_list: Mutex<BTreeMap<Pid, Arc<Process>>> = Mutex::new(BTreeMap::new(
 // amount of time that elapses before we will switch to a new thread in nanoseconds
 // current value is 100 milliseconds
 const SCHED_TIME: u64 = 100000000;
-static last_switch_nsec: AtomicU64 = AtomicU64::new(0);
 
 // TODO: make this cpu local data
 // FIXME: this is a bad way to return registers, and won't be safe with smp
@@ -84,8 +84,10 @@ fn time_handler(regs: &Registers, _: u64) -> Option<&Registers>
 	// release mutex
 	drop(thread_list);
 
-	if nsec - last_switch_nsec.load(Ordering::Relaxed) > SCHED_TIME {
-		out = schedule(regs, nsec);
+	let mut cpd = cpud();
+	if nsec - cpd.last_switch_nsec > SCHED_TIME {
+		out = schedule(regs, cpd.last_switch_nsec, nsec);
+		cpd.last_switch_nsec = nsec;
 	}
 
 	out
@@ -109,7 +111,12 @@ fn int_handler(regs: &Registers, _: u64) -> Option<&Registers>
 
 	drop(thread_list);
 
-	schedule(regs, timer.nsec())
+	let mut cpd = cpud();
+	let nsec_current = timer.nsec();
+	let nsec_last = cpd.last_switch_nsec;
+
+	cpd.last_switch_nsec = nsec_current;
+	schedule(regs, nsec_last, nsec_current)
 }
 
 fn int_sched()
@@ -124,7 +131,7 @@ fn int_sched()
 // if it does, schedule sets the old thread's registers to be regs, switches address
 // space if necessary, and returns the new thread's registers
 // schedule will disable interrupts if necessary
-fn schedule(_regs: &Registers, nsec_current: u64) -> Option<&Registers>
+fn schedule(_regs: &Registers, nsec_last: u64, nsec_current: u64) -> Option<&Registers>
 {
 	let mut thread_list = tlist.lock();
 
@@ -146,7 +153,6 @@ fn schedule(_regs: &Registers, nsec_current: u64) -> Option<&Registers>
 		.pop()
 		.expect("no currently running thread");
 
-	let nsec_last = last_switch_nsec.swap(nsec_current, Ordering::SeqCst);
 	if nsec_current >= nsec_last {
 		old_thread.inc_time(nsec_current - nsec_last);
 	} else {
@@ -273,7 +279,7 @@ libutil::impl_tree_node!(Fuid, TLTreeNode<Fuid>, parent, left, right, id, bf);
 #[derive(Debug)]
 pub struct ThreadList
 {
-	running: LinkedList<Thread>,
+	running: Vec<LinkedList<Thread>>,
 	ready: LinkedList<Thread>,
 	destroy: LinkedList<Thread>,
 	sleep: LinkedList<Thread>,
@@ -288,7 +294,7 @@ impl ThreadList
 	const fn new() -> Self
 	{
 		ThreadList {
-			running: LinkedList::new(),
+			running: Vec::new(),
 			ready: LinkedList::new(),
 			destroy: LinkedList::new(),
 			sleep: LinkedList::new(),
@@ -302,7 +308,7 @@ impl ThreadList
 	fn get(&self, state: ThreadState) -> Option<&LinkedList<Thread>>
 	{
 		match state {
-			ThreadState::Running => Some(&self.running),
+			ThreadState::Running => Some(&self.running[prid()]),
 			ThreadState::Ready => Some(&self.ready),
 			ThreadState::Destroy => Some(&self.destroy),
 			ThreadState::Sleep(_) => Some(&self.sleep),
@@ -318,7 +324,7 @@ impl ThreadList
 	fn get_mut(&mut self, state: ThreadState) -> Option<&mut LinkedList<Thread>>
 	{
 		match state {
-			ThreadState::Running => Some(&mut self.running),
+			ThreadState::Running => Some(&mut self.running[prid()]),
 			ThreadState::Ready => Some(&mut self.ready),
 			ThreadState::Destroy => Some(&mut self.destroy),
 			ThreadState::Sleep(_) => Some(&mut self.sleep),
@@ -334,6 +340,12 @@ impl ThreadList
 			ThreadState::FutexBlock(id) => Some(unsafe {
 				unbound_mut(&mut self.futex.get_mut(&id.as_ref().unwrap().fuid())?.list)
 			}),
+		}
+	}
+
+	fn ensure_running(&mut self, prid: usize) {
+		for _ in self.running.len()..=prid {
+			self.running.push(LinkedList::new());
 		}
 	}
 
@@ -694,17 +706,57 @@ pub fn init() -> Result<(), Err>
 	let idle_thread = Thread::from_stack(
 		Arc::downgrade(&kernel_proc),
 		kernel_proc.next_tid(),
-		"idle_thread".to_string(),
+		format!("idle_thread{}", prid()),
 		Registers::zero(),
 		*INIT_STACK,
 	)?;
 	idle_thread.set_state(ThreadState::Running);
-	tlist.lock()[ThreadState::Running].push(unsafe { idle_thread.clone() });
+
+	let mut thread_list = tlist.lock();
+	thread_list.ensure_running(prid());
+	thread_list[ThreadState::Running].push(unsafe { idle_thread.clone() });
+	drop(thread_list);
 
 	kernel_proc.insert_thread(idle_thread);
 	proc_list.lock().insert(kernel_proc.pid(), kernel_proc);
 
 	Handler::Last(time_handler).register(IRQ_TIMER)?;
+	Handler::Last(int_handler).register(INT_SCHED)?;
+
+	Ok(())
+}
+
+pub fn ap_init(stack_top: usize) -> Result<(), Err> {
+	// allow execute disable in pages
+	let efer_msr = rdmsr(EFER_MSR);
+	wrmsr(EFER_MSR, efer_msr | EFER_EXEC_DISABLE);
+
+	tlist.lock().ensure_running(prid());
+
+	let kernel_proc = proc_get(Pid::from(0)).unwrap();
+
+	unsafe {
+		kernel_proc.addr_space.load();
+	}
+
+	let stack_vrange = VirtRange::new(VirtAddr::new(stack_top as u64), Stack::DEFAULT_KERNEL_SIZE);
+
+	let idle_thread = Thread::from_stack(
+		Arc::downgrade(&kernel_proc),
+		kernel_proc.next_tid(),
+		format!("idle_thread{}", prid()),
+		Registers::zero(),
+		stack_vrange,
+	)?;
+	idle_thread.set_state(ThreadState::Running);
+
+	let mut thread_list = tlist.lock();
+	thread_list.ensure_running(prid());
+	thread_list[ThreadState::Running].push(unsafe { idle_thread.clone() });
+	drop(thread_list);
+
+	kernel_proc.insert_thread(idle_thread);
+
 	Handler::Last(int_handler).register(INT_SCHED)?;
 
 	Ok(())
