@@ -81,19 +81,19 @@ fn panic(info: &PanicInfo) -> !
 	}
 }
 
-fn double_fault(_: &Registers, _: u64) -> Option<&Registers>
+fn double_fault(_: &mut Registers, _: u64) -> bool
 {
 	println!("double fault");
-	None
+	false
 }
 
-fn gp_exception(_: &Registers, _: u64) -> Option<&Registers>
+fn gp_exception(_: &mut Registers, _: u64) -> bool
 {
 	println!("general protection exception");
-	None
+	false
 }
 
-fn page_fault(regs: &Registers, code: u64) -> Option<&Registers>
+fn page_fault(regs: &mut Registers, code: u64) -> bool
 {
 	let ring = if code & idt::PAGE_FAULT_USER != 0 {
 		"user"
@@ -232,7 +232,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	//test();
+	test();
 
 	loop {
 		hlt();
@@ -244,7 +244,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 pub extern "C" fn _ap_start(id: usize, stack_top: usize) -> ! {
 	ap_init(id, stack_top).expect("ap init failed");
 
-	eprintln!("ap {} started", id);
+	eprintln!("ap {} started", prid());
 
 	sti();
 
@@ -412,7 +412,7 @@ fn test_thread_2()
 {
 	eprintln!("join test thread started");
 	block(ThreadState::Join(unsafe { join_tid }));
-	eprintln!("finished joining");
+	eprintln!("finished joining on cpu {}", prid());
 	block(ThreadState::Destroy);
 }
 
@@ -473,7 +473,7 @@ fn test_thread_1()
 	println!("{:?}", c);
 	println!("{}", *a);
 	println!("{}", *b);
-	eprintln!("test finished");
+	println!("test finished on cpu {}", prid());
 	block(ThreadState::Destroy);
 }
 
@@ -505,7 +505,7 @@ fn test_alloc_thread()
 		let _x = Box::new(0);
 		let _y = Box::new(0);
 		let _z = Box::new(0);
-		println!("alloc test done");
+		println!("alloc test done on cpu {}", prid());
 		block(ThreadState::Destroy);
 	}
 }

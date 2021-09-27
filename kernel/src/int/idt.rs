@@ -77,7 +77,8 @@ pub const SPURIOUS: u8 = 0xf0;
 const MAX_HANDLERS: usize = 4;
 const IDT_SIZE: usize = 256;
 
-pub type IntHandlerFunc = fn(&Registers, u64) -> Option<&Registers>;
+// returns boolean indicatinf if registers changed
+pub type IntHandlerFunc = fn(&mut Registers, u64) -> bool;
 
 pub struct Idt {
 	entries: [IdtEntry; IDT_SIZE],
@@ -261,8 +262,7 @@ pub fn irq_arr() -> [u8; 15] {
 }
 
 #[no_mangle]
-extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
-	-> Option<&Registers>
+extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64) -> bool
 {
 	let vec = vec as usize;
 
@@ -275,21 +275,20 @@ extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
 
 	*thread_c().regs.lock() = *regs;
 
-	let mut out = None;
+	let mut change_regs = false;
 
 	for i in 0..MAX_HANDLERS {
 		let func = cpud().idt.handlers[vec][i];
 		if let Some(func) = func {
 			if i == MAX_HANDLERS - 1 {
-				out = func(regs, error_code);
+				change_regs = func(regs, error_code);
 			} else {
 				func(regs, error_code);
 			}
 		}
 	}
 
-	if let Some(regs) = out {
-		d();
+	if change_regs {
 		let mut data = cpud();
 		data.tss.rsp0 = regs.call_rsp as _;
 		data.call_rsp = regs.call_rsp;
@@ -309,7 +308,7 @@ extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64)
 		}*/
 	}
 
-	out
+	change_regs
 }
 
 macro_rules! minth {

@@ -38,18 +38,19 @@ extern rust_int_handler
 	mov [rsp + registers.ss], ax
 %endmacro
 
-; r14 should hold pointer to registers data structure
-%macro load_new_regs 0
-	mov rax, [r14 + registers.rsp]
-	mov [r15 + int_data.rsp], rax
-	mov rax, [r14 + registers.rip]
-	mov [r15 + int_data.rip], rax
-	mov rax, [r14 + registers.rflags]
-	mov [r15 + int_data.rflags], rax
+; rsp should hold pointer to registers data structure
+; argument passed in is pointer to int data structure
+%macro load_new_regs 1
+	mov rax, [rsp + registers.rsp]
+	mov [%1 + int_data.rsp], rax
+	mov rax, [rsp + registers.rip]
+	mov [%1 + int_data.rip], rax
+	mov rax, [rsp + registers.rflags]
+	mov [%1 + int_data.rflags], rax
 
 	mov rax, 0
-	mov ax, [r14 + registers.ss]
-	mov qword [r15 + int_data.ss], rax
+	mov ax, [rsp + registers.ss]
+	mov qword [%1 + int_data.ss], rax
 
 	; cli		; this it to stop gsbase being cleared when we reload gs segment register
 	; swapgs	; TODO: there is probably a better way to do this
@@ -57,24 +58,24 @@ extern rust_int_handler
 	; swapgs
 	; sti
 
-	mov ax, [r14 + registers.cs]
-	mov qword [r15 + int_data.cs], rax
+	mov ax, [rsp + registers.cs]
+	mov qword [%1 + int_data.cs], rax
 
-	mov rax, [r14 + registers.rax]
-	mov rbx, [r14 + registers.rbx]
-	mov rcx, [r14 + registers.rcx]
-	mov rdx, [r14 + registers.rdx]
-	mov rbp, [r14 + registers.rbp]
-	mov rdi, [r14 + registers.rdi]
-	mov rsi, [r14 + registers.rsi]
-	mov r8, [r14 + registers.r8]
-	mov r9, [r14 + registers.r9]
-	mov r10, [r14 + registers.r10]
-	mov r11, [r14 + registers.r11]
-	mov r12, [r14 + registers.r12]
-	mov r13, [r14 + registers.r13]
-	mov r15, [r14 + registers.r15]
-	mov r14, [r14 + registers.r14]
+	mov rax, [rsp + registers.rax]
+	mov rbx, [rsp + registers.rbx]
+	mov rcx, [rsp + registers.rcx]
+	mov rdx, [rsp + registers.rdx]
+	mov rbp, [rsp + registers.rbp]
+	mov rdi, [rsp + registers.rdi]
+	mov rsi, [rsp + registers.rsi]
+	mov r8, [rsp + registers.r8]
+	mov r9, [rsp + registers.r9]
+	mov r10, [rsp + registers.r10]
+	mov r11, [rsp + registers.r11]
+	mov r12, [rsp + registers.r12]
+	mov r13, [rsp + registers.r13]
+	mov r15, [rsp + registers.r15]
+	mov r14, [rsp + registers.r14]
 %endmacro
 
 ; registers data structure should be on stack
@@ -116,7 +117,7 @@ int_handler_ %+ %1 %+ :
 	je .restore
 
 	; set registers according to output
-	load_new_regs
+	load_new_regs r15
 
 	add rsp, registers_size
 	iretq
@@ -156,7 +157,7 @@ int_handler_ %+ %1 %+ :
 	je .restore
 
 	; set registers according to output
-	load_new_regs
+	load_new_regs r15
 
 	add rsp, registers_size
 	; not sure if needed
@@ -192,7 +193,7 @@ int_handler_ %+ %1 %+ :
 	; save return value because pic_eoi overwrites it
 	mov r14, rax
 
-	; send pic eoi
+	; send eoi
 	mov rdi, %1
 	mov rcx, eoi
 	call rcx
@@ -201,7 +202,7 @@ int_handler_ %+ %1 %+ :
 	je .restore
 
 	; set registers according to output
-	load_new_regs
+	load_new_regs r15
 
 	add rsp, registers_size
 	iretq

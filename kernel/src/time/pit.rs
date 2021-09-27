@@ -117,10 +117,10 @@ impl Pit
 	}
 }
 
-fn timer_irq_handler(_: &Registers, _: u64) -> Option<&Registers>
+fn timer_irq_handler(_: &mut Registers, _: u64) -> bool
 {
 	pit.tick();
-	None
+	false
 }
 
 pub fn init() -> Result<(), Err>

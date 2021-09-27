@@ -58,31 +58,30 @@ pub static mut out_regs: Registers = Registers::zero();
 // These interrupt handlers, and all other timer interrupt handlers must not:
 // lock any reguler mutexes or spinlocks (only IMutex)
 // this means no memory allocation
-fn time_handler(regs: &Registers, _: u64) -> Option<&Registers>
+fn time_handler(regs: &mut Registers, _: u64) -> bool
 {
 	lock();
 
-	let mut out = None;
-
 	let nsec = timer.nsec_no_latch();
 
-	let mut thread_list = tlist.lock();
-	let time_list = &mut thread_list[ThreadState::Sleep(0)];
-
-	// FIXME: ugly
-	for tpointer in unsafe { unbound_mut(time_list).iter() } {
-		let sleep_nsec = match tpointer.state() {
-			ThreadState::Sleep(nsec) => nsec,
-			_ => panic!("thread in sleep queue but state is not sleeping"),
-		};
-
-		if nsec >= sleep_nsec {
-			Thread::move_to(tpointer, ThreadState::Ready, &mut thread_list);
+	if prid() == 0 {
+		let mut thread_list = tlist.lock();
+		let time_list = &mut thread_list[ThreadState::Sleep(0)];
+	
+		// FIXME: ugly
+		for tpointer in unsafe { unbound_mut(time_list).iter() } {
+			let sleep_nsec = match tpointer.state() {
+				ThreadState::Sleep(nsec) => nsec,
+				_ => panic!("thread in sleep queue but state is not sleeping"),
+			};
+	
+			if nsec >= sleep_nsec {
+				Thread::move_to(tpointer, ThreadState::Ready, &mut thread_list);
+			}
 		}
 	}
 
-	// release mutex
-	drop(thread_list);
+	let mut out = false;
 
 	let mut cpd = cpud();
 	if nsec - cpd.last_switch_nsec > SCHED_TIME {
@@ -96,7 +95,7 @@ fn time_handler(regs: &Registers, _: u64) -> Option<&Registers>
 // FIXME: this could potentially have a thread switch occur before lock
 // when this happens, switching back to this thread will cause it to immediataly give up control again
 // this is probably undesirable
-fn int_handler(regs: &Registers, _: u64) -> Option<&Registers>
+fn int_handler(regs: &mut Registers, _: u64) -> bool
 {
 	lock();
 
@@ -131,7 +130,7 @@ fn int_sched()
 // if it does, schedule sets the old thread's registers to be regs, switches address
 // space if necessary, and returns the new thread's registers
 // schedule will disable interrupts if necessary
-fn schedule(_regs: &Registers, nsec_last: u64, nsec_current: u64) -> Option<&Registers>
+fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 {
 	let mut thread_list = tlist.lock();
 
@@ -145,7 +144,7 @@ fn schedule(_regs: &Registers, nsec_last: u64, nsec_current: u64) -> Option<&Reg
 					break t;
 				}
 			},
-			None => return None,
+			None => return false,
 		}
 	};
 
@@ -189,9 +188,10 @@ fn schedule(_regs: &Registers, nsec_last: u64, nsec_current: u64) -> Option<&Reg
 	unsafe {
 		// FIXME: ugly
 		// safe to do if the scheduler is locked until returning from interrupt handler, since the thread can't be freed
-		out_regs = *tpointer.regs.lock();
-		Some(&out_regs)
+		*regs = *tpointer.regs.lock();
 	}
+
+	true
 }
 
 // TODO: when smp addded, change these
@@ -759,6 +759,7 @@ pub fn ap_init(stack_top: usize) -> Result<(), Err> {
 
 	kernel_proc.insert_thread(idle_thread);
 
+	Handler::Last(time_handler).register(IRQ_TIMER)?;
 	Handler::Last(int_handler).register(INT_SCHED)?;
 
 	Ok(())

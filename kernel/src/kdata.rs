@@ -5,6 +5,7 @@ use crate::uses::*;
 use crate::int::apic::LocalApic;
 use crate::gdt::{Gdt, Tss};
 use crate::int::idt::Idt;
+use crate::sched::Registers;
 use crate::arch::x64::*;
 
 #[repr(C)]
@@ -14,6 +15,8 @@ pub struct GsData
 	// NOTE: these fields have to be first for assmebly code
 	pub call_rsp: usize,
 	pub call_save_rsp: usize,
+	pub out_regs: Registers,
+
 	pub last_time: u64,
 	pub last_switch_nsec: u64,
 	lapic: Option<LocalApic>,
@@ -31,6 +34,7 @@ impl GsData
 		GsData {
 			call_rsp: 0,
 			call_save_rsp: 0,
+			out_regs: Registers::zero(),
 			last_time: 0,
 			last_switch_nsec: 0,
 			lapic: None,
