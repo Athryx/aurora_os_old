@@ -83,6 +83,7 @@ pub type IntHandlerFunc = fn(&mut Registers, u64) -> bool;
 pub struct Idt {
 	entries: [IdtEntry; IDT_SIZE],
 	handlers: [[Option<IntHandlerFunc>; MAX_HANDLERS]; IDT_SIZE],
+	handler_override: [Option<IntHandlerFunc>; IDT_SIZE],
 }
 
 #[repr(C, packed)]
@@ -100,6 +101,7 @@ impl Idt
 		Idt {
 			entries: [IdtEntry::none(); IDT_SIZE],
 			handlers: [[None; MAX_HANDLERS]; IDT_SIZE],
+			handler_override: [None; IDT_SIZE],
 		}
 	}
 
@@ -202,6 +204,7 @@ pub enum Handler
 	First(IntHandlerFunc),
 	Normal(IntHandlerFunc),
 	Last(IntHandlerFunc),
+	Override(Option<IntHandlerFunc>),
 }
 
 impl Handler
@@ -239,6 +242,10 @@ impl Handler
 					Err(Err::new("couldn't register int handler for first position"))
 				}
 			},
+			Self::Override(handler) => {
+				cpd.idt.handler_override[vec] = *handler;
+				Ok(())
+			}
 		}
 	}
 }
@@ -265,6 +272,7 @@ pub fn irq_arr() -> [u8; 15] {
 extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64) -> bool
 {
 	let vec = vec as usize;
+	rprintln!("prid: {}", prid());
 
 	// set call_rsp and call_save_rsp in regs data structure which are not set by assembly
 	{
@@ -276,14 +284,19 @@ extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64) -
 	*thread_c().regs.lock() = *regs;
 
 	let mut change_regs = false;
+	let handler = cpud().idt.handler_override[vec];
 
-	for i in 0..MAX_HANDLERS {
-		let func = cpud().idt.handlers[vec][i];
-		if let Some(func) = func {
-			if i == MAX_HANDLERS - 1 {
-				change_regs = func(regs, error_code);
-			} else {
-				func(regs, error_code);
+	if let Some(handler) = handler {
+		change_regs = handler(regs, error_code);
+	} else {
+		for i in 0..MAX_HANDLERS {
+			let func = cpud().idt.handlers[vec][i];
+			if let Some(func) = func {
+				if i == MAX_HANDLERS - 1 {
+					change_regs = func(regs, error_code);
+				} else {
+					func(regs, error_code);
+				}
 			}
 		}
 	}

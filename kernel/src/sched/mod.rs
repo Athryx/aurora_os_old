@@ -185,12 +185,7 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 		}
 	}
 
-	unsafe {
-		// FIXME: ugly
-		// safe to do if the scheduler is locked until returning from interrupt handler, since the thread can't be freed
-		*regs = *tpointer.regs.lock();
-	}
-
+	*regs = *tpointer.regs.lock();
 	true
 }
 

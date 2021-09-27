@@ -111,12 +111,13 @@ fn page_fault(regs: &mut Registers, code: u64) -> bool
 
 	// can't indent because it will print tabs
 	panic!(
-		r"page fault accessing virtual address {:x}
+		r"page fault on cpu {} accessing virtual address {:x}
 page fault during {} {}
 non present page: {}
 reserved bit set: {}
 registers:
 {:x?}",
+		prid(),
 		get_cr2(),
 		ring,
 		action,
@@ -154,8 +155,6 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
 	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
 
-	time::pit::init()?;
-
 	syscall::init();
 
 	sched::init()?;
@@ -177,6 +176,8 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 			zm.dealloc(ap_code_zone);
 		}
 		pic::remap(pic::PICM_OFFSET, pic::PICS_OFFSET);
+
+		time::pit::init()?;
 	}
 
 	Ok(())
@@ -192,8 +193,6 @@ fn ap_init(proc_id: usize, stack_top: usize) -> Result<(), util::Err> {
 	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
 	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
 	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
-
-	time::pit::init()?;
 
 	syscall::init();
 
@@ -232,7 +231,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	test();
+	//test();
 
 	loop {
 		hlt();

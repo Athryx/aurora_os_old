@@ -266,6 +266,7 @@ pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_sp
 	let mut cpd = cpud();
 	let lapic = cpd.lapic();
 
+	// TODO: send init and startup ipis only to cores listed in the ap_ids vec
 	lapic.send_ipi(Ipi::Init(IpiDest::AllExcludeThis));
 
 	io_wait(Duration::from_millis(1000));

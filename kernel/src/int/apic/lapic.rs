@@ -1,8 +1,9 @@
 use crate::uses::*;
 use modular_bitfield::{bitfield, BitfieldSpecifier};
 use core::ptr;
-use crate::int::idt::SPURIOUS;
-use crate::int::idt::IRQ_TIMER;
+use core::sync::atomic::{AtomicBool, Ordering};
+use crate::int::idt::{SPURIOUS, IRQ_TIMER, Handler};
+use crate::sched::Registers;
 use super::*;
 
 #[bitfield]
@@ -336,6 +337,10 @@ impl LocalApic {
 
 	fn error(&self) -> u32 {
 		self.read_reg_32(Self::ERROR)
+	}
+
+	fn nanosec_per_timer_tick(&mut self) -> u64 {
+		todo!();
 	}
 
 	fn read_reg_32(&self, reg: usize) -> u32 {
