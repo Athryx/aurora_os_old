@@ -67,7 +67,7 @@ impl Pit
 			.store(NANOSEC_PER_CLOCK * ticks as u64, Ordering::Relaxed);
 	}
 
-	fn disable(&self) {
+	pub fn disable(&self) {
 		let _lock = self.lock.lock();
 		outb(PIT_COMMAND, 0b00110010);
 		self.elapsed_time.store(0, Ordering::Release);

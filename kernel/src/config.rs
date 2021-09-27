@@ -6,9 +6,13 @@ pub const MSG_BUF_LEN: usize = 1;
 /// Maximum number of logical cpu's supported
 pub const MAX_CPUS: usize = 16;
 
+/// How long between interrupts sent by the timer
+pub const TIMER_PERIOD: Duration = Duration::from_millis(40);
+
 // don't tweak the parameters below
 
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::time::Duration;
 use crate::mem::PAGE_SIZE;
 use crate::arch::x64::cpuid;
 

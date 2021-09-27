@@ -1,8 +1,11 @@
 use crate::uses::*;
 use modular_bitfield::{bitfield, BitfieldSpecifier};
 use core::ptr;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use crate::int::idt::{SPURIOUS, IRQ_TIMER, Handler};
+use crate::config;
+use crate::time::pit::pit;
+use crate::arch::x64::*;
 use crate::sched::Registers;
 use super::*;
 
@@ -239,6 +242,10 @@ impl LvtType {
 	}
 }
 
+const TIMER_CALIBRATE_TIME: Duration = Duration::from_millis(20);
+static CALIBRATE_FIRED: AtomicBool = AtomicBool::new(false);
+static NANOSEC_PER_TICK: AtomicU64 = AtomicU64::new(0);
+
 #[derive(Debug)]
 pub struct LocalApic {
 	addr: usize,
@@ -296,8 +303,6 @@ impl LocalApic {
 			addr: phys_to_virt(addr).as_u64() as usize,
 		};
 		out.set_lvt(LvtType::Timer(LvtEntry::new_masked()));
-		//out.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
-		//out.write_reg_32(Self::TIMER_INIT_COUNT, 0xffffff);
 
 		out.set_lvt(LvtType::MachineCheck(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Lint0(LvtEntry::new_masked()));
@@ -306,10 +311,15 @@ impl LocalApic {
 		out.set_lvt(LvtType::Error(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Perf(LvtEntry::new_masked()));
 		out.set_lvt(LvtType::Thermal(LvtEntry::new_masked()));
+
 		// set bit 1 to represent all cpus
 		out.write_reg_32(Self::LOGICAL_DEST, 1);
 		// linear logical dest format
 		out.write_reg_32(Self::DEST_FORMAT, 0xf0000000);
+
+		// divide by 16
+		out.write_reg_32(Self::TIMER_DIVIDE_CONFIG, 0b11);
+
 		out.write_reg_32(Self::SPURIOUS_VEC, SpuriousReg::new_enabled(SPURIOUS).into());
 		out
 	}
@@ -339,8 +349,56 @@ impl LocalApic {
 		self.read_reg_32(Self::ERROR)
 	}
 
+	// returns false if the period is too long
+	pub fn init_timer(&mut self, period: Duration) -> bool {
+		let nsec_per = self.nanosec_per_timer_tick();
+		eprintln!("{}", nsec_per);
+		let nsec_period: u32 = match period.as_nanos().try_into() {
+			Ok(nsec) => nsec,
+			Err(_) => return false,
+		};
+
+		let count = match (nsec_period / nsec_per as u32).try_into() {
+			Ok(count) => count,
+			Err(_) => return false,
+		};
+
+		self.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
+		self.write_reg_32(Self::TIMER_INIT_COUNT, count);
+
+		true
+	}
+
+	// FIXME: this isn't accurate
 	fn nanosec_per_timer_tick(&mut self) -> u64 {
-		todo!();
+		let nsec = NANOSEC_PER_TICK.load(Ordering::Acquire);
+		if nsec != 0 {
+			return nsec;
+		}
+		self.write_reg_32(Self::TIMER_INIT_COUNT, u32::MAX);
+
+		// FIXME: ugly hack to stop panic in interrupt handler because apic is not initialized and it can't send an eoi
+		config::set_use_apic(false);
+		sti();
+
+		unsafe {
+			pit.one_shot(TIMER_CALIBRATE_TIME, || CALIBRATE_FIRED.store(true, Ordering::Release));
+		}
+
+		while !CALIBRATE_FIRED.load(Ordering::Acquire) {}
+
+		cli();
+		config::set_use_apic(true);
+
+		let new_count = self.read_reg_32(Self::TIMER_COUNT);
+		self.write_reg_32(Self::TIMER_INIT_COUNT, 0);
+		self.eoi();
+		CALIBRATE_FIRED.store(false, Ordering::Release);
+
+		let elapsed_ticks = u32::MAX - new_count;
+		let out = TIMER_CALIBRATE_TIME.as_nanos() as u64 / elapsed_ticks as u64;
+		NANOSEC_PER_TICK.store(out, Ordering::Release);
+		out
 	}
 
 	fn read_reg_32(&self, reg: usize) -> u32 {

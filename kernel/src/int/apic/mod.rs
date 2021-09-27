@@ -9,7 +9,7 @@ use crate::kdata::cpud;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayoutElement, VirtLayout, PageMappingFlags, AllocType};
 use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::mem::phys_alloc::{zm, Allocation, ZoneManager};
-use crate::config::MAX_CPUS;
+use crate::config::{MAX_CPUS, TIMER_PERIOD};
 use crate::acpi::madt::{Madt, MadtElem};
 use crate::arch::x64::io_wait;
 use crate::sched::{sleep, Stack};
@@ -215,7 +215,9 @@ pub unsafe fn init(madt: &Madt) -> Vec<u8> {
 
 	LAPIC_ADDR.store(lapic_addr, Ordering::Release);
 
-	cpud().set_lapic(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
+	let mut lapic = LocalApic::from(PhysAddr::new(lapic_addr as u64));
+	lapic.init_timer(TIMER_PERIOD);
+	cpud().set_lapic(lapic);
 
 	ap_ids
 }
@@ -284,7 +286,9 @@ pub fn ap_init() {
 	let lapic_addr = LAPIC_ADDR.load(Ordering::Acquire);
 
 	unsafe {
-		cpud().set_lapic(LocalApic::from(PhysAddr::new(lapic_addr as u64)));
+		let mut lapic = LocalApic::from(PhysAddr::new(lapic_addr as u64));
+		lapic.init_timer(TIMER_PERIOD);
+		cpud().set_lapic(lapic);
 	}
 
 	APS_TO_BOOT.fetch_sub(1, Ordering::AcqRel);

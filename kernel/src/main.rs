@@ -162,6 +162,8 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	if config::use_apic() {
 		pic::disable();
 
+		time::pit::pit.disable();
+
 		let acpi_madt = unsafe {
 			boot_info.rsdt.get_table(SdtType::Madt).unwrap()
 		};
