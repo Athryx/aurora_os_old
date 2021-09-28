@@ -62,7 +62,7 @@ fn time_handler(regs: &mut Registers, _: u64) -> bool
 {
 	lock();
 
-	let nsec = timer.nsec_no_latch();
+	let nsec = timer().nsec_no_latch();
 
 	if prid() == 0 {
 		let mut thread_list = tlist.lock();
@@ -110,8 +110,8 @@ fn int_handler(regs: &mut Registers, _: u64) -> bool
 
 	drop(thread_list);
 
+	let nsec_current = timer().nsec();
 	let mut cpd = cpud();
-	let nsec_current = timer.nsec();
 	let nsec_last = cpd.last_switch_nsec;
 
 	cpd.last_switch_nsec = nsec_current;
@@ -679,7 +679,7 @@ pub fn sleep_until(nsec: u64)
 
 pub fn sleep(duration: Duration)
 {
-	sleep_until(timer.nsec() + duration.as_nanos() as u64);
+	sleep_until(timer().nsec() + duration.as_nanos() as u64);
 }
 
 pub fn init() -> Result<(), Err>

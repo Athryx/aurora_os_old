@@ -249,6 +249,7 @@ static NANOSEC_PER_TICK: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug)]
 pub struct LocalApic {
 	addr: usize,
+	elapsed_time: u64,
 }
 
 impl LocalApic {
@@ -301,6 +302,7 @@ impl LocalApic {
 	pub unsafe fn from(addr: PhysAddr) -> Self {
 		let mut out = LocalApic {
 			addr: phys_to_virt(addr).as_u64() as usize,
+			elapsed_time: 0,
 		};
 		out.set_lvt(LvtType::Timer(LvtEntry::new_masked()));
 
@@ -352,7 +354,6 @@ impl LocalApic {
 	// returns false if the period is too long
 	pub fn init_timer(&mut self, period: Duration) -> bool {
 		let nsec_per = self.nanosec_per_timer_tick();
-		eprintln!("{}", nsec_per);
 		let nsec_period: u32 = match period.as_nanos().try_into() {
 			Ok(nsec) => nsec,
 			Err(_) => return false,
@@ -363,13 +364,14 @@ impl LocalApic {
 			Err(_) => return false,
 		};
 
+		Handler::First(|_, _| { cpud().lapic().tick(); false }).register(IRQ_TIMER).unwrap();
+
 		self.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
 		self.write_reg_32(Self::TIMER_INIT_COUNT, count);
 
 		true
 	}
 
-	// FIXME: this isn't accurate
 	fn nanosec_per_timer_tick(&mut self) -> u64 {
 		let nsec = NANOSEC_PER_TICK.load(Ordering::Acquire);
 		if nsec != 0 {
@@ -399,6 +401,16 @@ impl LocalApic {
 		let out = TIMER_CALIBRATE_TIME.as_nanos() as u64 / elapsed_ticks as u64;
 		NANOSEC_PER_TICK.store(out, Ordering::Release);
 		out
+	}
+
+	// called when timer interrupt fires
+	fn tick(&mut self) {
+		let period: u64 = config::TIMER_PERIOD.as_nanos().try_into().unwrap();
+		self.elapsed_time += period;
+	}
+
+	pub fn nsec(&self) -> u64 {
+		self.elapsed_time + self.read_reg_32(Self::TIMER_COUNT) as u64
 	}
 
 	fn read_reg_32(&self, reg: usize) -> u32 {

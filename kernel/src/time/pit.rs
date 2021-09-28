@@ -10,7 +10,7 @@ use crate::arch::x64::*;
 use crate::sched::Registers;
 use crate::int::idt::{Handler, IRQ_TIMER};
 use crate::util::IMutex;
-use super::NANOSEC_PER_SEC;
+use super::Timer;
 
 const PIT_INTERRUPT_TERMINAL_COUNT: u8 = 0;
 const PIT_ONE_SHOT: u8 = 1;
@@ -88,7 +88,26 @@ impl Pit
 		}
 	}
 
-	pub fn nsec(&self) -> u64
+	// returns false if the duration given was too long
+	// will interfere with pit if it has already been configured
+	pub unsafe fn one_shot(&self, duration: Duration, f: fn() -> ()) -> bool {
+		let ticks = duration.as_nanos() as u64 / NANOSEC_PER_CLOCK;
+		let ticks = match ticks.try_into() {
+			Ok(ticks) => ticks,
+			Err(_) => return false,
+		};
+
+		Handler::Override(Some(one_shot_handler)).register(IRQ_TIMER).unwrap();
+		*ONESHOT_CALLBACK.lock() = f;
+
+		self.set_reset(ticks);
+
+		true
+	}
+}
+
+impl Timer for Pit {
+	fn nsec(&self) -> u64
 	{
 		if let Some(_lock) = self.lock.try_lock() {
 			// lock latch
@@ -105,38 +124,11 @@ impl Pit
 		}
 	}
 
-	pub fn duration(&self) -> Duration
-	{
-		Duration::from_nanos(self.nsec())
-	}
-
 	// less accurate, but faster
 	// it will be much more accurate if also running in a timer interrupt handler
-	pub fn nsec_no_latch(&self) -> u64
+	fn nsec_no_latch(&self) -> u64
 	{
 		self.elapsed_time.load(Ordering::Relaxed)
-	}
-
-	pub fn duration_no_latch(&self) -> Duration
-	{
-		Duration::from_nanos(self.nsec_no_latch())
-	}
-
-	// returns false if the duration given was too long
-	// will interfere with pit if it has already been configured
-	pub unsafe fn one_shot(&self, duration: Duration, f: fn() -> ()) -> bool {
-		let ticks = duration.as_nanos() as u64 / NANOSEC_PER_CLOCK;
-		let ticks = match ticks.try_into() {
-			Ok(ticks) => ticks,
-			Err(_) => return false,
-		};
-
-		Handler::Override(Some(one_shot_handler)).register(IRQ_TIMER).unwrap();
-		*ONESHOT_CALLBACK.lock() = f;
-
-		self.set_reset(ticks);
-
-		true
 	}
 }
 

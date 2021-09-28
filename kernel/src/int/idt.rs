@@ -272,7 +272,6 @@ pub fn irq_arr() -> [u8; 15] {
 extern "C" fn rust_int_handler(vec: u8, regs: &mut Registers, error_code: u64) -> bool
 {
 	let vec = vec as usize;
-	rprintln!("prid: {}", prid());
 
 	// set call_rsp and call_save_rsp in regs data structure which are not set by assembly
 	{

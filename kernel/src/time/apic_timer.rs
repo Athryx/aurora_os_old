@@ -1,14 +1,11 @@
 use crate::uses::*;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
-use crate::arch::x64::cpuid;
-use super::NANOSEC_PER_SEC;
+use super::Timer;
 
 const DEFAULT_RESET: Duration = Duration::from_millis(20);
 
-lazy_static! {
-	pub static ref apic_timer: ApicTimer = ApicTimer::new(DEFAULT_RESET);
-}
+pub static apic_timer: ApicTimer = ApicTimer::new(DEFAULT_RESET);
 
 pub struct ApicTimer {
 	elapsed_time: AtomicU64,
@@ -16,16 +13,16 @@ pub struct ApicTimer {
 }
 
 impl ApicTimer {
-	fn new(reset: Duration) -> Self {
-		let out = ApicTimer {
+	const fn new(reset: Duration) -> Self {
+		ApicTimer {
 			elapsed_time: AtomicU64::new(0),
 			nano_reset: AtomicU64::new(0),
-		};
-		out.set_reset(reset);
-		out
+		}
 	}
+}
 
-	fn set_reset(&self, reset: Duration) {
-		let hz = cpuid::core_clock_freq();
+impl Timer for ApicTimer {
+	fn nsec(&self) -> u64 {
+		cpud().lapic().nsec()
 	}
 }

@@ -233,7 +233,7 @@ pub extern "C" fn _start(boot_info_addr: usize) -> !
 	)
 	.unwrap();*/
 
-	//test();
+	test();
 
 	loop {
 		hlt();
