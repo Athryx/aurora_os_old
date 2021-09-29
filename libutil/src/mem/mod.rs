@@ -138,6 +138,7 @@ impl Allocation
 	}
 }
 
+#[cfg(not(feature = "kernel"))]
 #[global_allocator]
 static ALLOCATOR: GlobalAllocator = GlobalAllocator::new();
 
@@ -147,17 +148,20 @@ fn alloc_error_handler(layout: Layout) -> !
 	panic!("allocation error: {:?}", layout);
 }
 
+#[cfg(not(feature = "kernel"))]
 pub fn init()
 {
 	ALLOCATOR.init();
 }
 
 // TODO: add relloc function
+#[cfg(not(feature = "kernel"))]
 struct GlobalAllocator
 {
 	allocer: Futex<Option<LinkedListAllocator>>,
 }
 
+#[cfg(not(feature = "kernel"))]
 impl GlobalAllocator
 {
 	const fn new() -> GlobalAllocator
@@ -173,6 +177,7 @@ impl GlobalAllocator
 	}
 }
 
+#[cfg(not(feature = "kernel"))]
 unsafe impl GlobalAlloc for GlobalAllocator
 {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8
@@ -186,5 +191,7 @@ unsafe impl GlobalAlloc for GlobalAllocator
 	}
 }
 
+#[cfg(not(feature = "kernel"))]
 unsafe impl Send for GlobalAllocator {}
+#[cfg(not(feature = "kernel"))]
 unsafe impl Sync for GlobalAllocator {}

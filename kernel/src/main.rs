@@ -146,6 +146,9 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 		libutil::init(&util::CALLS);
 	}
 
+	// must init after libutil::init otherwise it can't allocate pages
+	mem::heap::init();
+
 	kdata::init(0);
 
 	gdt::init();

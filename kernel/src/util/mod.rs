@@ -43,7 +43,6 @@ impl UtilCalls for Calls
 		proc_c().futex().remove(id).unwrap();
 	}
 
-	// NOTE: chage if kernel ever blocks on shared memory
 	fn block(&self, id: usize)
 	{
 		proc_c().futex().block(CapId::from(id)).unwrap();

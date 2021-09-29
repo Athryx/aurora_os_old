@@ -15,6 +15,7 @@ pub mod phys_alloc;
 pub mod shared_mem;
 pub mod sys;
 pub mod virt_alloc;
+pub mod heap;
 
 pub const PAGE_SIZE: usize = 4096;
 pub const MAX_VIRT_ADDR: usize = 1 << 47;

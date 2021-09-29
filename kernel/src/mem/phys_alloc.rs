@@ -2,11 +2,10 @@ use core::cmp::{max, min};
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use core::cell::Cell;
 
-use spin::Mutex;
 pub use libutil::mem::Allocation;
 
 use crate::uses::*;
-use crate::util::{Futex, LinkedList, MemOwner, UniqueRef};
+use crate::util::{IMutex, LinkedList, MemOwner, UniqueRef};
 use crate::mb2::{BootInfo, MemoryRegionType};
 use super::{PhysRange, PAGE_SIZE};
 use super::virt_alloc::FrameAllocator;
@@ -466,7 +465,7 @@ impl BuddyAllocator
 #[derive(Debug)]
 pub struct ZoneManager
 {
-	zones: RefCell<[Option<Futex<BuddyAllocator>>; MAX_ZONES]>,
+	zones: RefCell<[Option<IMutex<BuddyAllocator>>; MAX_ZONES]>,
 	zlen: Cell<usize>,
 	selnum: AtomicUsize,
 }
@@ -497,7 +496,7 @@ impl ZoneManager
 					panic! ("MAX_ZONES is not big enough to store an allocator for all the physical memory zones");
 				}
 
-				self.zones.borrow_mut()[zlen] = Some(Futex::new(BuddyAllocator::new(
+				self.zones.borrow_mut()[zlen] = Some(IMutex::new(BuddyAllocator::new(
 					phys_to_virt(start),
 					phys_to_virt(end),
 					PAGE_SIZE,

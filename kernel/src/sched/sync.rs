@@ -104,6 +104,7 @@ impl KFutex
 		self.alive.store(false, Ordering::Release);
 		let state = ThreadState::FutexBlock(self as *const _);
 
+		// FIXME: this is probably redundant
 		let lock = self.block_lock.lock();
 		// forget this lock to stop any other thread from blocking and eventually all spining threads will stop because alive is false
 		core::mem::forget(lock);

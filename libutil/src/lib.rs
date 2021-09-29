@@ -78,5 +78,6 @@ pub unsafe fn init(calls: &'static dyn UtilCalls)
 {
 	UTIL_CALLS = Some(calls);
 
+	#[cfg(not(feature = "kernel"))]
 	mem::init();
 }
