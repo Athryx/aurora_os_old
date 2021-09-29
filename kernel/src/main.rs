@@ -72,8 +72,10 @@ static AP_ALLOC_LOCK: Mutex<()> = Mutex::new(());
 #[panic_handler]
 fn panic(info: &PanicInfo) -> !
 {
-	rprintln!("{}", info);
-	println!("{}", info);
+	cli();
+	eprintln!("cpu {}: {}", prid(), info);
+	// Comment this out for now because for some reason it can cause panic loops
+	//println!("cpu {}: {}", prid(), info);
 
 	loop {
 		cli();
@@ -111,13 +113,12 @@ fn page_fault(regs: &mut Registers, code: u64) -> bool
 
 	// can't indent because it will print tabs
 	panic!(
-		r"page fault on cpu {} accessing virtual address {:x}
+		r"page fault accessing virtual address {:x}
 page fault during {} {}
 non present page: {}
 reserved bit set: {}
 registers:
 {:x?}",
-		prid(),
 		get_cr2(),
 		ring,
 		action,
@@ -387,7 +388,7 @@ fn test()
 		let tid = proc_c()
 			.new_thread(
 				test_thread_1 as usize,
-				Some("alloc_test_thread".to_string()),
+				Some("alloc_test_thread_long".to_string()),
 			)
 			.unwrap();
 		join_tid = Tuid::new(proc_c().pid(), tid);
@@ -481,6 +482,7 @@ fn test_thread_1()
 fn test_alloc_thread()
 {
 	loop {
+		eprintln!("starting alloc test on cpu {}", prid());
 		let _a = Box::new(0);
 		let _b = Box::new(0);
 		let _c = Box::new(0);

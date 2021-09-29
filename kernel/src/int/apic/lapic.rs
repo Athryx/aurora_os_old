@@ -250,6 +250,7 @@ static NANOSEC_PER_TICK: AtomicU64 = AtomicU64::new(0);
 pub struct LocalApic {
 	addr: usize,
 	elapsed_time: u64,
+	count: u32,
 }
 
 impl LocalApic {
@@ -303,6 +304,7 @@ impl LocalApic {
 		let mut out = LocalApic {
 			addr: phys_to_virt(addr).as_u64() as usize,
 			elapsed_time: 0,
+			count: 0,
 		};
 		out.set_lvt(LvtType::Timer(LvtEntry::new_masked()));
 
@@ -359,7 +361,7 @@ impl LocalApic {
 			Err(_) => return false,
 		};
 
-		let count = match (nsec_period / nsec_per as u32).try_into() {
+		self.count = match (nsec_period / nsec_per as u32).try_into() {
 			Ok(count) => count,
 			Err(_) => return false,
 		};
@@ -367,7 +369,7 @@ impl LocalApic {
 		Handler::First(|_, _| { cpud().lapic().tick(); false }).register(IRQ_TIMER).unwrap();
 
 		self.set_lvt(LvtType::Timer(LvtEntry::new_timer(IRQ_TIMER)));
-		self.write_reg_32(Self::TIMER_INIT_COUNT, count);
+		self.write_reg_32(Self::TIMER_INIT_COUNT, self.count);
 
 		true
 	}
@@ -409,8 +411,10 @@ impl LocalApic {
 		self.elapsed_time += period;
 	}
 
-	pub fn nsec(&self) -> u64 {
-		self.elapsed_time + self.read_reg_32(Self::TIMER_COUNT) as u64
+	pub fn nsec(&mut self) -> u64 {
+		self.elapsed_time
+			+ (self.count - self.read_reg_32(Self::TIMER_COUNT)) as u64
+				* self.nanosec_per_timer_tick()
 	}
 
 	fn read_reg_32(&self, reg: usize) -> u32 {

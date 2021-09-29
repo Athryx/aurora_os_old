@@ -144,7 +144,10 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 					break t;
 				}
 			},
-			None => return false,
+			None => match thread_list[ThreadState::Idle].pop() {
+				Some(thread) => break thread,
+				None => return false,
+			},
 		}
 	};
 
@@ -155,7 +158,7 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 	if nsec_current >= nsec_last {
 		old_thread.inc_time(nsec_current - nsec_last);
 	} else {
-		rprintln!("WARNING: pit returned time value less than previous time value");
+		eprintln!("WARNING: timer returned time value less than previous time value");
 	}
 
 	// FIXME: smp race condition
@@ -164,7 +167,7 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 	let old_state = old_thread.state();
 	old_state.atomic_process();
 	if let ThreadState::Running = old_state {
-		old_thread.set_state(ThreadState::Ready);
+		old_thread.set_state(old_thread.default_state());
 	}
 
 	// if process was dropped, move to destroy list
@@ -174,7 +177,8 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 	tpointer.set_state(ThreadState::Running);
 	let tpointer = Thread::insert_into(tpointer, &mut thread_list);
 
-	//rprintln! ("switching to:\n{:#x?}", *tpointer);
+	//eprintln! ("cpu {} switching to:\n{:#x?}", prid(), *tpointer);
+	eprintln! ("cpu {} switching to: {}", prid(), tpointer.name());
 
 	// FIXME: smp race condition
 	let new_process = tpointer.process().unwrap();
@@ -221,7 +225,7 @@ fn thread_cleaner()
 				None => break,
 			};
 
-			rprintln!("Deallocing thread pointer:\n{:#x?}", tcell);
+			eprintln!("Deallocing thread pointer:\n{:#x?}", tcell);
 
 			unsafe {
 				tcell.dealloc();
@@ -276,6 +280,7 @@ pub struct ThreadList
 {
 	running: Vec<LinkedList<Thread>>,
 	ready: LinkedList<Thread>,
+	idle: Vec<LinkedList<Thread>>,
 	destroy: LinkedList<Thread>,
 	sleep: LinkedList<Thread>,
 	join: AvlTree<Tuid, TLTreeNode<Tuid>>,
@@ -291,6 +296,7 @@ impl ThreadList
 		ThreadList {
 			running: Vec::new(),
 			ready: LinkedList::new(),
+			idle: Vec::new(),
 			destroy: LinkedList::new(),
 			sleep: LinkedList::new(),
 			join: AvlTree::new(),
@@ -305,6 +311,7 @@ impl ThreadList
 		match state {
 			ThreadState::Running => Some(&self.running[prid()]),
 			ThreadState::Ready => Some(&self.ready),
+			ThreadState::Idle => Some(&self.idle[prid()]),
 			ThreadState::Destroy => Some(&self.destroy),
 			ThreadState::Sleep(_) => Some(&self.sleep),
 			ThreadState::Join(tuid) => Some(unsafe { unbound(&self.join.get(&tuid)?.list) }),
@@ -321,6 +328,7 @@ impl ThreadList
 		match state {
 			ThreadState::Running => Some(&mut self.running[prid()]),
 			ThreadState::Ready => Some(&mut self.ready),
+			ThreadState::Idle => Some(&mut self.idle[prid()]),
 			ThreadState::Destroy => Some(&mut self.destroy),
 			ThreadState::Sleep(_) => Some(&mut self.sleep),
 			ThreadState::Join(tuid) => {
@@ -341,6 +349,7 @@ impl ThreadList
 	fn ensure_running(&mut self, prid: usize) {
 		for _ in self.running.len()..=prid {
 			self.running.push(LinkedList::new());
+			self.idle.push(LinkedList::new());
 		}
 	}
 
@@ -698,7 +707,7 @@ pub fn init() -> Result<(), Err>
 	kernel_proc.new_thread(thread_cleaner as usize, Some("thread_cleaner".to_string()))?;
 
 	// rip will be set on first context switch
-	let idle_thread = Thread::from_stack(
+	let idle_thread = Thread::new_idle(
 		Arc::downgrade(&kernel_proc),
 		kernel_proc.next_tid(),
 		format!("idle_thread{}", prid()),
@@ -738,7 +747,7 @@ pub fn ap_init(stack_top: usize) -> Result<(), Err> {
 
 	let stack_vrange = VirtRange::new(VirtAddr::new(stack_top as u64), Stack::DEFAULT_KERNEL_SIZE);
 
-	let idle_thread = Thread::from_stack(
+	let idle_thread = Thread::new_idle(
 		Arc::downgrade(&kernel_proc),
 		kernel_proc.next_tid(),
 		format!("idle_thread{}", prid()),

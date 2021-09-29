@@ -112,6 +112,8 @@ pub enum ThreadState
 {
 	Running,
 	Ready,
+	// idle thread
+	Idle,
 	Destroy,
 	// waiting for thread to call int_sched
 	Waiting(Tuid),
@@ -262,6 +264,7 @@ pub struct Thread
 	process: Weak<Process>,
 	tuid: Tuid,
 	name: String,
+	idle: bool,
 
 	ref_count: AtomicUsize,
 
@@ -338,6 +341,7 @@ impl Thread
 			process,
 			tuid: Tuid::new(proc.pid(), tid),
 			name,
+			idle: false,
 			ref_count: AtomicUsize::new(0),
 			state: IMutex::new(ThreadState::Ready),
 			run_time: AtomicU64::new(0),
@@ -354,7 +358,7 @@ impl Thread
 
 	// only used for kernel idle thread
 	// uid is assumed kernel
-	pub fn from_stack(
+	pub fn new_idle(
 		process: Weak<Process>,
 		tid: Tid,
 		name: String,
@@ -376,6 +380,7 @@ impl Thread
 			process,
 			tuid: Tuid::new(proc.pid(), tid),
 			name,
+			idle: true,
 			ref_count: AtomicUsize::new(0),
 			state: IMutex::new(ThreadState::Ready),
 			run_time: AtomicU64::new(0),
@@ -423,6 +428,15 @@ impl Thread
 	pub fn name(&self) -> &str
 	{
 		&self.name
+	}
+
+	pub fn default_state(&self) -> ThreadState
+	{
+		if self.idle {
+			ThreadState::Idle
+		} else {
+			ThreadState::Ready
+		}
 	}
 
 	pub fn state(&self) -> ThreadState

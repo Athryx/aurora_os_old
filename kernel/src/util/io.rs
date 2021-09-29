@@ -8,6 +8,7 @@ use crate::arch::x64::*;
 use crate::consts;
 use crate::syscall::SyscallVals;
 use crate::util::get_bits;
+use crate::util::IMutex;
 
 const VGA_BUF_WIDTH: usize = 80;
 const VGA_BUF_HEIGHT: usize = 25;
@@ -26,7 +27,7 @@ lazy_static! {
 		},
 	});
 }
-pub static E_WRITER: Mutex<PortWriter> = Mutex::new(PortWriter::new(DEBUGCON_PORT));
+pub static E_WRITER: IMutex<PortWriter> = IMutex::new(PortWriter::new(DEBUGCON_PORT));
 // doesn't lock, so ideal for calling from interrupt handlers, but it is not synchronized
 pub static mut R_WRITER: PortWriter = PortWriter::new(DEBUGCON_PORT);
 
