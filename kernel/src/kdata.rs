@@ -102,6 +102,40 @@ pub fn cpud() -> GsRef {
 	out
 }
 
+// returns none if another cpud ref on this core exists
+pub fn try_cpud() -> Option<GsRef> {
+	let intd = IntDisable::new();
+
+	let ptr = gs_addr();
+
+	let out = GsRef {
+		data: ptr as *mut GsData,
+		intd,
+	};
+
+	if out.other_alive.swap(true, Ordering::AcqRel) {
+		None
+	} else {
+		Some(out)
+	}
+}
+
+// doesn't check if another cpud ref on this core exists
+pub unsafe fn force_cpud() -> GsRef {
+	let intd = IntDisable::new();
+
+	let ptr = gs_addr();
+
+	let out = GsRef {
+		data: ptr as *mut GsData,
+		intd,
+	};
+
+	out.other_alive.store(true, Ordering::Release);
+
+	out
+}
+
 pub fn prid() -> usize {
 	let _intd = IntDisable::new();
 	raw_prid()

@@ -70,6 +70,10 @@ pub const IRQ_SECONDARY_ATA: u8 = PICS_OFFSET + 7;
 
 pub const INT_SCHED: u8 = 128;
 
+pub const IPI_FLUSH_TLB: u8 = 129;
+pub const IPI_CONTEXT_EXIT: u8 = 130;
+pub const IPI_PANIC: u8 = 131;
+
 // NOTE: on some processors, according to intel manuals, bits 0-3 of the spurious vector register are always 0,
 // so we should always choose a spurious vector number with bits 0-3 zeroed
 pub const SPURIOUS: u8 = 0xf0;
@@ -386,6 +390,9 @@ pub fn init()
 	minth!(46, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 	minth!(47, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 	minth!(128, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(129, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(130, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
+	minth!(131, IntHandlerType::Interrupt, CPUPrivLevel::Ring0);
 
 	cpud().idt.load();
 }

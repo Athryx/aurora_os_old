@@ -19,6 +19,7 @@ use crate::util::{
 };
 use crate::arch::x64::{cli, rdmsr, wrmsr, EFER_EXEC_DISABLE, EFER_MSR};
 use crate::time::timer;
+use crate::config::SCHED_TIME_NANOS;
 use crate::mem::VirtRange;
 use crate::upriv::PrivLevel;
 use crate::consts::INIT_STACK;
@@ -46,10 +47,6 @@ mod thread;
 
 pub static tlist: ThreadListGuard = ThreadListGuard::new();
 static proc_list: Mutex<BTreeMap<Pid, Arc<Process>>> = Mutex::new(BTreeMap::new());
-
-// amount of time that elapses before we will switch to a new thread in nanoseconds
-// current value is 100 milliseconds
-const SCHED_TIME: u64 = 100000000;
 
 // TODO: make this cpu local data
 // FIXME: this is a bad way to return registers, and won't be safe with smp
@@ -84,7 +81,7 @@ fn time_handler(regs: &mut Registers, _: u64) -> bool
 	let mut out = false;
 
 	let mut cpd = cpud();
-	if nsec - cpd.last_switch_nsec > SCHED_TIME {
+	if nsec - cpd.last_switch_nsec > SCHED_TIME_NANOS {
 		out = schedule(regs, cpd.last_switch_nsec, nsec);
 		cpd.last_switch_nsec = nsec;
 	}

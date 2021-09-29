@@ -59,6 +59,9 @@
 %define IRQ_SECONDARY_ATA (PICS_OFFSET + 7)
 
 %define INT_SCHED 128
+%define IPI_FLUSH_TLB 129
+%define IPI_CONTEXT_EXIT 130
+%define IPI_PANIC 131
 
 %define DEBUGCON_PORT 0xe9
 

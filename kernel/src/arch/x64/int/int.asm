@@ -266,3 +266,6 @@ make_asm_irq_handler 45
 make_asm_irq_handler 46
 make_asm_irq_handler 47
 make_asm_int_handler INT_SCHED
+make_asm_int_handler IPI_FLUSH_TLB
+make_asm_int_handler IPI_CONTEXT_EXIT
+make_asm_int_handler IPI_PANIC

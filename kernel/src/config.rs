@@ -9,6 +9,9 @@ pub const MAX_CPUS: usize = 16;
 /// How long between interrupts sent by the timer
 pub const TIMER_PERIOD: Duration = Duration::from_millis(40);
 
+/// amount of time that elapses before we will switch to a new thread
+pub const SCHED_TIME: Duration = Duration::from_millis(10);
+
 // don't tweak the parameters below
 
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +20,7 @@ use crate::mem::PAGE_SIZE;
 use crate::arch::x64::cpuid;
 
 pub const MSG_BUF_SIZE: usize = MSG_BUF_LEN * PAGE_SIZE;
+pub const SCHED_TIME_NANOS: u64 = SCHED_TIME.as_nanos() as u64;
 
 // dynamic config parameters set by kernel
 

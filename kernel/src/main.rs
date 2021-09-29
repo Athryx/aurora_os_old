@@ -57,6 +57,7 @@ use mb2::BootInfo;
 use arch::x64::*;
 use sched::*;
 use int::*;
+use int::apic::lapic::Ipi;
 use consts::AP_CODE_START;
 use int::idt::Handler;
 use util::{misc, AvlTree};
@@ -73,6 +74,10 @@ static AP_ALLOC_LOCK: Mutex<()> = Mutex::new(());
 fn panic(info: &PanicInfo) -> !
 {
 	cli();
+	unsafe {
+		force_cpud().lapic().send_ipi(Ipi::panic());
+	}
+
 	eprintln!("cpu {}: {}", prid(), info);
 	// Comment this out for now because for some reason it can cause panic loops
 	//println!("cpu {}: {}", prid(), info);
@@ -128,6 +133,13 @@ registers:
 	);
 }
 
+fn ipi_panic(_: &mut Registers, _: u64) -> bool {
+	loop {
+		cli();
+		hlt();
+	}
+}
+
 fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 {
 	util::io::WRITER.lock().clear();
@@ -158,6 +170,7 @@ fn init(boot_info: &BootInfo) -> Result<(), util::Err>
 	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
 	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
 	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
+	Handler::First(ipi_panic).register(idt::IPI_PANIC)?;
 
 	syscall::init();
 
@@ -199,6 +212,7 @@ fn ap_init(proc_id: usize, stack_top: usize) -> Result<(), util::Err> {
 	Handler::First(page_fault).register(idt::EXC_PAGE_FAULT)?;
 	Handler::Normal(double_fault).register(idt::EXC_DOUBLE_FAULT)?;
 	Handler::Normal(gp_exception).register(idt::EXC_GENERAL_PROTECTION_FAULT)?;
+	Handler::First(ipi_panic).register(idt::IPI_PANIC)?;
 
 	syscall::init();
 

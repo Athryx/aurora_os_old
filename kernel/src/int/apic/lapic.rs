@@ -2,7 +2,7 @@ use crate::uses::*;
 use modular_bitfield::{bitfield, BitfieldSpecifier};
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use crate::int::idt::{SPURIOUS, IRQ_TIMER, Handler};
+use crate::int::idt::{SPURIOUS, IRQ_TIMER, IPI_PANIC, Handler};
 use crate::config;
 use crate::time::pit::pit;
 use crate::arch::x64::*;
@@ -145,6 +145,10 @@ pub enum Ipi {
 }
 
 impl Ipi {
+	pub fn panic() -> Self {
+		Self::To(IpiDest::AllExcludeThis, IPI_PANIC)
+	}
+
 	pub fn dest(&self) -> IpiDest {
 		match *self {
 			Self::To(dest, _) => dest,
