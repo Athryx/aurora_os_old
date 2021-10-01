@@ -1,13 +1,22 @@
-use crate::uses::*;
 use modular_bitfield::{bitfield, BitfieldSpecifier};
+use lazy_static::lazy_static;
+
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use crate::int::idt::{SPURIOUS, IRQ_TIMER, IPI_PANIC, Handler};
+
+use crate::uses::*;
+use crate::int::idt::{SPURIOUS, IRQ_TIMER, IPI_PANIC, IPI_PROCESS_EXIT, Handler};
 use crate::config;
+use crate::util::NLVecMap;
 use crate::time::pit::pit;
 use crate::arch::x64::*;
 use crate::sched::Registers;
 use super::*;
+
+lazy_static! {
+	// maps os processor ids to processor lapic ids
+	static ref LAPIC_ID_MAP: NLVecMap<usize, u8> = NLVecMap::new();
+}
 
 #[bitfield]
 #[repr(u32)]
@@ -136,6 +145,12 @@ pub enum IpiDest {
 	OtherLogical(u8),
 }
 
+impl IpiDest {
+	pub fn to_prid(prid: usize) -> Self {
+		Self::OtherPhysical(*LAPIC_ID_MAP.get(&prid).unwrap())
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ipi {
 	To(IpiDest, u8),
@@ -147,6 +162,10 @@ pub enum Ipi {
 impl Ipi {
 	pub fn panic() -> Self {
 		Self::To(IpiDest::AllExcludeThis, IPI_PANIC)
+	}
+
+	pub fn process_exit(prid: usize) -> Self {
+		Self::To(IpiDest::to_prid(prid), IPI_PROCESS_EXIT)
 	}
 
 	pub fn dest(&self) -> IpiDest {
@@ -310,6 +329,9 @@ impl LocalApic {
 			elapsed_time: 0,
 			count: 0,
 		};
+		let id = cpuid::apic_id();
+		LAPIC_ID_MAP.insert(prid(), id);
+
 		out.set_lvt(LvtType::Timer(LvtEntry::new_masked()));
 
 		out.set_lvt(LvtType::MachineCheck(LvtEntry::new_masked()));

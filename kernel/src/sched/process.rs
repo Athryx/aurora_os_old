@@ -1,6 +1,6 @@
 use core::cell::Cell;
 use core::ops::{Index, IndexMut};
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::ptr::NonNull;
 use alloc::alloc::{Allocator, Global, Layout};
 use alloc::collections::BTreeMap;
@@ -13,6 +13,7 @@ use crate::uses::*;
 use crate::cap::{CapMap, CapSys, CapObjectType, CapObject};
 use crate::key::Key;
 use crate::ipc::channel::Channel;
+use crate::apic::lapic::Ipi;
 use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::mem::phys_alloc::zm;
 use crate::mem::virt_alloc::{
@@ -20,7 +21,7 @@ use crate::mem::virt_alloc::{
 };
 use crate::mem::shared_mem::SharedMem;
 use crate::upriv::PrivLevel;
-use crate::util::{AvlTree, Futex, IMutex, LinkedList, MemOwner, UniqueMut, UniqueRef};
+use crate::util::{CpuMarker, AvlTree, Futex, IMutex, LinkedList, MemOwner, UniqueMut, UniqueRef};
 use crate::syscall::udata::{UserArray, UserData, UserPageArray};
 use super::{
 	Tid, int_sched, proc_c, proc_list, thread_c, tlist, Registers, TLTreeNode, ThreadList,
@@ -120,6 +121,9 @@ pub struct Process
 	launch_path: String,
 	self_ref: Weak<Self>,
 
+	alive: AtomicBool,
+	cpus_running: CpuMarker,
+
 	uid: PrivLevel,
 
 	next_tid: AtomicUsize,
@@ -144,6 +148,8 @@ impl Process
 			name,
 			launch_path,
 			self_ref: weak.clone(),
+			alive: AtomicBool::new(true),
+			cpus_running: CpuMarker::new(),
 			uid,
 			next_tid: AtomicUsize::new(0),
 			threads: Mutex::new(BTreeMap::new()),
@@ -346,6 +352,14 @@ impl Process
 		&self.launch_path
 	}
 
+	pub fn is_alive(&self) -> bool {
+		self.alive.load(Ordering::Acquire)
+	}
+
+	pub fn set_running(&self, running: bool) {
+		self.cpus_running.set(running);
+	}
+
 	pub fn uid(&self) -> PrivLevel
 	{
 		self.uid
@@ -412,7 +426,6 @@ impl Process
 
 	// sets any threads waiting on this thread to ready to run if thread_list is Some
 	// NOTE: acquires the tlist lock
-	// TODO: make process die after last thread removed
 	// safety: only call from thread dealloc method
 	pub unsafe fn remove_thread(&self, tid: Tid) -> Option<MemOwner<Thread>>
 	{
@@ -461,14 +474,52 @@ impl Process
 			Err(Err::new("could not insert thread into process thread list"))
 		}
 	}
+
+	// acquires cpu data
+	// locks process list
+	// locks thread list
+	// FIXME: might not always deallocate process if there is an arc on the process that wasn't dropped
+	pub fn terminate(&self) {
+		proc_list.lock().remove(&self.pid());
+
+		// lock the thread list before setting alive to false so that no threads read alive
+		// and then switch to the thread after it is set to false
+		let thread_list = tlist.lock();
+		self.alive.store(false, Ordering::Release);
+		drop(thread_list);
+
+		let mut cpd = cpud();
+		let lapic = cpd.lapic();
+
+		let mut self_switch = false;
+
+		// FIXME: i am not sure if the ipi is guarenteed to arrive to cpu before it calls proc_c again,
+		// potentially causeing a panic. I think it should though
+		for proc_id in self.cpus_running.iter_clear() {
+			if proc_id == prid() {
+				self_switch = true;
+				break;
+			}
+			lapic.send_ipi(Ipi::process_exit(proc_id));
+		}
+
+		// drop cpu data before context switching
+		drop(cpd);
+		if self_switch {
+			int_sched();
+		}
+	}
 }
 
-impl Drop for Process
-{
-	fn drop(&mut self)
-	{
-		let mut threads = self.threads.lock();
-		while threads.pop_first().is_some() {}
-		todo!();
+pub(super) fn ipi_process_exit_handler(_: &mut Registers, _: u64) -> bool {
+	// can't use proc_c hear because process may have been dropped
+	match thread_c().process() {
+		Some(process) => {
+			if !process.is_alive() {
+				int_sched();
+			}
+		}
+		None => int_sched(),
 	}
+	false
 }

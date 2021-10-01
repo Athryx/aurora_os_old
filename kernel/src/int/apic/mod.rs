@@ -9,7 +9,7 @@ use crate::kdata::cpud;
 use crate::mem::virt_alloc::{VirtMapper, VirtLayoutElement, VirtLayout, PageMappingFlags, AllocType};
 use crate::mem::{VirtRange, PAGE_SIZE};
 use crate::mem::phys_alloc::{zm, Allocation, ZoneManager};
-use crate::config::{MAX_CPUS, TIMER_PERIOD};
+use crate::config::{MAX_CPUS, TIMER_PERIOD, set_cpu_count};
 use crate::acpi::madt::{Madt, MadtElem};
 use crate::arch::x64::io_wait;
 use crate::sched::{sleep, Stack};
@@ -235,6 +235,7 @@ static APS_GO: AtomicBool = AtomicBool::new(false);
 
 pub unsafe fn smp_init(ap_ids: Vec<u8>, mut ap_code_zone: Allocation, ap_addr_space: VirtMapper<ZoneManager>) {
 	APS_TO_BOOT.store(ap_ids.len(), Ordering::Release);
+	set_cpu_count(ap_ids.len() + 1);
 
 	let ap_bin_start = phys_to_virt_usize(*AP_PHYS_START);
 	let ap_virt_start = phys_to_virt_usize(*AP_CODE_START);

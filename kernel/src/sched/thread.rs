@@ -398,7 +398,12 @@ impl Thread
 	// for future compatability, when thread could be dead because of other reasons
 	pub fn is_alive(&self) -> bool
 	{
-		self.proc_alive()
+		match self.process() {
+			Some(process) => {
+				process.is_alive()
+			}
+			None => false
+		}
 	}
 
 	pub fn proc_alive(&self) -> bool
@@ -566,7 +571,6 @@ impl Thread
 	// safety: must call with no other references pointing to self existing
 	pub unsafe fn dealloc(this: MemOwner<Self>)
 	{
-		// FIXME: smp reace condition if process is freed after initial thread () call
 		if let Some(process) = this.process() {
 			process
 				.remove_thread(this.tid())

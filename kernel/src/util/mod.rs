@@ -5,6 +5,9 @@ pub mod io;
 
 pub mod misc;
 
+pub mod cpu_marker;
+pub use cpu_marker::{CpuMarker, CpuMarkerIter};
+
 pub use libutil::collections::{AvlTree, LinkedList, ListNode, NLVec, NLVecMap, TreeNode};
 
 // TODO: probably eliminate

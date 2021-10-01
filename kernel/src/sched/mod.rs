@@ -9,11 +9,12 @@ use alloc::alloc::{Allocator, Global, Layout};
 
 use spin::Mutex;
 pub use process::{Pid, Process, SpawnMapFlags, SpawnStartState};
+use process::ipi_process_exit_handler;
 pub use thread::{Stack, Tid, ThreadRef, Thread, ThreadState, Tuid};
 pub use sync::{Fuid, FutexMap, KFutex};
 
 use crate::uses::*;
-use crate::int::idt::{Handler, INT_SCHED, IRQ_TIMER};
+use crate::int::idt::{Handler, INT_SCHED, IRQ_TIMER, IPI_PROCESS_EXIT};
 use crate::util::{
 	AvlTree, IMutex, IMutexGuard, LinkedList, MemOwner, TreeNode, UniqueMut, UniquePtr, UniqueRef,
 };
@@ -158,8 +159,8 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 		eprintln!("WARNING: timer returned time value less than previous time value");
 	}
 
-	// FIXME: smp race condition
-	let old_process = old_thread.process().unwrap();
+	// don't unwrap because we might be switching from a thread where th process just exited
+	let old_process = old_thread.process();
 
 	let old_state = old_thread.state();
 	old_state.atomic_process();
@@ -167,20 +168,27 @@ fn schedule(regs: &mut Registers, nsec_last: u64, nsec_current: u64) -> bool
 		old_thread.set_state(old_thread.default_state());
 	}
 
-	// if process was dropped, move to destroy list
 	Thread::insert_into(old_thread, &mut thread_list);
 
-	// TODO: add premptive multithreading here
 	tpointer.set_state(ThreadState::Running);
 	let tpointer = Thread::insert_into(tpointer, &mut thread_list);
 
 	//eprintln! ("cpu {} switching to:\n{:#x?}", prid(), *tpointer);
 	eprintln! ("cpu {} switching to: {}", prid(), tpointer.name());
 
-	// FIXME: smp race condition
+	// ok to unwrap, process::exit locks scheduler when setting itself to dead,
+	// so we will never switch to a thread that has a dead process
 	let new_process = tpointer.process().unwrap();
 
-	if old_process.pid() != new_process.pid() {
+	if let Some(old_process) = &old_process {
+		old_process.set_running(false);
+	}
+
+	new_process.set_running(true);
+
+	// it is ok to unwrap old_process after calling is none because arc guarentees that it cannot become
+	// deallocated after calling old_thread.process()
+	if old_process.is_none() || old_process.unwrap().pid() != new_process.pid() {
 		unsafe {
 			new_process.addr_space.load();
 		}
@@ -723,6 +731,7 @@ pub fn init() -> Result<(), Err>
 
 	Handler::Last(time_handler).register(IRQ_TIMER)?;
 	Handler::Last(int_handler).register(INT_SCHED)?;
+	Handler::First(ipi_process_exit_handler).register(IPI_PROCESS_EXIT)?;
 
 	Ok(())
 }
@@ -762,6 +771,7 @@ pub fn ap_init(stack_top: usize) -> Result<(), Err> {
 
 	Handler::Last(time_handler).register(IRQ_TIMER)?;
 	Handler::Last(int_handler).register(INT_SCHED)?;
+	Handler::First(ipi_process_exit_handler).register(IPI_PROCESS_EXIT)?;
 
 	Ok(())
 }

@@ -14,7 +14,7 @@ pub const SCHED_TIME: Duration = Duration::from_millis(10);
 
 // don't tweak the parameters below
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::time::Duration;
 use crate::mem::PAGE_SIZE;
 use crate::arch::x64::cpuid;
@@ -32,6 +32,16 @@ pub fn use_apic() -> bool {
 
 pub fn set_use_apic(val: bool) {
 	USE_APIC.store(val, Ordering::Release);
+}
+
+static CPU_COUNT: AtomicUsize = AtomicUsize::new(1);
+
+pub fn cpu_count() -> usize {
+	CPU_COUNT.load(Ordering::Acquire)
+}
+
+pub fn set_cpu_count(val: usize) {
+	CPU_COUNT.store(val, Ordering::Release);
 }
 
 pub fn init() {
