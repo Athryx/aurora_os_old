@@ -7,15 +7,10 @@ specify layout of global information table
 
 specify atomicity of syscalls
 
-specify all the privalidge flags
-
-write descriptions of all syscalls that don't have a description yet
-
-decide if mprotect is needed
+specify behavior of syscalls when capability is destoyed from process, and when underlying object is destroyed
 
 IMPLEMANTATION ISSUES:
 io syscalls unimpleted
-realloc does not correctly follow all flags
 
 
 syscall abi:
@@ -104,9 +99,10 @@ bit 3-6 (cap_type): specifies what type of object the capability refers to
 5: Interrupt
 6: Port
 7: Allocator
-8: MmioAllocator
-9: IntAllocator
-10: PortAllocator
+8: RootOomEvent
+9: MmioAllocator
+10: IntAllocator
+11: PortAllocator
 
 // Thread id
 type tid = usize;
@@ -290,7 +286,7 @@ InvlVirtAddr: {addr} is non canonical
 InvlAddr: {addr} does not point to memory reservation
 
 
-fn mem_new(pages: usize) -> (err: SysErr, cap: Cap<SMem>)
+fn mem_new(pages: usize) -> (err: SysErr, mem: Cap<SMem>)
 allocate memory at least {pages} big
 returns the capability referencing this shared memory
 
@@ -298,10 +294,10 @@ options:
 bit 0-2 (mem_cap_flags): CapPriv representing read and write privalidges over this memory
 
 return value:
-cap: cid of shared memory
+mem: cid of memory
 
 
-fn event_new(args: usize) -> (err: SysErr, cap: Cap<Event>)
+fn event_new(args: usize) -> (err: SysErr, event: Cap<Event>)
 creates a new event
 {args} specifies the number of arguments the event accepts, it can be any number from 0-8
 
@@ -312,7 +308,7 @@ syserr code:
 InvlArgs: {args} was not a number from 0-8
 
 return value:
-cap: capability id of futex
+cap: capability id of event
 
 
 fn event_send(event: Cap<Event>, | count: usize, | arg1: usize, | arg2: usize, | arg3: usize, | arg4: usize, | arg5: usize, | arg6: usize, | arg7: usize, | arg8: usize) -> SysErr
@@ -406,89 +402,7 @@ fn eret()
 returns from an asynchronous event handler
 
 
-fn key_new() -> (err: SysErr, cap: Cap<Key>)
-ceates a new key object
-keys are used by userpace servers to identify sessions, and manage permissions
-each key is a globally unique integer, and this integer can be obtained with the key_id syscall
-
-return value:
-cap: key capability id
-key capability returned has cap_read permissions
-
-
-fn key_id(key: Cap<Key>) -> (err: SysErr, id: usize)
-returns the key's id
-
-required capability permissions:
-{key}: cap_read
-
-return value:
-id: the key's id
-
-
-// TODO: specify interrupt vectors
-fn int_new(int: usize) -> (err: SysErr, cap: Cap<Interrupt>)
-specifies an interrupt for interrupt vector {int}
-
-options:
-bit 0-2 (int_cap_flags): CapPriv representing the permissions of the returned capability
-
-syserr code:
-InvlArg: {int} is not a valid interrupt vector
-
-return value:
-cap: capability to interrupt object
-
-
-fn int_bind(int: Cap<Interrupt>, event: Cap<Event>) -> SysErr
-binds the event object referenced by the {event} capability to send events whenever an interrupt occurs
-
-required capability permissions:
-{int}: cap_write
-
-
-fn int_eoi(int: Cap<Interrupt>) -> SysErr
-signals that {int} can start sending interrupts again
-
-required capability permissions:
-{int}: cap_write
-
-
-15: fn cap_info<T>(cap: Cap<T>) -> SysErr
-
-
-16: fn port_new(port: u16) -> (err: SysErr, cap: Cap<Port>)
-creates a capability referencing a port object on the specified port
-
-syserr code:
-InvlArgs: port passed to port_new is reserved by the kernel
-InvlOp: another capability referencing this port already exists
-
-return value:
-cap: capability referencing the port
-
-
-17: fn port_map(port: Cap<Port>) -> SysErr
-allows the process to use the port referenced by {port}
-
-required capability permissions:
-{port}: cap_write
-
-syserr code:
-InvlOp: process had already mapped port
-
-
-18: fn port_unmap(port: Cap<Port>) -> SysErr
-the process can no longer use the port referenced by {port}
-
-required capability permissions:
-{port}: cap_write
-
-syserr code:
-InvlOp: process had not yet mapped port
-
-
-fn channel_new(msg_size: usize) -> (err: SysErr, cap: Cap<Channel>)
+fn channel_new(msg_size: usize) -> (err: SysErr, channel: Cap<Channel>)
 creates a new channel object that sends messages up to {msg_size} words
 {msg_size} can either be 0, in which case no messages are sent, and channel can be used as a synchronization primitive,
 or it has to be at least 4
@@ -502,7 +416,7 @@ syserr code:
 InvlArgs: {msg_size} was either 1, 2, or 3, which is not allowed
 
 return value:
-cap: cid of channel
+channel: cid of channel
 
 
 the format of the message buffer sent by the following syscalls is described bellow
@@ -673,3 +587,82 @@ required capability permissions:
 
 syserr code:
 InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
+
+
+fn key_new() -> (err: SysErr, key: Cap<Key>)
+ceates a new key object
+keys are used by userpace servers to identify sessions, and manage permissions
+each key is a globally unique integer, and this integer can be obtained with the key_id syscall
+
+return value:
+key: key capability id
+key capability returned has cap_read permissions
+
+
+fn key_id(key: Cap<Key>) -> (err: SysErr, id: usize)
+returns the key's id
+
+required capability permissions:
+{key}: cap_read
+
+return value:
+id: the key's id
+
+
+// TODO: specify interrupt vectors
+fn int_new(vector: usize) -> (err: SysErr, int: Cap<Interrupt>)
+specifies an interrupt for interrupt vector {vector}
+
+options:
+bit 0-2 (int_cap_flags): CapPriv representing the permissions of the returned capability
+
+syserr code:
+InvlArg: {vector} is not a valid interrupt vector
+
+return value:
+int: capability to interrupt object
+
+
+fn int_bind(int: Cap<Interrupt>, event: Cap<Event>) -> SysErr
+binds the event object referenced by the {event} capability to send events whenever an interrupt occurs
+
+required capability permissions:
+{int}: cap_write
+
+
+fn int_eoi(int: Cap<Interrupt>) -> SysErr
+signals that {int} can start sending interrupts again
+
+required capability permissions:
+{int}: cap_write
+
+
+fn port_new(port: u16) -> (err: SysErr, port: Cap<Port>)
+creates a capability referencing a port object on the specified port
+
+syserr code:
+InvlArgs: port passed to port_new is reserved by the kernel
+InvlOp: another capability referencing this port already exists
+
+return value:
+port: capability referencing the port
+
+
+fn port_map(port: Cap<Port>) -> SysErr
+allows the process to use the port referenced by {port}
+
+required capability permissions:
+{port}: cap_write
+
+syserr code:
+InvlOp: process had already mapped port
+
+
+fn port_unmap(port: Cap<Port>) -> SysErr
+the process can no longer use the port referenced by {port}
+
+required capability permissions:
+{port}: cap_write
+
+syserr code:
+InvlOp: process had not yet mapped port
