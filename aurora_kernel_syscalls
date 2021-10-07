@@ -1,13 +1,18 @@
 TODO:
-more descriptive error values
-error values are written in kernel, just not described well heare
-slightly more consistant names
-
 specify layout of global information table
 
 specify atomicity of syscalls
 
 specify behavior of syscalls when capability is destoyed from process, and when underlying object is destroyed
+specify when capability is in use and can't be freed
+
+specify more advanced mmio allocation syscalls
+
+specify how objects become part of the grandparent allocator if the parent dies, similar to unix processes
+
+figure out how to resulve refernce cycles in processess
+
+make virtual MmioAllocator, IntAllocator, and PortAllocator for containers (not needed for a long time)
 
 IMPLEMANTATION ISSUES:
 io syscalls unimpleted
@@ -38,11 +43,19 @@ all args are saved if they are not used by a particular syscall to return a valu
 syserr codes:
 syserr codes that mey be returned by all syscalls:
 Ok: operation completed succesfully
+
 OutOfMem: not enough memory available to perform operation
+
 InvlId: any syscall taking in a capability will return InvlId if the cid does not exist
 these syscalls will return InvlId even if a capability of a different type than the syscall was expecting exists
+
 InvlPerm: insufficient capability permissions
 required permissions for each capability in each syscall will be listed
+
+InvlWeak: passed in a weak capability which referenced an object that was no longer alive
+
+Unknown: an unknown error occured
+this should not happen, and it is a bug if Unknown is ever returned
 
 
 common struct definitions:
@@ -65,18 +78,6 @@ struct UserPageArray {
 addr must be page aligned
 len is number of pages
 
-PrivFlags(usize)
-a bitmask of syscalls that a process is allowed to make
-bit 0-1 (spawn_priv):
-0: process is forbidden from calling spawn
-1: process can call spawn, but it cannot spawn a process which has privalidges that it itself does not have
-2: process can call spawn, and can spawn a process with higher privalidges than itself
-bit 2 (priv_any): allows process to set its privalidge to any arbritrary value, instead of only being able to revoke privalidges it already has
-bit 3-4 (kill_priv):
-0: process is forbidden from calling kill
-1: process can call kill, but it cannot use the kill_force option
-2: process can call kill, with any option
-
 CapPriv(usize)
 a bitmask representing the permissions of a capability
 bit 0 (cap_read): allows reading of or sending to the object referenced by this capability
@@ -85,21 +86,25 @@ bit 2 (cap_write): allows writing to or recieving from the object referenced by 
 in general, operations that require cap_read read properties without altering the objects state
 operations requiring cap_prod may alter internal state, but in a less privalidged and less abritrary way than write
 operations requiring cap_write can alter large portions of the objects internal state
+bit 3 (cap_upgrade): allows upgrading a weak capability to a strong capability
 
 CapFlags(usize)
 a bitmask representing the various properties of a capability
-bit 0-2 (cap_priv): specifies the privalidges of a capability
+bit 0-3 (cap_priv): specifies the privalidges of a capability
 uses bits 0-2 of the CapPriv type
-bit 3-6 (cap_type): specifies what type of object the capability refers to
-0: Channel
-1: Event
-2: Memory
-3: Key
-4: Process
+bit 4 (cap_weak): capability is a weak capability
+this means that the capability does not keep the underlying object alive,
+and the object is deallocated when all strong capabilities are gone
+bit 5-8 (cap_type): specifies what type of object the capability refers to
+0: Process
+1: Memory
+2: Event
+3: Channel
+4: Key
 5: Interrupt
 6: Port
 7: Allocator
-8: RootOomEvent
+8: RootOom
 9: MmioAllocator
 10: IntAllocator
 11: PortAllocator
@@ -108,7 +113,7 @@ bit 3-6 (cap_type): specifies what type of object the capability refers to
 type tid = usize;
 
 // Capability id
-// when picking an id for a capability, the kernel ensures that the bottom 6 bits match the CapFlags that represent information about the capability
+// when picking an id for a capability, the kernel ensures that the bottom 7 bits match the CapFlags that represent information about the capability
 type Cap<T> = usize;
 
 
@@ -125,11 +130,14 @@ bits 0-7 (debug_print_num):
 specifies the number of characters to print (max 80 on x86_64)
 
 
-fn process_new() -> (err: SysErr, process: Cap<Process>)
+fn process_new(allocator: Cap<Allocator>) -> (err: SysErr, process: Cap<Process>)
 creates a new process
 
 options:
-bits 0-2 (process_cap_flags): CapPriv representing privalidges of new capability
+bits 0-3 (process_cap_flags): CapPriv representing privalidges of new capability
+
+required capability permissions:
+{allocator}: cap_prod
 
 return value:
 pocess: capability of new process
@@ -190,11 +198,14 @@ fn cap_clone<T>(process: Cap<Process>, cap: Cap<T>) -> (err: SysErr, cap_new: Ca
 clones the capability {cap} into {process} with different privalidges
 
 options:
-bit 0-2 (cap_flags): CapPriv representing privalidges of new capability
+bit 0-3 (cap_flags): CapPriv representing privalidges of new capability
 these privalidges are anded with the privalidges {cap} already has, so clone can only create capabilities with the same or less privalidges as the original
+bit 4 (cap_weak): if set, indicates that cap_clone should make a weak capability, otherwise cap_clone will make a strong capability
 
 required capability permissions:
 {process}: cap_write
+if upgrading a weak to a strong capability:
+{cap}: cap_upgrade
 
 return value:
 cap_new: cid of new capability
@@ -204,11 +215,14 @@ fn cap_move<T>(process: Cap<Process>, cap: Cap<T>) -> (err: SysErr, cap_new: Cap
 makes a new capability with different privalidges in the process {process} referencing the same object, and destroys the old capability
 
 options:
-bit 0-2 (cap_flags): CapPriv representing privalidges of new capability
+bit 0-3 (cap_flags): CapPriv representing privalidges of new capability
 these privalidges are anded with the privalidges {cap} already has, so clone can only create capabilities with the same or less privalidges as the original
+bit 4 (cap_weak): if set, indicates that cap_move should make a weak capability, otherwise cap_move will make a strong capability
 
 required capability permissions:
 {process}: cap_write
+if upgrading a weak to a strong capability:
+{cap}: cap_upgrade
 
 return value:
 cap_new: cid of new capability
@@ -240,7 +254,7 @@ syserr code:
 InvlOp: {mem} is already mapped into this process' address space
 InvlVirtAddr: {at_addr} is non canonical
 InvlAlign: {at_addr} is not page aligned
-InvlVirtMem: the value passed in for {at_addr} causes the mapped memory to overlap with other virtual memory or reserved memory
+InvlMemZone: the value passed in for {at_addr} causes the mapped memory to overlap with other virtual memory or reserved memory
 
 return value:
 addr: address of mapped memory
@@ -270,7 +284,7 @@ return value:
 syserr code:
 InvlVirtAddr: {addr} is non canonical
 InvlAlign: {addr} is not page aligned
-InvlVirtMem: the value passed in for {addr} and {pages} causes the reserved memory to overlap with another area of reserved memory
+InvlMemZone: the value passed in for {addr} and {pages} causes the reserved memory to overlap with another area of reserved memory
 
 
 fn mem_unreserve(process: Cap<Process>, addr: usize) -> SysErr
@@ -286,23 +300,48 @@ InvlVirtAddr: {addr} is non canonical
 InvlAddr: {addr} does not point to memory reservation
 
 
-fn mem_new(pages: usize) -> (err: SysErr, mem: Cap<SMem>)
+fn mem_new(allocator: Cap<Allocator>, pages: usize) -> (err: SysErr, mem: Cap<Mem>)
 allocate memory at least {pages} big
-returns the capability referencing this shared memory
+returns the capability referencing the memory
 
 options:
-bit 0-2 (mem_cap_flags): CapPriv representing read and write privalidges over this memory
+bit 0-3 (mem_cap_flags): CapPriv representing privalidges over this memory
+
+required capability permissions:
+{allocator}: cap_prod
 
 return value:
 mem: cid of memory
 
 
-fn event_new(args: usize) -> (err: SysErr, event: Cap<Event>)
+fn mmio_new(allocator: Cap<Allocator>, mmio_allocator: Cap<MmioAllocator>, paddr: usize, pages: usize) -> (err: SysErr, mem: Cap<Mem>)
+allocates memory mapped io starting at physical address {paddr} and exactly {pages} big
+returns the capability referencing the memory
+
+options:
+bit 0-3 (mmio_cap_flags): CapPriv representing privalidges over this memory
+
+required capability permissions:
+{allocator}: cap_prod
+{mmio_allocator}: cap_prod
+
+syserr code:
+InvlArgs: memory zone specified is not memory mapped io
+InvlMemZone: memory overlaps with already allocated mmio
+
+return value:
+mem: cid of memory
+
+
+fn event_new(allocator: Cap<Allocator>, args: usize) -> (err: SysErr, event: Cap<Event>)
 creates a new event
 {args} specifies the number of arguments the event accepts, it can be any number from 0-8
 
 options:
-bit 0-2 (event_cap_flags): CapPriv representing the permissions of the returned capability
+bit 0-3 (event_cap_flags): CapPriv representing the permissions of the returned capability
+
+required capability permissions:
+{allocator}: cap_prod
 
 syserr code:
 InvlArgs: {args} was not a number from 0-8
@@ -402,15 +441,18 @@ fn eret()
 returns from an asynchronous event handler
 
 
-fn channel_new(msg_size: usize) -> (err: SysErr, channel: Cap<Channel>)
+fn channel_new(allocator: Cap<Allocator>, msg_size: usize) -> (err: SysErr, channel: Cap<Channel>)
 creates a new channel object that sends messages up to {msg_size} words
 {msg_size} can either be 0, in which case no messages are sent, and channel can be used as a synchronization primitive,
 or it has to be at least 4
 
 options:
-bit 0-2 (channel_cap_flags): CapPriv representing the permissions of the returned capability
-bit 3 (chan_sc_resist): resist side channel attacks
+bit 0-3 (channel_cap_flags): CapPriv representing the permissions of the returned capability
+bit 4 (chan_sc_resist): resist side channel attacks
 if set, all non blocking calls will return SysErr::Obscured
+
+required capability permissions:
+{allocator}: cap_prod
 
 syserr code:
 InvlArgs: {msg_size} was either 1, 2, or 3, which is not allowed
@@ -589,10 +631,13 @@ syserr code:
 InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
 
 
-fn key_new() -> (err: SysErr, key: Cap<Key>)
+fn key_new(allocator: Cap<Allocator>) -> (err: SysErr, key: Cap<Key>)
 ceates a new key object
 keys are used by userpace servers to identify sessions, and manage permissions
 each key is a globally unique integer, and this integer can be obtained with the key_id syscall
+
+required capability permissions:
+{allocator}: cap_prod
 
 return value:
 key: key capability id
@@ -610,11 +655,15 @@ id: the key's id
 
 
 // TODO: specify interrupt vectors
-fn int_new(vector: usize) -> (err: SysErr, int: Cap<Interrupt>)
+fn int_new(allocator: Cap<Allocator>, int_allocator: Cap<IntAllocator>, vector: usize) -> (err: SysErr, int: Cap<Interrupt>)
 specifies an interrupt for interrupt vector {vector}
 
 options:
-bit 0-2 (int_cap_flags): CapPriv representing the permissions of the returned capability
+bit 0-3 (int_cap_flags): CapPriv representing the permissions of the returned capability
+
+required capability permissions:
+{allocator}: cap_prod
+{int_allocator}: cap_prod
 
 syserr code:
 InvlArg: {vector} is not a valid interrupt vector
@@ -637,8 +686,15 @@ required capability permissions:
 {int}: cap_write
 
 
-fn port_new(port: u16) -> (err: SysErr, port: Cap<Port>)
+fn port_new(allocator: Cap<Allocator>, port_allocator: Cap<PortAllocator>, port: u16) -> (err: SysErr, port: Cap<Port>)
 creates a capability referencing a port object on the specified port
+
+options:
+bit 0-3 (port_cap_flags): CapPriv representing privalidges over this port
+
+required capability permissions:
+{allocator}: cap_prod
+{port_allocator}: cap_prod
 
 syserr code:
 InvlArgs: port passed to port_new is reserved by the kernel
@@ -666,3 +722,101 @@ required capability permissions:
 
 syserr code:
 InvlOp: process had not yet mapped port
+
+
+fn allocator_new(parent: Cap<Allocator>, max_pages: usize) -> (err: SysErr, allocator: Cap<Allocator>)
+creates a new suballocator from the parent allocator that can allocate up to {max_pages} worth of memory
+simply creating an allocator does not actually allocate any memory from the parent (except for the allocator object itself)
+creating objects will allocate memory from the parent, and so will the allocator_prealloc syscall
+
+options:
+bit 0-3 (allocator_cap_flags): CapPriv representing privalidges over this allocator
+
+required capability permissions:
+{parent}: cap_prod
+
+return value:
+allocator: capability to new allocator object
+
+
+fn allocator_prealloc(allocator: Cap<Allocator>, pages: usize) -> SysErr
+preallocate at least {pages} pages of memory from parent allocator
+if there is not enough memory left in this allocator, an oom event on this allocator will be triggered, unless prealloc_truncate is used
+even if this allocator has enough space to allocate all the pages, an oom event could still be generated in a parent if there is not enough space
+
+options:
+bit 0 (prealloc_truncate): if the preallocation would exceed the allocator's maximum allowed size,
+it will be truncated, and will fill all of the remaining size without generating an oom error
+bit 1 (prealloc_amount): prealloc will allocate enough memory so that there are {pages} un allocated pages in this allocator
+bit 2 (prealloc_set_regrow): will set the amount of pages this allocator will get from it's parents when it runs out of memory
+options prealloc_truncate and prealloc_amount are ignored in this mode
+
+required capability permissions:
+{allocator}: cap_prod
+
+
+// TODO: specify oom event fromat, and when InvlArgs is thrown because insufficient channel size
+fn allocator_bind_oom_handler(allocator: Cap<Allocator>, channel: Cap<Channel>) -> SysErr
+bind a channel to recieve oom events from the allocator
+if another oom channel was registered, that one will no longer recieve oom events
+
+required capability permissions:
+{allocator}: cap_write
+{channel}: cap_prod
+
+
+fn allocator_set_max_pages(allocator: Cap<Allocator>, pages: isize) -> SysErr
+sets the maximum number of pages the allocator can allocate
+
+options:
+bit 0 (set_max_relative): will add {pages} to the current max value, instead of setting the max value
+
+required capability permissions:
+{allocator}: cap_write
+
+syserr code:
+InvlArgs: attempted to set max size to a value less than the currently allocated space (excluding prealloceted memory),
+or attempted to set max size to a negative value
+
+
+// TODO: this syscall assumes that no iommu is in place to restrict dma
+// if one is in place, the thread will need an alternative method of sending date to the specified address
+fn root_oom_listen(root_oom: Cap<RootOom>) -> (SysErr, page_out: bool)
+blocks the thread until an oom event occurs on the root allocator
+
+if page_out == true, the kernel is requesting that memory be paged out to disk
+the root oom table will have values set to indicate which physical regions of memory should be paged out to disk
+these regions must be paged out to disk, and the root allocator will assume they are paged out to disk
+if for whatever region these memory regions can't be paged out to disk, the thread must call root_oom_panic
+once the thread pages them out to disk, it should set the disk sector field to the disk sector they were paged out to
+(really any unique id is ok, but disk sector is the most conveniant because using another id would require a map, which may require some form of allocation)
+
+the thread that pages these values out to disk should not ever allocate memory from the kernel
+
+the format of the root oom table is described bellow
+word 0: number of entries
+word 1: unused
+word 2: disk sector
+word 3: physical memory address (alway page aligned)
+word 4: size of zone in pages
+words 2, 3, and 4 are repeated the amount of times specified in word 0
+
+if page_out == false, the kernel is requesting that data be retrieved from disk and put back into memory
+data should be retrieved from disk according to the disk sector field, and should be put back into memory at the specified physical address
+
+only 1 thread can wait on {root_oom} at a time
+
+required capability permissions:
+// usually a client side read of a communication object would be cap_prod,
+// but in this case the thread must have the option of calling root_oom_panic, which has cap_write permissions
+{root_oom}: cap_write
+
+syserr code:
+InvlOp: another thread is already waiting on {root_oom}
+
+
+fn root_oom_panic(root_oom: Cap<RootOom>) -> SysErr
+indicates that the requested physical memory zones cannot be paged out to disk, and panics the kernel
+
+required capability permissions:
+{root_oom}: cap_write
