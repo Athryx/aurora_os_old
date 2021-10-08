@@ -21,6 +21,9 @@ a capability to the global information table
 kcontrol: rwu Cap<Event>
 an event that can be used to issue certain privalidged commands to the kernel, such as power off and panic
 
+spawner: rwpu Cap<Spawner>
+a spawner that can be used to spawn processess and create other spawners
+
 root_allocator: rpu Cap<Allocator>
 the root memory allocator
 

@@ -1,21 +1,32 @@
 TODO:
+
+must do:
+specify behavior of syscalls when capability is destoyed from process, and when underlying object is destroyed
+specify when capability is in use and can't be freed
+
+specify how objects become part of the grandparent allocator if the parent dies, similar to unix processes
+
+later:
 specify layout of global information table
 
 specify atomicity of syscalls
 
-specify behavior of syscalls when capability is destoyed from process, and when underlying object is destroyed
-specify when capability is in use and can't be freed
-
 specify more advanced mmio allocation syscalls
+specify more advanced spawner syscalls
 
-specify how objects become part of the grandparent allocator if the parent dies, similar to unix processes
+maybe copy on write memory
 
-figure out how to resulve refernce cycles in processess
+more advanced read syscalls
+
+syscalls that can act on many capabilities at once by taking in an array
+
+fast_* syscalls which will be commonly used operations that would normally be performed in multiple syscalls,
+but performed in 1 syscall to reduce context switch overhead
 
 make virtual MmioAllocator, IntAllocator, and PortAllocator for containers (not needed for a long time)
 
 IMPLEMANTATION ISSUES:
-io syscalls unimpleted
+nothing implemented
 
 
 syscall abi:
@@ -38,6 +49,10 @@ r14: arg 9, return 9
 r15: arg 10, return 10
 
 all args are saved if they are not used by a particular syscall to return a value
+
+
+options available to all syscalls, unless otherwise specified:
+bit 31 (weak_auto_destroy): automatically destoy a weak capability if it is dead
 
 
 syserr codes:
@@ -97,17 +112,46 @@ this means that the capability does not keep the underlying object alive,
 and the object is deallocated when all strong capabilities are gone
 bit 5-8 (cap_type): specifies what type of object the capability refers to
 0: Process
+represents a protection context, has a set of capabilities and a virtual address space
+
 1: Memory
+memory that can be mapped into a process
+
 2: Event
+used to signal other threads about an event
+
 3: Channel
+used for ipc, and can be used to send capabilities to other processess
+
 4: Key
+a globally unique identifier, used to authenticate actions with other servers
+
 5: Interrupt
+represents a hardware interrupt
+
 6: Port
-7: Allocator
-8: RootOom
-9: MmioAllocator
-10: IntAllocator
-11: PortAllocator
+represents an io port that can be used from userspace
+
+7: Spawner
+gives permission to create processess and can kill processess that were spawned on it
+used to prevent malicious processess from spawning other processess and not killing them, which would leak memory
+
+8: Allocator
+represents permission to allocate a certain amount of memory for use by other objects
+
+9: RootOom
+used by the kernel to inform the userspace paging process that an out of memory event has occured on the root allocator
+normally a channel is used, but their are special requirements for the RootOom object,
+since it cannot allocate memory from a parent allocator like a channel can
+
+10: MmioAllocator
+allows memory mapped io to be allocated
+
+11: IntAllocator
+allows interrupts to be created
+
+12: PortAllocator
+allows ports to be created
 
 // Thread id
 type tid = usize;
@@ -130,17 +174,29 @@ bits 0-7 (debug_print_num):
 specifies the number of characters to print (max 80 on x86_64)
 
 
-fn process_new(allocator: Cap<Allocator>) -> (err: SysErr, process: Cap<Process>)
+fn process_new(allocator: Cap<Allocator>, spawner: Cap<Spawner>) -> (err: SysErr, process: Cap<Process>)
 creates a new process
+in order to avoid memory leaks due to reference cycles, process_new always returns an unupgradable weak capability
+the kernel keeps 1 internal strong refernce to each process when it is created
+in order to destroy the process, call process_exit to destroy the strong refernce to the process, which will dealloc the process
+the process is not freed when all weak references are destroyed
 
 options:
-bits 0-3 (process_cap_flags): CapPriv representing privalidges of new capability
+bits 0-2 (process_cap_flags): CapPriv representing read, write, and prod privalidges of new capability
 
 required capability permissions:
 {allocator}: cap_prod
+{spawner}: cap_prod
 
 return value:
 pocess: capability of new process
+
+
+fn process_exit(process: Cap<Process>) -> SysErr
+destroys the kernel's strong refernce to the process, which will cause the process to exit
+
+required capability permissions:
+{process}: cap_write
 
 
 fn thread_new(process: Cap<Process>, rip: usize, rsp: usize, r1: usize, r2: usize, r3: usize, r4: usize, r5: usize, r6: usize, r7: usize) -> (err: SysErr, tid: tid)
@@ -236,6 +292,19 @@ required capability permissions:
 {process}: cap_write
 
 
+fn weak_is_alive<T>(process: Cap<Process>, weak: Cap<T>) -> SysErr
+returns wether the weak capability is alive or not
+returns Ok if it is alive, or InvlWeak if it is not alive
+
+required capability permissions:
+{process}: cap_write
+{weak}: none
+
+syserr code:
+InvlArgs: {weak} was not a weak capability
+
+
+
 fn mem_map(process: Cap<Process>, mem: Cap<Mem>, at_addr: usize) -> (err: SysErr, addr: usize, len: usize)
 maps a capability {mem} that can be mapped into memory into the memory of process {process}
 the mapped memory read, write, and execute permissions depend on cap_read, cap_write, and cap_prod permissions respectively
@@ -314,6 +383,17 @@ return value:
 mem: cid of memory
 
 
+fn mem_size(mem: Cap<Mem>) -> (err: SysErr, pages: usize, bytes: usize)
+returns the size of the memory
+
+required capability permissions:
+{mem}: none
+
+return value:
+pages: size of memory in pages
+bytes: size of memory in bytes
+
+
 fn mmio_new(allocator: Cap<Allocator>, mmio_allocator: Cap<MmioAllocator>, paddr: usize, pages: usize) -> (err: SysErr, mem: Cap<Mem>)
 allocates memory mapped io starting at physical address {paddr} and exactly {pages} big
 returns the capability referencing the memory
@@ -360,6 +440,16 @@ sends event message to all listening threads. If there are no listening threads,
 
 required capability permissions:
 {event}: cap_write
+
+
+fn event_argc(event: Cap<Event>) -> (err: SysErr, argc: usize)
+returns the number of arguments the event takes
+
+required capability permissions:
+{event}: cap_read
+
+return value:
+argc: argument count
 
 
 the kernel uses the folowing abi to call event listeners in the following syscalls:
@@ -441,10 +531,12 @@ fn eret()
 returns from an asynchronous event handler
 
 
-fn channel_new(allocator: Cap<Allocator>, msg_size: usize) -> (err: SysErr, channel: Cap<Channel>)
+fn channel_new(allocator: Cap<Allocator>, msg_size: usize, max_caps: usize) -> (err: SysErr, channel: Cap<Channel>)
 creates a new channel object that sends messages up to {msg_size} words
 {msg_size} can either be 0, in which case no messages are sent, and channel can be used as a synchronization primitive,
 or it has to be at least 4
+{max_caps} specifies the maximum amount of capabilities that can be sent over this channel
+{max_caps} may be bigger than the amount that could actually be sent over the channel if {msg_size} is too small
 
 options:
 bit 0-3 (channel_cap_flags): CapPriv representing the permissions of the returned capability
@@ -459,6 +551,17 @@ InvlArgs: {msg_size} was either 1, 2, or 3, which is not allowed
 
 return value:
 channel: cid of channel
+
+
+fn channel_msg_props(channel: Cap<Channel>) -> (err: SysErr, msg_size: usize, max_caps: usize)
+returns the maximum message size and maximum number capabilities that can be sent in 1 message
+
+required capability permissions:
+{channel}: cap_read
+
+return value:
+msg_size: maximum message size
+max_caps: maximum number of capabilities that can be sent in 1 message
 
 
 the format of the message buffer sent by the following syscalls is described bellow
@@ -490,7 +593,8 @@ required capability permissions:
 {msg_buf}: cap_read
 
 syserr code:
-InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
+InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message,
+or the cap_count option in {msg_buff} is greater than the maximum amount of capabilities that can be sent over this channel
 
 
 fn channel_recv(channel: Cap<Channel>, msg_buff: Cap<Mem>) -> SysErr
@@ -514,7 +618,8 @@ required capability permissions:
 {msg_buf}: cap_read
 
 syserr code:
-InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
+InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message,
+or the cap_count option in {msg_buff} is greater than the maximum amount of capabilities that can be sent over this channel
 Obscured: {channel} has conn_sc_resist set
 OkUnreach: nobody was waiting to recieve a message
 
@@ -550,7 +655,8 @@ required capability permissions:
 {event}: cap_write
 
 syserr code:
-InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message, or {event} does not take in 1 argument
+InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message, or {event} does not take in 1 argument,
+or the cap_count option in {msg_buff} is greater than the maximum amount of capabilities that can be sent over this channel
 
 
 fn channel_arecv(channel: Cap<Channel>, msg_buff: Cap<Mem>, event: Cap<event>, func: usize) -> SysErr
@@ -585,12 +691,13 @@ required capability permissions:
 {msg_buff}: cap_read | cap_write
 
 syserr code:
-InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
+InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message,
+or {reply_channel} and {recv_channel} do not have equal msg_size and max_caps properties
 
 
 fn channel_call(channel: Cap<Channel>, msg_buff: Cap<Mem>) -> SysErr
 call a channel
-call first creates a reply channel with cap_prod and cap_write permissions, and then performs send on {channel}
+call first creates a reply channel with cap_prod and cap_write permissions, and the same msg_size and max_caps properties, and then performs send on {channel}
 call will send a capability to the reply channel wth cap_prod permissions in the reply slot in the message
 
 after the message is recieved, call than performs a recv on the reply capability, and will wait for a responce from the server
@@ -603,7 +710,8 @@ required capability permissions:
 {msg_buff}: cap_read | cap_write
 
 syserr code:
-InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
+InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message,
+or the cap_count option in {msg_buff} is greater than the maximum amount of capabilities that can be sent over this channel
 
 
 fn channel_acall(channel: Cap<Channel>, msg_buff: Cap<Mem>, event: Cap<Event>, func: usize) -> SysErr
@@ -612,7 +720,7 @@ asynchronously call a channel
 acall will first wait on {event}
 {event} must take 1 argument, and the cid of {msg_buf} will be passed in this argument
 
-acall first creates a reply channel with cap_prod and cap_write permissions, and then performs asend on {channel}
+acall first creates a reply channel with cap_prod and cap_write permissions, and the same msg_size and max_caps properties, and then performs asend on {channel}
 acall will send a capability to the reply channel wth cap_prod permissions in the reply slot in the message
 acall will not use the event capability to listen for asend completion, it will instead use an internal kernel event system
 
@@ -628,7 +736,8 @@ required capability permissions:
 {event}: cap_write
 
 syserr code:
-InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message
+InvlArgs: {msg_buff} does not reference memory that is big enough to hold a message,
+or the cap_count option in {msg_buff} is greater than the maximum amount of capabilities that can be sent over this channel
 
 
 fn key_new(allocator: Cap<Allocator>) -> (err: SysErr, key: Cap<Key>)
@@ -666,10 +775,20 @@ required capability permissions:
 {int_allocator}: cap_prod
 
 syserr code:
-InvlArg: {vector} is not a valid interrupt vector
+InvlArgs: {vector} is not a valid interrupt vector
 
 return value:
 int: capability to interrupt object
+
+
+fn int_vector(int: Cap<Interrupt>) -> (err: SysErr, vector: usize)
+returns the interrupt vector of this interrupt
+
+required capability permissions:
+{int}: cap_read
+
+return value:
+vector: interrupt vector
 
 
 fn int_bind(int: Cap<Interrupt>, event: Cap<Event>) -> SysErr
@@ -704,24 +823,58 @@ return value:
 port: capability referencing the port
 
 
-fn port_map(port: Cap<Port>) -> SysErr
+port_num(port: Cap<Port>) -> (err: SysErr, num: usize)
+returns what io port number this port is
+
+required capability permissions:
+{port}: cap_read
+
+return value:
+num: port number
+
+
+fn port_map(process: Cap<Process>, port: Cap<Port>) -> SysErr
 allows the process to use the port referenced by {port}
 
 required capability permissions:
+{process}: cap_write
 {port}: cap_write
 
 syserr code:
 InvlOp: process had already mapped port
 
 
-fn port_unmap(port: Cap<Port>) -> SysErr
+fn port_unmap(process: Cap<Process>, port: Cap<Port>) -> SysErr
 the process can no longer use the port referenced by {port}
 
 required capability permissions:
+{process}: cap_write
 {port}: cap_write
 
 syserr code:
 InvlOp: process had not yet mapped port
+
+
+fn spawner_new(allocator: Cap<Allocator>, other: Cap<Spawner>) -> (err: SysErr, spawner: Cap<Spawner>)
+creates a new spawner
+the new spawner has no relation to the old spawner, the old spawner simply conveys the permission to create a new spawner
+
+options:
+bit 0-3 (spawner_cap_flags): CapPriv representing privalidges over this spawner
+
+required capability permissions:
+{allocator}: cap_prod
+{other}: cap_read
+
+return value:
+spawner: capability to a new spawner object
+
+
+fn spawner_kill_all(spawner: Cap<Spawner>) -> SysErr
+kills all the processes that were made with this spawner
+
+required capability permissions:
+{spawner}: cap_write
 
 
 fn allocator_new(parent: Cap<Allocator>, max_pages: usize) -> (err: SysErr, allocator: Cap<Allocator>)
@@ -737,6 +890,18 @@ required capability permissions:
 
 return value:
 allocator: capability to new allocator object
+
+
+fn allocator_capacity(allocator: Cap<Allocator>) -> (err: SysErr, used: usize, prealloced: usize, free: usize)
+returns how much used and free memory is left in the allocator
+
+required capability permissions:
+{allocator}: cap_read
+
+return value:
+used: amount of used memory in {allocator}
+prealloced: amount of prealloced memory in {allocator}
+free: amount of free memory (excludes preallocated memory) in {allocator}
 
 
 fn allocator_prealloc(allocator: Cap<Allocator>, pages: usize) -> SysErr
