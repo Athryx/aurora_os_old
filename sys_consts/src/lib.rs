@@ -2,7 +2,6 @@
 #![no_std]
 
 pub mod options;
-pub mod syscalls;
 
 /// Error codes returned by syscalls
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,4 +70,76 @@ pub mod thread
 	pub const DESTROY: usize = 1;
 	pub const SLEEP: usize = 2;
 	pub const JOIN: usize = 3;
+}
+
+/// Aurora kernel syscall numbers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum SysNums
+{
+	PrintDebug = 0,
+
+	ProcessNew,
+	ProcessExit,
+	ThreadNew,
+	ThreadBlock,
+	ProcessBindExcept,
+	CapClone,
+	CapMove,
+	CapDestroy,
+	WeakIsAlive,
+
+	MemMap,
+	MemUnmap,
+	MemReserve,
+	MemUnreserve,
+	MemNew,
+	MmioNew,
+	MemSize,
+
+	EventNew,
+	EventArgc,
+	EventSend,
+	EventListen,
+	EventNblisten,
+	EventAlisten,
+	EventAabort,
+	Eret,
+
+	ChannelNew,
+	ChannelMsgProps,
+	ChannelSend,
+	ChannelRecv,
+	ChannelNbsend,
+	ChannelNbrecv,
+	ChannelAsend,
+	ChannelArecv,
+	ChannelReplyRecv,
+	ChannelCall,
+	ChannelAcall,
+
+	KeyNew,
+	KeyId,
+
+	IntNew,
+	IntVector,
+	IntBind,
+	IntEoi,
+	
+	PortNew,
+	PortNum,
+	PortMap,
+	PortUnmap,
+
+	SpawnerNew,
+	SpawnerKillAll,
+
+	AllocatorNew,
+	AllocatorCapacity,
+	AllocatorPrealloc,
+	AllocatorBindOomHandler,
+	AllocatorSetMaxPages,
+
+	RootOomListen,
+	RootOomPanic,
 }

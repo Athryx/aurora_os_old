@@ -1,4 +1,4 @@
-//! options for epoch kernel syscalls
+//! options for aurora kernel syscalls
 use bitflags::bitflags;
 
 bitflags! {
