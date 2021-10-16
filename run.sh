@@ -5,6 +5,10 @@ SUBDIRS="initrd kernel"
 KERNEL="kernel/kernel.bin"
 INITRD="initrd/initrd"
 
+# used by subdir build scripts
+export TARGET=$(realpath x86_64-os-userland.json)
+export SYSROOT=$(realpath initrd/sysroot)
+
 cd $(dirname $0)
 
 # ./include_res.sh
