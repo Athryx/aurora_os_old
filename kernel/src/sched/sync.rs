@@ -175,7 +175,7 @@ impl FutexMap
 		drop(lock);
 
 		if !flags.contains(CapFlags::READ) {
-			Err(SysErr::InvlCap)
+			Err(SysErr::InvlPerm)
 		} else {
 			if futex.block() {
 				Ok(())
@@ -192,7 +192,7 @@ impl FutexMap
 		let futex = lock.get(&cid).ok_or(SysErr::InvlId)?;
 
 		if !futex.flags().contains(CapFlags::READ) {
-			Err(SysErr::InvlCap)
+			Err(SysErr::InvlPerm)
 		} else {
 			Ok(futex.object().unblock(n))
 		}

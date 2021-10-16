@@ -2,7 +2,6 @@
 #![no_std]
 #![feature(asm)]
 
-use sys_consts::syscalls::*;
 use sys_consts::thread;
 pub use sys_consts::options::*;
 pub use sys_consts::SysErr;
@@ -25,7 +24,7 @@ const fn align_down(addr: usize, align: usize) -> usize
 
 pub fn thread_new(thread_func: fn() -> ()) -> Result<usize, SysErr>
 {
-	let rip = thread_func as usize;
+	/*let rip = thread_func as usize;
 	let (err, tid) = unsafe { syscall!(THREAD_BLOCK, 0, rip, F) };
 	let err = SysErr::new(err).unwrap();
 
@@ -33,7 +32,8 @@ pub fn thread_new(thread_func: fn() -> ()) -> Result<usize, SysErr>
 		Ok(tid)
 	} else {
 		Err(err)
-	}
+	}*/
+	unimplemented!();
 }
 
 pub enum ThreadState
@@ -72,22 +72,23 @@ pub fn thread_block(state: ThreadState)
 {
 	let (reason, val) = state.get_vals();
 
-	unsafe {
+	/*unsafe {
 		syscall!(THREAD_BLOCK, 0, reason, val);
-	}
+	}*/
 }
 
 pub fn futex_block(addr: usize)
 {
 	unsafe {
-		syscall!(FUTEX_BLOCK, 0, addr);
+		//syscall!(FUTEX_BLOCK, 0, addr);
 	}
 }
 
 pub fn futex_unblock(addr: usize, n: usize) -> usize
 {
-	let (num, _) = unsafe { syscall!(FUTEX_UNBLOCK, 0, addr, n) };
-	num
+	/*let (num, _) = unsafe { syscall!(FUTEX_UNBLOCK, 0, addr, n) };
+	num*/
+	unimplemented!();
 }
 
 pub unsafe fn realloc(
@@ -97,7 +98,8 @@ pub unsafe fn realloc(
 	options: ReallocOptions,
 ) -> Result<(usize, usize), SysErr>
 {
-	let (err, mem, len) = syscall!(
+	unimplemented!();
+	/*let (err, mem, len) = syscall!(
 		REALLOC,
 		options.bits(),
 		mem,
@@ -110,12 +112,12 @@ pub unsafe fn realloc(
 		Ok((mem, len * PAGE_SIZE))
 	} else {
 		Err(err)
-	}
+	}*/
 }
 
 pub fn print_debug(bytes: &[u8; 10 * core::mem::size_of::<usize>()], n: u32)
 {
-	let arr: &[usize; 10] = unsafe { core::mem::transmute(bytes) };
+	/*let arr: &[usize; 10] = unsafe { core::mem::transmute(bytes) };
 	unsafe {
 		syscall!(
 			PRINT_DEBUG,
@@ -131,7 +133,7 @@ pub fn print_debug(bytes: &[u8; 10 * core::mem::size_of::<usize>()], n: u32)
 			arr[8],
 			arr[9]
 		);
-	}
+	}*/
 }
 
 // need to use rcx because rbx is reserved by llvm

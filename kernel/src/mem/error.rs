@@ -39,7 +39,7 @@ impl From<MemErr> for SysErr
 	{
 		match err {
 			MemErr::OutOfMem(_) => Self::OutOfMem,
-			MemErr::InvlVirtMem(_) => Self::InvlVirtMem,
+			MemErr::InvlVirtMem(_) => Self::InvlMemZone,
 			MemErr::InvlPtr(_) => Self::InvlPtr,
 			MemErr::InvlArgs(_) => Self::InvlArgs,
 			MemErr::InvlMemType(_) => Self::InvlArgs,

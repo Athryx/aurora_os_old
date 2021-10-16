@@ -12,7 +12,7 @@ use super::*;
 pub extern "C" fn spawn(vals: &mut SyscallVals)
 {
 	if proc_c().uid() != PrivLevel::SuperUser {
-		sysret!(vals, SysErr::InvlPriv.num(), 0);
+		sysret!(vals, SysErr::InvlPerm.num(), 0);
 	}
 
 	let name = UserString::from_parts(vals.a1 as *const u8, vals.a2);
